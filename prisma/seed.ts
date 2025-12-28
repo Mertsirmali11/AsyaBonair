@@ -247,6 +247,94 @@ async function main() {
     })
     console.log(`  ✅ Employee: ${can.isim} ${can.soyisim} (${can.email})`)
 
+    // Pilot employees
+    const pilot1 = await prisma.calisan.upsert({
+      where: { email: "ppilot1@example.com" },
+      update: {
+        isim: "Mehmet",
+        soyisim: "Pilot",
+        departman: "Pilot",
+        telNo: "05351112233",
+        dogumTarihi: new Date("1985-06-15"),
+        medeniDurum: "Married",
+        cocuk: 2,
+        kanGrubu: "A+",
+        password: hashedPasswordCalisan,
+      },
+      create: {
+        isim: "Mehmet",
+        soyisim: "Pilot",
+        email: "ppilot1@example.com",
+        departman: "Pilot",
+        telNo: "05351112233",
+        dogumTarihi: new Date("1985-06-15"),
+        medeniDurum: "Married",
+        cocuk: 2,
+        kanGrubu: "A+",
+        iseGirisTarihi: new Date("2010-01-15"),
+        password: hashedPasswordCalisan,
+      },
+    })
+    console.log(`  ✅ Pilot: ${pilot1.isim} ${pilot1.soyisim} (${pilot1.email})`)
+
+    const pilot2 = await prisma.calisan.upsert({
+      where: { email: "ppilot2@example.com" },
+      update: {
+        isim: "Ayşe",
+        soyisim: "Aviator",
+        departman: "Pilot",
+        telNo: "05352223344",
+        dogumTarihi: new Date("1990-03-20"),
+        medeniDurum: "Single",
+        cocuk: 0,
+        kanGrubu: "B+",
+        password: hashedPasswordCalisan,
+      },
+      create: {
+        isim: "Ayşe",
+        soyisim: "Aviator",
+        email: "ppilot2@example.com",
+        departman: "Pilot",
+        telNo: "05352223344",
+        dogumTarihi: new Date("1990-03-20"),
+        medeniDurum: "Single",
+        cocuk: 0,
+        kanGrubu: "B+",
+        iseGirisTarihi: new Date("2015-07-10"),
+        password: hashedPasswordCalisan,
+      },
+    })
+    console.log(`  ✅ Pilot: ${pilot2.isim} ${pilot2.soyisim} (${pilot2.email})`)
+
+    const pilot3 = await prisma.calisan.upsert({
+      where: { email: "ppilot3@example.com" },
+      update: {
+        isim: "Fatih",
+        soyisim: "Flyer",
+        departman: "Pilot",
+        telNo: "05353334455",
+        dogumTarihi: new Date("1988-11-08"),
+        medeniDurum: "Married",
+        cocuk: 1,
+        kanGrubu: "O+",
+        password: hashedPasswordCalisan,
+      },
+      create: {
+        isim: "Fatih",
+        soyisim: "Flyer",
+        email: "ppilot3@example.com",
+        departman: "Pilot",
+        telNo: "05353334455",
+        dogumTarihi: new Date("1988-11-08"),
+        medeniDurum: "Married",
+        cocuk: 1,
+        kanGrubu: "O+",
+        iseGirisTarihi: new Date("2012-04-01"),
+        password: hashedPasswordCalisan,
+      },
+    })
+    console.log(`  ✅ Pilot: ${pilot3.isim} ${pilot3.soyisim} (${pilot3.email})`)
+
     console.log("\n✅ Seed completed!")
     console.log("\n📋 User Information:")
     console.log("  Admin: admin@example.com / admin123")
@@ -257,6 +345,9 @@ async function main() {
     console.log("  Employee: ademir@example.com / bonair2025")
     console.log("  Employee: zozturk@example.com / bonair2025")
     console.log("  Employee: carslan@example.com / bonair2025")
+    console.log("  Pilot: ppilot1@example.com / bonair2025")
+    console.log("  Pilot: ppilot2@example.com / bonair2025")
+    console.log("  Pilot: ppilot3@example.com / bonair2025")
     
   } catch (error: any) {
     console.error("❌ Seed hatası:")

@@ -3,7 +3,7 @@ import { auth } from "@/auth"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { UserManagement } from "@/components/user-management"
 
-export default async function ConfigurationsPage() {
+export default async function PilotSettingsPage() {
   const session = await auth()
 
   if (!session) {
@@ -17,7 +17,7 @@ export default async function ConfigurationsPage() {
   }
 
   const user = {
-    name: session.user?.name || "Kullanıcı",
+    name: session.user?.name || "User",
     email: session.user?.email || "",
     avatar: session.user?.image || "",
     departman: session.user?.departman || null,
@@ -46,9 +46,10 @@ export default async function ConfigurationsPage() {
           </h1>
         </div>
 
-        {/* User Management Section */}
-        <UserManagement title="User Settings" />
+        {/* Pilot Management Section - Only shows users with Pilot department */}
+        <UserManagement departmentFilter="Pilot" title="Pilot Settings" />
       </div>
     </DashboardLayout>
   )
 }
+

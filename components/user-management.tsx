@@ -120,7 +120,12 @@ const initialFormData = {
   ekstra3: "",
 }
 
-export function UserManagement() {
+interface UserManagementProps {
+  departmentFilter?: string | null
+  title?: string
+}
+
+export function UserManagement({ departmentFilter, title = "User Management" }: UserManagementProps) {
   const [calisanlar, setCalisanlar] = useState<Calisan[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -186,7 +191,10 @@ export function UserManagement() {
 
       if (response.ok) {
         setDialogOpen(false)
-        setFormData(initialFormData)
+        const newFormData = departmentFilter 
+          ? { ...initialFormData, departman: departmentFilter }
+          : initialFormData
+        setFormData(newFormData)
         setIsEditMode(false)
         setSelectedCalisan(null)
         fetchCalisanlar()
@@ -278,6 +286,11 @@ export function UserManagement() {
   const filteredAndSortedData = useMemo(() => {
     let data = [...calisanlar]
 
+    // Filter by department if departmentFilter is provided
+    if (departmentFilter) {
+      data = data.filter((calisan) => calisan.departman === departmentFilter)
+    }
+
     // Filter by search term
     if (searchTerm) {
       const lowerSearch = searchTerm.toLowerCase()
@@ -319,7 +332,7 @@ export function UserManagement() {
     }
 
     return data
-  }, [calisanlar, searchTerm, sortField, sortDirection])
+  }, [calisanlar, searchTerm, sortField, sortDirection, departmentFilter])
 
   // Pagination
   const totalEntries = filteredAndSortedData.length
@@ -337,13 +350,16 @@ export function UserManagement() {
     <div className="space-y-4">
       {/* Header with Title and Add User Button */}
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">User Settings</h2>
+        <h2 className="text-2xl font-bold">{title}</h2>
         <Dialog open={dialogOpen} onOpenChange={(open) => {
           setDialogOpen(open)
           if (!open) {
             setIsEditMode(false)
             setSelectedCalisan(null)
-            setFormData(initialFormData)
+            const newFormData = departmentFilter 
+              ? { ...initialFormData, departman: departmentFilter }
+              : initialFormData
+            setFormData(newFormData)
           }
         }}>
           <DialogTrigger asChild>
@@ -352,7 +368,10 @@ export function UserManagement() {
               onClick={() => {
                 setIsEditMode(false)
                 setSelectedCalisan(null)
-                setFormData(initialFormData)
+                const newFormData = departmentFilter 
+                  ? { ...initialFormData, departman: departmentFilter }
+                  : initialFormData
+                setFormData(newFormData)
               }}
             >
               <IconPlus className="mr-2 h-4 w-4" />
@@ -424,6 +443,7 @@ export function UserManagement() {
                       <Select
                         value={formData.departman}
                         onValueChange={(value) => setFormData((prev) => ({ ...prev, departman: value }))}
+                        disabled={!!departmentFilter}
                       >
                         <SelectTrigger>
                           <SelectValue placeholder="Select department" />
@@ -441,6 +461,7 @@ export function UserManagement() {
                           <SelectItem value="Administrative Affairs">Administrative Affairs</SelectItem>
                           <SelectItem value="IT">IT</SelectItem>
                           <SelectItem value="Planning">Planning</SelectItem>
+                          <SelectItem value="Pilot">Pilot</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
