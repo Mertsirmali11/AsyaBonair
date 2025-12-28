@@ -89,6 +89,7 @@ model Calisan {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
   hazardReports   HazardReport[]
+  incomingPapers  IncomingPaper[]
 
   @@map("calisanlar")
 }
@@ -109,4 +110,23 @@ model HazardReport {
   reporter Calisan? @relation(fields: [reportedBy], references: [id], onDelete: Cascade)
 
   @@map("hazard_reports")
+}
+
+// Incoming Paper Tablosu
+model IncomingPaper {
+  id              Int       @id @default(autoincrement())
+  paperNo         String?   @unique @map("paper_no") @db.VarChar(50)
+  from            String?   @db.VarChar(255)
+  subject         String?   @db.VarChar(500)
+  date            DateTime  @map("date") @db.Date
+  content         String?   @db.Text
+  pdfPath         String?   @map("pdf_path") @db.VarChar(500)
+  pdfFileName     String?   @map("pdf_file_name") @db.VarChar(255)
+  createdBy       Int?      @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  creator Calisan? @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@map("incoming_papers")
 }
