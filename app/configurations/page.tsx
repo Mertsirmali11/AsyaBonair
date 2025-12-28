@@ -10,8 +10,9 @@ export default async function ConfigurationsPage() {
     redirect("/login")
   }
 
-  // Check department access - only Administrative Affairs can access
-  if (session.user?.departman !== "Administrative Affairs") {
+  // Check department access - only Human Resources or Quality can access
+  const userDepartman = session.user?.departman
+  if (userDepartman !== "Human Resources" && userDepartman !== "Quality") {
     redirect("/dashboard")
   }
 

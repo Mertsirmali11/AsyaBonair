@@ -63,24 +63,22 @@ async function main() {
     console.log("\n👥 Creating employees...")
     const hashedPasswordCalisan = await bcrypt.hash("bonair2025", 10)
 
-    // Asya Temur - Administrative Affairs (has Configurations access)
+    // Asya Temur
     const asya = await prisma.calisan.upsert({
       where: { email: "atemur@gmail.com" },
       update: {
         isim: "Asya",
         soyisim: "Temur",
-        departman: "Administrative Affairs",
         password: hashedPasswordCalisan,
       },
       create: {
         isim: "Asya",
         soyisim: "Temur",
         email: "atemur@gmail.com",
-        departman: "Administrative Affairs",
         password: hashedPasswordCalisan,
       },
     })
-    console.log(`  ✅ Employee: ${asya.isim} ${asya.soyisim} (${asya.email}) - Administrative Affairs`)
+    console.log(`  ✅ Employee: ${asya.isim} ${asya.soyisim} (${asya.email})`)
 
     // Julide Tosun
     const julide = await prisma.calisan.upsert({

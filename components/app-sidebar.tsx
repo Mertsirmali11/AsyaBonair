@@ -89,8 +89,8 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
     pathname?.startsWith("/configurations") || false
   )
 
-  // Check if user has access to Configurations (only Administrative Affairs department)
-  const hasConfigurationsAccess = user.departman === "Administrative Affairs"
+  // Check if user has access to Configurations (Human Resources or Quality departments)
+  const hasConfigurationsAccess = user.departman === "Human Resources" || user.departman === "Quality"
 
   return (
     <Sidebar collapsible="offcanvas" {...props}>
@@ -131,7 +131,7 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
             )
           })}
 
-          {/* Configurations with submenu - Only visible for Administrative Affairs */}
+          {/* Configurations with submenu - Only visible for Human Resources or Quality */}
           {hasConfigurationsAccess && (
             <Collapsible
               open={configurationsOpen}
