@@ -88,6 +88,24 @@ model Calisan {
   ekstra3         String?   @db.VarChar(255) @map("ekstra_3")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
+  hazardReports   HazardReport[]
 
   @@map("calisanlar")
+}
+
+// Hazard Reports Tablosu
+model HazardReport {
+  id              Int       @id @default(autoincrement())
+  eventDate       DateTime  @map("event_date") @db.Date
+  sourceType      String?   @map("source_type") @db.VarChar(100)
+  isAnonymous     Boolean   @default(false) @map("is_anonymous")
+  title           String?   @db.VarChar(500)
+  details         String?   @db.Text
+  reportedBy      Int?      @map("reported_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  reporter Calisan? @relation(fields: [reportedBy], references: [id], onDelete: Cascade)
+
+  @@map("hazard_reports")
 }

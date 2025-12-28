@@ -18,9 +18,10 @@ interface User {
 interface DashboardLayoutProps {
   children: React.ReactNode
   user: User
+  headerTitle?: string
 }
 
-export function DashboardLayout({ children, user }: DashboardLayoutProps) {
+export function DashboardLayout({ children, user, headerTitle }: DashboardLayoutProps) {
   return (
     <SidebarProvider
       style={
@@ -32,7 +33,7 @@ export function DashboardLayout({ children, user }: DashboardLayoutProps) {
     >
       <AppSidebar variant="inset" user={user} />
       <SidebarInset>
-        <SiteHeader />
+        <SiteHeader user={user} title={headerTitle} />
         <div className="flex flex-1 flex-col">
           <div className="@container/main flex flex-1 flex-col gap-2">
             {children}
