@@ -3,7 +3,7 @@
 import * as React from "react"
 import Image from "next/image"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { signOut } from "next-auth/react"
 import {
   IconAlertTriangle,
@@ -85,12 +85,19 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
 
 export function AppSidebar({ user, ...props }: AppSidebarProps) {
   const pathname = usePathname()
+  const router = useRouter()
   const [configurationsOpen, setConfigurationsOpen] = React.useState(
     pathname?.startsWith("/configurations") || false
   )
 
   // Check if user has access to Configurations (Human Resources or Quality departments)
   const hasConfigurationsAccess = user.departman === "Human Resources" || user.departman === "Quality"
+  
+  // Debug: Log user department to console
+  React.useEffect(() => {
+    console.log("User department:", user.departman)
+    console.log("Has configurations access:", hasConfigurationsAccess)
+  }, [user.departman, hasConfigurationsAccess])
 
   return (
     <Sidebar collapsible="offcanvas" {...props}>
@@ -204,7 +211,11 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
-              onClick={() => signOut({ callbackUrl: "/login" })}
+              onClick={async () => {
+                await signOut({ redirect: false })
+                router.push("/login")
+                router.refresh()
+              }}
               className="h-10 px-3 rounded-lg text-red-600 hover:bg-red-50 hover:text-red-700"
             >
               <IconLogout className="size-5" />

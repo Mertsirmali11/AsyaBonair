@@ -1,5 +1,6 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import { signOut } from "next-auth/react"
 import {
   IconCreditCard,
@@ -48,6 +49,7 @@ export function NavUser({
     avatar: string
   }
 }) {
+  const router = useRouter()
   const { isMobile } = useSidebar()
   const initials = getInitials(user.name)
 
@@ -109,7 +111,11 @@ export function NavUser({
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/login" })}>
+            <DropdownMenuItem onClick={async () => {
+              await signOut({ redirect: false })
+              router.push("/login")
+              router.refresh()
+            }}>
               <IconLogout />
               Log out
             </DropdownMenuItem>
