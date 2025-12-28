@@ -337,6 +337,113 @@ async function main() {
     })
     console.log(`  ✅ Pilot: ${pilot3.isim} ${pilot3.soyisim} (${pilot3.email})`)
 
+    // ============ HAZARD REPORTS ============
+    console.log("\n⚠️ Creating hazard reports...")
+    
+    // Report 1 - Safety Observation from Maintenance
+    const report1 = await prisma.hazardReport.create({
+      data: {
+        eventDate: new Date("2025-12-20"),
+        sourceType: "Safety Observation",
+        isAnonymous: false,
+        title: "Slippery floor in hangar area",
+        details: "The floor in hangar area 3 has become very slippery due to oil spillage. This poses a significant safety risk to maintenance personnel working in the area. Immediate cleaning and proper signage required.",
+        reportedBy: mert.id,
+      },
+    })
+    console.log(`  ✅ Report 1: ${report1.title} (by ${mert.isim} ${mert.soyisim})`)
+
+    // Report 2 - Incident Report from Quality
+    const report2 = await prisma.hazardReport.create({
+      data: {
+        eventDate: new Date("2025-12-22"),
+        sourceType: "Incident Report",
+        isAnonymous: false,
+        title: "Equipment malfunction during inspection",
+        details: "During routine quality inspection, the testing equipment malfunctioned and could have caused injury. The equipment needs immediate maintenance and safety review. No injuries occurred but the potential for harm was significant.",
+        reportedBy: asya.id,
+      },
+    })
+    console.log(`  ✅ Report 2: ${report2.title} (by ${asya.isim} ${asya.soyisim})`)
+
+    // Report 3 - Near Miss from Engineering
+    const report3 = await prisma.hazardReport.create({
+      data: {
+        eventDate: new Date("2025-12-23"),
+        sourceType: "Near Miss",
+        isAnonymous: false,
+        title: "Falling tool from elevated platform",
+        details: "A wrench fell from an elevated platform during maintenance work. Fortunately, no one was injured, but this highlights the need for better tool management and safety protocols at height. Tool tethering should be mandatory.",
+        reportedBy: ahmet.id,
+      },
+    })
+    console.log(`  ✅ Report 3: ${report3.title} (by ${ahmet.isim} ${ahmet.soyisim})`)
+
+    // Report 4 - Anonymous Hazard Identification
+    const report4 = await prisma.hazardReport.create({
+      data: {
+        eventDate: new Date("2025-12-24"),
+        sourceType: "Hazard Identification",
+        isAnonymous: true,
+        title: "Exposed electrical wiring in break room",
+        details: "There is exposed electrical wiring near the coffee machine in the break room. This is a serious electrical hazard that needs immediate attention. The area should be cordoned off until repairs are completed.",
+        reportedBy: null,
+      },
+    })
+    console.log(`  ✅ Report 4: ${report4.title} (Anonymous)`)
+
+    // Report 5 - Safety Observation from IT
+    const report5 = await prisma.hazardReport.create({
+      data: {
+        eventDate: new Date("2025-12-25"),
+        sourceType: "Safety Observation",
+        isAnonymous: false,
+        title: "Blocked emergency exit",
+        details: "The emergency exit on the second floor is partially blocked by storage boxes. This violates fire safety regulations and could prevent quick evacuation in case of emergency. Please relocate the storage immediately.",
+        reportedBy: can.id,
+      },
+    })
+    console.log(`  ✅ Report 5: ${report5.title} (by ${can.isim} ${can.soyisim})`)
+
+    // Report 6 - Incident Report from Human Resources
+    const report6 = await prisma.hazardReport.create({
+      data: {
+        eventDate: new Date("2025-12-26"),
+        sourceType: "Incident Report",
+        isAnonymous: false,
+        title: "Chemical spill in storage area",
+        details: "A small chemical container leaked in the storage area. The spill was contained quickly, but proper handling procedures need to be reviewed. Material Safety Data Sheets should be more accessible.",
+        reportedBy: elif.id,
+      },
+    })
+    console.log(`  ✅ Report 6: ${report6.title} (by ${elif.isim} ${elif.soyisim})`)
+
+    // Report 7 - Near Miss from Pilot
+    const report7 = await prisma.hazardReport.create({
+      data: {
+        eventDate: new Date("2025-12-27"),
+        sourceType: "Near Miss",
+        isAnonymous: false,
+        title: "Ground vehicle too close to aircraft",
+        details: "During aircraft parking, a ground vehicle came dangerously close to the aircraft wing. Better communication and coordination between ground crew and vehicle operators is needed. No damage occurred but the risk was high.",
+        reportedBy: pilot1.id,
+      },
+    })
+    console.log(`  ✅ Report 7: ${report7.title} (by ${pilot1.isim} ${pilot1.soyisim})`)
+
+    // Report 8 - Other type from Quality
+    const report8 = await prisma.hazardReport.create({
+      data: {
+        eventDate: new Date("2025-12-28"),
+        sourceType: "Other",
+        isAnonymous: false,
+        title: "Inadequate lighting in workshop",
+        details: "The lighting in the main workshop is insufficient for safe operation of machinery. Several areas have shadows that could lead to accidents. Improved lighting installation is recommended.",
+        reportedBy: zeynep.id,
+      },
+    })
+    console.log(`  ✅ Report 8: ${report8.title} (by ${zeynep.isim} ${zeynep.soyisim})`)
+
     console.log("\n✅ Seed completed!")
     console.log("\n📋 User Information:")
     console.log("  Admin: admin@example.com / admin123")
@@ -350,6 +457,8 @@ async function main() {
     console.log("  Pilot: ppilot1@example.com / bonair2025")
     console.log("  Pilot: ppilot2@example.com / bonair2025")
     console.log("  Pilot: ppilot3@example.com / bonair2025")
+    console.log("\n⚠️ Hazard Reports:")
+    console.log("  Created 8 sample hazard reports in the database")
     
   } catch (error: any) {
     console.error("❌ Seed hatası:")
