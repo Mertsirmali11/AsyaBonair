@@ -506,13 +506,20 @@ export function UserManagement() {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="medeniDurum">Marital Status</Label>
-                      <Input
-                        id="medeniDurum"
-                        name="medeniDurum"
+                      <Select
                         value={formData.medeniDurum}
-                        onChange={handleInputChange}
-                        placeholder="Single / Married"
-                      />
+                        onValueChange={(value) => setFormData((prev) => ({ ...prev, medeniDurum: value }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select marital status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Single">Single</SelectItem>
+                          <SelectItem value="Married">Married</SelectItem>
+                          <SelectItem value="Divorced">Divorced</SelectItem>
+                          <SelectItem value="Widowed">Widowed</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="cocuk">Number of Children</Label>
