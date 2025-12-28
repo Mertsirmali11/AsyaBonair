@@ -1,0 +1,93 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// NextAuth için gerekli modeller
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?   // Credentials provider için şifre
+  accounts      Account[]
+  sessions      Session[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// Çalışanlar Tablosu
+model Calisan {
+  id              Int       @id @default(autoincrement())
+  isim            String?   @db.VarChar(100)
+  soyisim         String?   @db.VarChar(100)
+  departman       String?   @db.VarChar(100)
+  tcNo            String?   @unique @db.VarChar(20) @map("tc_no")
+  dogumTarihi     DateTime? @map("dogum_tarihi") @db.Date
+  telNo           String?   @db.VarChar(20) @map("tel_no")
+  adres           String?   @db.Text
+  anneAdi         String?   @db.VarChar(100) @map("anne_adi")
+  babaAdi         String?   @db.VarChar(100) @map("baba_adi")
+  medeniDurum     String?   @db.VarChar(50) @map("medeni_durum")
+  cocuk           Int       @default(0)
+  kanGrubu        String?   @db.VarChar(10) @map("kan_grubu")
+  email           String    @unique @db.VarChar(255)
+  egitimDurum     String?   @db.VarChar(100) @map("egitim_durum")
+  acilIletisim    String?   @db.VarChar(100) @map("acil_iletisim")
+  acilIletisimTel String?   @db.VarChar(20) @map("acil_iletisim_tel")
+  sgkSicilNo      String?   @db.VarChar(50) @map("sgk_sicil_no")
+  bankaAdi        String?   @db.VarChar(100) @map("banka_adi")
+  iban            String?   @db.VarChar(34)
+  iseGirisTarihi  DateTime? @map("ise_giris_tarihi") @db.Date
+  istenCikisTarihi DateTime? @map("isten_cikis_tarihi") @db.Date
+  password        String    @db.VarChar(255)
+  ekstra1         String?   @db.VarChar(255) @map("ekstra_1")
+  ekstra2         String?   @db.VarChar(255) @map("ekstra_2")
+  ekstra3         String?   @db.VarChar(255) @map("ekstra_3")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@map("calisanlar")
+}
