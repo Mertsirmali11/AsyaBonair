@@ -5,7 +5,7 @@ import { auth } from "@/auth"
 // DELETE - Delete a hazard report
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth()
@@ -17,7 +17,8 @@ export async function DELETE(
       )
     }
 
-    const reportId = parseInt(params.id)
+    const { id } = await params
+    const reportId = parseInt(id)
     
     if (isNaN(reportId)) {
       return NextResponse.json(
