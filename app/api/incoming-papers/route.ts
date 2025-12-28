@@ -125,20 +125,33 @@ export async function POST(request: Request) {
       // Create directory for this paper: public/uploads/incoming-papers/BON-IP-001/
       const uploadsDir = join(process.cwd(), "public", "uploads", "incoming-papers", paperNo)
       
-      // Create directory if it doesn't exist
-      if (!existsSync(uploadsDir)) {
-        await mkdir(uploadsDir, { recursive: true })
+      try {
+        // Create directory if it doesn't exist
+        if (!existsSync(uploadsDir)) {
+          await mkdir(uploadsDir, { recursive: true })
+        }
+
+        // Sanitize filename to prevent path traversal and handle spaces
+        const sanitizedFileName = pdfFile.name
+          .replace(/[^a-zA-Z0-9._-]/g, "_")
+          .replace(/\.\./g, "_")
+          .replace(/\s+/g, "_")
+        pdfFileName = sanitizedFileName
+        const filePath = join(uploadsDir, sanitizedFileName)
+        
+        const bytes = await pdfFile.arrayBuffer()
+        const buffer = Buffer.from(bytes)
+        await writeFile(filePath, buffer)
+
+        // Store relative path for database
+        pdfPath = `/uploads/incoming-papers/${paperNo}/${sanitizedFileName}`
+      } catch (fileError: any) {
+        console.error("File upload error:", fileError)
+        return NextResponse.json(
+          { error: `File upload failed: ${fileError.message}` },
+          { status: 500 }
+        )
       }
-
-      // Save file with original name
-      pdfFileName = pdfFile.name
-      const filePath = join(uploadsDir, pdfFileName)
-      const bytes = await pdfFile.arrayBuffer()
-      const buffer = Buffer.from(bytes)
-      await writeFile(filePath, buffer)
-
-      // Store relative path for database
-      pdfPath = `/uploads/incoming-papers/${paperNo}/${pdfFileName}`
     }
 
     // Create paper in database
@@ -169,7 +182,14 @@ export async function POST(request: Request) {
     return NextResponse.json(paper, { status: 201 })
   } catch (error: any) {
     console.error("Error creating incoming paper:", error)
+    console.error("Error details:", {
+      message: error.message,
+      code: error.code,
+      name: error.name,
+      stack: error.stack,
+    })
     
+    // Handle Prisma errors
     if (error.code === "P2003") {
       return NextResponse.json(
         { error: "Invalid creator ID" },
@@ -177,8 +197,20 @@ export async function POST(request: Request) {
       )
     }
     
+    if (error.code === "P2002") {
+      return NextResponse.json(
+        { error: "Paper number already exists" },
+        { status: 400 }
+      )
+    }
+    
+    // Return detailed error message in development, generic in production
+    const errorMessage = process.env.NODE_ENV === "development" 
+      ? error.message || "Could not create incoming paper"
+      : "Could not create incoming paper"
+    
     return NextResponse.json(
-      { error: "Could not create incoming paper" },
+      { error: errorMessage },
       { status: 500 }
     )
   }
