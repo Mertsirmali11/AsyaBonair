@@ -12,6 +12,7 @@ interface User {
   name: string
   email: string
   avatar: string
+  departman?: string | null
 }
 
 interface DashboardLayoutProps {
@@ -41,4 +42,3 @@ export function DashboardLayout({ children, user }: DashboardLayoutProps) {
     </SidebarProvider>
   )
 }
-

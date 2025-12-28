@@ -10,10 +10,16 @@ export default async function ConfigurationsPage() {
     redirect("/login")
   }
 
+  // Check department access - only Administrative Affairs can access
+  if (session.user?.departman !== "Administrative Affairs") {
+    redirect("/dashboard")
+  }
+
   const user = {
     name: session.user?.name || "Kullanıcı",
     email: session.user?.email || "",
     avatar: session.user?.image || "",
+    departman: session.user?.departman || null,
   }
 
   return (
@@ -45,4 +51,3 @@ export default async function ConfigurationsPage() {
     </DashboardLayout>
   )
 }
-

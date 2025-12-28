@@ -18,6 +18,7 @@ export default async function Home() {
     name: session.user?.name || "Kullanıcı",
     email: session.user?.email || "",
     avatar: session.user?.image || "",
+    departman: session.user?.departman || null,
   }
 
   return (

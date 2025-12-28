@@ -4,6 +4,29 @@ import bcrypt from "bcryptjs"
 import { prisma } from "@/lib/prisma-server"
 import { authConfig } from "./auth.config"
 
+// Extend the User type to include departman
+declare module "next-auth" {
+  interface User {
+    departman?: string | null
+  }
+  interface Session {
+    user: {
+      id: string
+      name?: string | null
+      email?: string | null
+      image?: string | null
+      departman?: string | null
+    }
+  }
+}
+
+declare module "next-auth/jwt" {
+  interface JWT {
+    id?: string
+    departman?: string | null
+  }
+}
+
 export const { handlers, signIn, signOut, auth } = NextAuth({
   ...authConfig,
   providers: [
@@ -38,12 +61,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null
         }
 
-        // Return employee info
+        // Return employee info with departman
         return {
           id: String(calisan.id),
           email: calisan.email,
           name: `${calisan.isim || ""} ${calisan.soyisim || ""}`.trim() || null,
           image: null,
+          departman: calisan.departman,
         }
       },
     }),
@@ -56,12 +80,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id
+        token.departman = user.departman
       }
       return token
     },
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string
+        session.user.departman = token.departman
       }
       return session
     },

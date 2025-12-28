@@ -53,6 +53,7 @@ interface User {
   name: string
   email: string
   avatar: string
+  departman?: string | null
 }
 
 const menuItems = [
@@ -87,6 +88,9 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
   const [configurationsOpen, setConfigurationsOpen] = React.useState(
     pathname?.startsWith("/configurations") || false
   )
+
+  // Check if user has access to Configurations (only Administrative Affairs department)
+  const hasConfigurationsAccess = user.departman === "Administrative Affairs"
 
   return (
     <Sidebar collapsible="offcanvas" {...props}>
@@ -127,54 +131,56 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
             )
           })}
 
-          {/* Configurations with submenu */}
-          <Collapsible
-            open={configurationsOpen}
-            onOpenChange={setConfigurationsOpen}
-            className="group/collapsible"
-          >
-            <SidebarMenuItem>
-              <CollapsibleTrigger asChild>
-                <SidebarMenuButton
-                  className={cn(
-                    "h-10 px-3 rounded-lg transition-colors w-full justify-between",
-                    pathname?.startsWith("/configurations") && "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    <IconSettings className="size-5" />
-                    <span>Configurations</span>
-                  </div>
-                  <IconChevronDown className={cn(
-                    "size-4 transition-transform duration-200",
-                    configurationsOpen && "rotate-180"
-                  )} />
-                </SidebarMenuButton>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <SidebarMenuSub>
-                  {configurationsSubItems.map((subItem) => {
-                    const isSubActive = pathname === subItem.url
-                    return (
-                      <SidebarMenuSubItem key={subItem.title}>
-                        <SidebarMenuSubButton
-                          asChild
-                          className={cn(
-                            "h-9 pl-9",
-                            isSubActive && "bg-sidebar-accent/50 font-medium"
-                          )}
-                        >
-                          <Link href={subItem.url}>
-                            <span>{subItem.title}</span>
-                          </Link>
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
-                    )
-                  })}
-                </SidebarMenuSub>
-              </CollapsibleContent>
-            </SidebarMenuItem>
-          </Collapsible>
+          {/* Configurations with submenu - Only visible for Administrative Affairs */}
+          {hasConfigurationsAccess && (
+            <Collapsible
+              open={configurationsOpen}
+              onOpenChange={setConfigurationsOpen}
+              className="group/collapsible"
+            >
+              <SidebarMenuItem>
+                <CollapsibleTrigger asChild>
+                  <SidebarMenuButton
+                    className={cn(
+                      "h-10 px-3 rounded-lg transition-colors w-full justify-between",
+                      pathname?.startsWith("/configurations") && "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      <IconSettings className="size-5" />
+                      <span>Configurations</span>
+                    </div>
+                    <IconChevronDown className={cn(
+                      "size-4 transition-transform duration-200",
+                      configurationsOpen && "rotate-180"
+                    )} />
+                  </SidebarMenuButton>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <SidebarMenuSub>
+                    {configurationsSubItems.map((subItem) => {
+                      const isSubActive = pathname === subItem.url
+                      return (
+                        <SidebarMenuSubItem key={subItem.title}>
+                          <SidebarMenuSubButton
+                            asChild
+                            className={cn(
+                              "h-9 pl-9",
+                              isSubActive && "bg-sidebar-accent/50 font-medium"
+                            )}
+                          >
+                            <Link href={subItem.url}>
+                              <span>{subItem.title}</span>
+                            </Link>
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                      )
+                    })}
+                  </SidebarMenuSub>
+                </CollapsibleContent>
+              </SidebarMenuItem>
+            </Collapsible>
+          )}
 
           {/* Account Managing */}
           <SidebarMenuItem>
