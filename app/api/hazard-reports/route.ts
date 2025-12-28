@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
 import { auth } from "@/auth"
 
-// GET - Get all hazard reports
+// GET - Get hazard reports (filtered by user department)
 export async function GET() {
   try {
     const session = await auth()
@@ -14,7 +14,18 @@ export async function GET() {
       )
     }
 
+    const userId = parseInt(session.user?.id || "0")
+    const userDepartman = session.user?.departman
+
+    // Quality or Human Resources can see all reports
+    // Other users can only see their own reports
+    const whereClause = 
+      userDepartman === "Quality" || userDepartman === "Human Resources"
+        ? {} // No filter - show all reports
+        : { reportedBy: userId } // Only show reports created by this user
+
     const reports = await prisma.hazardReport.findMany({
+      where: whereClause,
       orderBy: { createdAt: "desc" },
       include: {
         reporter: {
