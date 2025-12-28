@@ -96,6 +96,7 @@ model Calisan {
 // Hazard Reports Tablosu
 model HazardReport {
   id              Int       @id @default(autoincrement())
+  reportNo        String?   @unique @map("report_no") @db.VarChar(50)
   eventDate       DateTime  @map("event_date") @db.Date
   sourceType      String?   @map("source_type") @db.VarChar(100)
   isAnonymous     Boolean   @default(false) @map("is_anonymous")

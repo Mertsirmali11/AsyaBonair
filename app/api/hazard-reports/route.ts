@@ -81,8 +81,30 @@ export async function POST(request: Request) {
       )
     }
 
+    // Generate report number (BON-HR-001, BON-HR-002, etc.)
+    const lastReport = await prisma.hazardReport.findFirst({
+      orderBy: { id: "desc" },
+      select: { reportNo: true },
+    })
+
+    let reportNo: string
+    if (lastReport && lastReport.reportNo) {
+      // Extract number from last report (e.g., "BON-HR-010" -> 10)
+      const match = lastReport.reportNo.match(/BON-HR-(\d+)/)
+      if (match) {
+        const lastNumber = parseInt(match[1])
+        const nextNumber = lastNumber + 1
+        reportNo = `BON-HR-${String(nextNumber).padStart(3, "0")}`
+      } else {
+        reportNo = "BON-HR-001"
+      }
+    } else {
+      reportNo = "BON-HR-001"
+    }
+
     const report = await prisma.hazardReport.create({
       data: {
+        reportNo: reportNo,
         eventDate: eventDate,
         sourceType: body.sourceType || null,
         isAnonymous: body.isAnonymous || false,

@@ -32,6 +32,7 @@ import { Badge } from "@/components/ui/badge"
 
 interface HazardReport {
   id: number
+  reportNo: string | null
   eventDate: string
   sourceType: string | null
   isAnonymous: boolean
@@ -60,8 +61,9 @@ interface ColumnDef {
 }
 
 const columns: ColumnDef[] = [
-  { key: "eventDate", label: "Event Date", sortKey: "eventDate", getValue: (r) => r.eventDate || "" },
-  { key: "sourceType", label: "Source Type", sortKey: "sourceType", getValue: (r) => r.sourceType || "-" },
+  { key: "reportNo", label: "Report No:", sortKey: "reportNo", getValue: (r) => r.reportNo || "" },
+  { key: "eventDate", label: "Date", sortKey: "eventDate", getValue: (r) => r.eventDate || "" },
+  { key: "sourceType", label: "Source", sortKey: "sourceType", getValue: (r) => r.sourceType || "-" },
   { key: "title", label: "Title", sortKey: "title", getValue: (r) => r.title || "-" },
   { key: "reporterName", label: "Reporter", sortKey: "reporterName", getValue: (r) => r.isAnonymous ? "Anonymous" : (r.reporter ? `${r.reporter.isim || ""} ${r.reporter.soyisim || ""}`.trim() || r.reporter.email : "-") },
   { key: "reporterDepartment", label: "Department", sortKey: null, getValue: (r) => r.isAnonymous ? "-" : (r.reporter?.departman || "-") },
@@ -298,6 +300,9 @@ export function HazardReportManagement() {
               ) : (
                 paginatedReports.map((report) => (
                   <TableRow key={report.id} className="hover:bg-slate-50 border-b border-gray-300">
+                    <TableCell className="whitespace-nowrap border-r border-gray-200 font-medium">
+                      {report.reportNo || "-"}
+                    </TableCell>
                     <TableCell className="whitespace-nowrap border-r border-gray-200">
                       {formatDate(report.eventDate)}
                     </TableCell>
@@ -445,6 +450,10 @@ export function HazardReportManagement() {
             {selectedReport && (
               <div className="space-y-4 p-1">
                 <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold">Report No</Label>
+                    <p className="text-sm font-medium">{selectedReport.reportNo || "-"}</p>
+                  </div>
                   <div className="space-y-2">
                     <Label className="text-sm font-semibold">Event Date</Label>
                     <p className="text-sm">{formatDate(selectedReport.eventDate)}</p>

@@ -343,6 +343,7 @@ async function main() {
     // Report 1 - Safety Observation from Maintenance
     const report1 = await prisma.hazardReport.create({
       data: {
+        reportNo: "BON-HR-001",
         eventDate: new Date("2025-12-20"),
         sourceType: "Safety Observation",
         isAnonymous: false,
@@ -351,11 +352,12 @@ async function main() {
         reportedBy: mert.id,
       },
     })
-    console.log(`  ✅ Report 1: ${report1.title} (by ${mert.isim} ${mert.soyisim})`)
+    console.log(`  ✅ Report 1: ${report1.reportNo} - ${report1.title} (by ${mert.isim} ${mert.soyisim})`)
 
     // Report 2 - Incident Report from Quality
     const report2 = await prisma.hazardReport.create({
       data: {
+        reportNo: "BON-HR-002",
         eventDate: new Date("2025-12-22"),
         sourceType: "Incident Report",
         isAnonymous: false,
@@ -364,11 +366,12 @@ async function main() {
         reportedBy: asya.id,
       },
     })
-    console.log(`  ✅ Report 2: ${report2.title} (by ${asya.isim} ${asya.soyisim})`)
+    console.log(`  ✅ Report 2: ${report2.reportNo} - ${report2.title} (by ${asya.isim} ${asya.soyisim})`)
 
     // Report 3 - Near Miss from Engineering
     const report3 = await prisma.hazardReport.create({
       data: {
+        reportNo: "BON-HR-003",
         eventDate: new Date("2025-12-23"),
         sourceType: "Near Miss",
         isAnonymous: false,
@@ -377,11 +380,12 @@ async function main() {
         reportedBy: ahmet.id,
       },
     })
-    console.log(`  ✅ Report 3: ${report3.title} (by ${ahmet.isim} ${ahmet.soyisim})`)
+    console.log(`  ✅ Report 3: ${report3.reportNo} - ${report3.title} (by ${ahmet.isim} ${ahmet.soyisim})`)
 
     // Report 4 - Anonymous Hazard Identification
     const report4 = await prisma.hazardReport.create({
       data: {
+        reportNo: "BON-HR-004",
         eventDate: new Date("2025-12-24"),
         sourceType: "Hazard Identification",
         isAnonymous: true,
@@ -390,11 +394,12 @@ async function main() {
         reportedBy: null,
       },
     })
-    console.log(`  ✅ Report 4: ${report4.title} (Anonymous)`)
+    console.log(`  ✅ Report 4: ${report4.reportNo} - ${report4.title} (Anonymous)`)
 
     // Report 5 - Safety Observation from IT
     const report5 = await prisma.hazardReport.create({
       data: {
+        reportNo: "BON-HR-005",
         eventDate: new Date("2025-12-25"),
         sourceType: "Safety Observation",
         isAnonymous: false,
@@ -403,11 +408,12 @@ async function main() {
         reportedBy: can.id,
       },
     })
-    console.log(`  ✅ Report 5: ${report5.title} (by ${can.isim} ${can.soyisim})`)
+    console.log(`  ✅ Report 5: ${report5.reportNo} - ${report5.title} (by ${can.isim} ${can.soyisim})`)
 
     // Report 6 - Incident Report from Human Resources
     const report6 = await prisma.hazardReport.create({
       data: {
+        reportNo: "BON-HR-006",
         eventDate: new Date("2025-12-26"),
         sourceType: "Incident Report",
         isAnonymous: false,
@@ -416,11 +422,12 @@ async function main() {
         reportedBy: elif.id,
       },
     })
-    console.log(`  ✅ Report 6: ${report6.title} (by ${elif.isim} ${elif.soyisim})`)
+    console.log(`  ✅ Report 6: ${report6.reportNo} - ${report6.title} (by ${elif.isim} ${elif.soyisim})`)
 
     // Report 7 - Near Miss from Pilot
     const report7 = await prisma.hazardReport.create({
       data: {
+        reportNo: "BON-HR-007",
         eventDate: new Date("2025-12-27"),
         sourceType: "Near Miss",
         isAnonymous: false,
@@ -429,11 +436,12 @@ async function main() {
         reportedBy: pilot1.id,
       },
     })
-    console.log(`  ✅ Report 7: ${report7.title} (by ${pilot1.isim} ${pilot1.soyisim})`)
+    console.log(`  ✅ Report 7: ${report7.reportNo} - ${report7.title} (by ${pilot1.isim} ${pilot1.soyisim})`)
 
     // Report 8 - Other type from Quality
     const report8 = await prisma.hazardReport.create({
       data: {
+        reportNo: "BON-HR-008",
         eventDate: new Date("2025-12-28"),
         sourceType: "Other",
         isAnonymous: false,
@@ -442,7 +450,7 @@ async function main() {
         reportedBy: zeynep.id,
       },
     })
-    console.log(`  ✅ Report 8: ${report8.title} (by ${zeynep.isim} ${zeynep.soyisim})`)
+    console.log(`  ✅ Report 8: ${report8.reportNo} - ${report8.title} (by ${zeynep.isim} ${zeynep.soyisim})`)
 
     console.log("\n✅ Seed completed!")
     console.log("\n📋 User Information:")
