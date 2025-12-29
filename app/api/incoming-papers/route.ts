@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
 import { auth } from "@/auth"
-import { writeFile, mkdir } from "fs/promises"
-import { join } from "path"
-import { existsSync } from "fs"
+import { uploadPdfToStorage } from "@/lib/supabase-storage"
 
 // GET - Get all incoming papers
 export async function GET() {
@@ -100,7 +98,7 @@ export async function POST(request: Request) {
       paperNo = "BON-IP-001"
     }
 
-    // Handle PDF file upload
+    // Handle PDF file upload to Supabase Storage
     let pdfPath: string | null = null
     let pdfFileName: string | null = null
 
@@ -122,29 +120,22 @@ export async function POST(request: Request) {
         )
       }
 
-      // Create directory for this paper: public/uploads/incoming-papers/BON-IP-001/
-      const uploadsDir = join(process.cwd(), "public", "uploads", "incoming-papers", paperNo)
-      
       try {
-        // Create directory if it doesn't exist
-        if (!existsSync(uploadsDir)) {
-          await mkdir(uploadsDir, { recursive: true })
+        // Upload to Supabase Storage
+        const uploadResult = await uploadPdfToStorage(pdfFile, paperNo)
+        
+        if (!uploadResult) {
+          return NextResponse.json(
+            { error: "Failed to upload file to storage" },
+            { status: 500 }
+          )
         }
 
-        // Sanitize filename to prevent path traversal and handle spaces
-        const sanitizedFileName = pdfFile.name
-          .replace(/[^a-zA-Z0-9._-]/g, "_")
-          .replace(/\.\./g, "_")
-          .replace(/\s+/g, "_")
-        pdfFileName = sanitizedFileName
-        const filePath = join(uploadsDir, sanitizedFileName)
-        
-        const bytes = await pdfFile.arrayBuffer()
-        const buffer = Buffer.from(bytes)
-        await writeFile(filePath, buffer)
-
-        // Store relative path for database
-        pdfPath = `/uploads/incoming-papers/${paperNo}/${sanitizedFileName}`
+        // Store storage path and filename in database
+        // pdfPath will be the storage path (e.g., "BON-IP-001/filename.pdf")
+        // We'll use this to retrieve the file later
+        pdfPath = uploadResult.path
+        pdfFileName = uploadResult.fileName
       } catch (fileError: any) {
         console.error("File upload error:", fileError)
         return NextResponse.json(
