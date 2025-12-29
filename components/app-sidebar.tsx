@@ -71,12 +71,16 @@ const menuItems = [
   { title: "Announcement System", url: "/announcements", icon: IconSpeakerphone },
   { title: "AI Report Creator", url: "/ai-reports", icon: IconRobot },
   { title: "Addons", url: "/addons", icon: IconPuzzle },
-  { title: "Incoming Correspondences", url: "/incoming-paper", icon: IconMail },
 ]
 
 const configurationsSubItems = [
   { title: "User Settings", url: "/configurations" },
   { title: "Pilot Settings", url: "/configurations/pilot-settings" },
+]
+
+const correspondencesSubItems = [
+  { title: "Incoming Correspondences", url: "/correspondences/incoming" },
+  { title: "Outgoing Correspondences", url: "/correspondences/outgoing" },
 ]
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
@@ -88,6 +92,9 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
   const router = useRouter()
   const [configurationsOpen, setConfigurationsOpen] = React.useState(
     pathname?.startsWith("/configurations") || false
+  )
+  const [correspondencesOpen, setCorrespondencesOpen] = React.useState(
+    pathname?.startsWith("/correspondences") || false
   )
 
   // Check if user has access to Configurations (Human Resources or Quality departments)
@@ -188,6 +195,55 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
               </SidebarMenuItem>
             </Collapsible>
           )}
+
+          {/* Correspondences with submenu */}
+          <Collapsible
+            open={correspondencesOpen}
+            onOpenChange={setCorrespondencesOpen}
+            className="group/collapsible"
+          >
+            <SidebarMenuItem>
+              <CollapsibleTrigger asChild>
+                <SidebarMenuButton
+                  className={cn(
+                    "h-10 px-3 rounded-lg transition-colors w-full justify-between",
+                    pathname?.startsWith("/correspondences") && "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <IconMail className="size-5" />
+                    <span>Correspondences</span>
+                  </div>
+                  <IconChevronDown className={cn(
+                    "size-4 transition-transform duration-200",
+                    correspondencesOpen && "rotate-180"
+                  )} />
+                </SidebarMenuButton>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <SidebarMenuSub>
+                  {correspondencesSubItems.map((subItem) => {
+                    const isSubActive = pathname === subItem.url
+                    return (
+                      <SidebarMenuSubItem key={subItem.title}>
+                        <SidebarMenuSubButton
+                          asChild
+                          className={cn(
+                            "h-9 pl-9",
+                            isSubActive && "bg-sidebar-accent/50 font-medium"
+                          )}
+                        >
+                          <Link href={subItem.url}>
+                            <span>{subItem.title}</span>
+                          </Link>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                    )
+                  })}
+                </SidebarMenuSub>
+              </CollapsibleContent>
+            </SidebarMenuItem>
+          </Collapsible>
 
           {/* Account Managing */}
           <SidebarMenuItem>

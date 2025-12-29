@@ -32,7 +32,7 @@ function getSupabaseAdmin(): SupabaseClient {
 /**
  * PDF dosyasını Supabase Storage'a yükle
  * @param file PDF dosyası
- * @param paperNo Paper numarası (örn: BON-IP-001)
+ * @param paperNo Paper numarası veya path (örn: BON-IP-001 veya outgoing/BON-OC-001)
  * @returns Public URL veya null
  */
 export async function uploadPdfToStorage(
@@ -46,7 +46,7 @@ export async function uploadPdfToStorage(
       .replace(/\.\./g, "_")
       .replace(/\s+/g, "_")
 
-    // Storage path: incoming-papers/BON-IP-001/filename.pdf
+    // Storage path: incoming-papers/BON-IP-001/filename.pdf veya incoming-papers/outgoing/BON-OC-001/filename.pdf
     const storagePath = `${paperNo}/${sanitizedFileName}`
 
     // Dosyayı ArrayBuffer'a çevir
