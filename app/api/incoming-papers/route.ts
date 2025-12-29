@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma-server"
 import { auth } from "@/auth"
 import { uploadPdfToStorage } from "@/lib/supabase-storage"
 
-// GET - Get all incoming papers
+// GET - Get all incoming correspondences
 export async function GET() {
   try {
     const session = await auth()
@@ -32,15 +32,15 @@ export async function GET() {
 
     return NextResponse.json(papers)
   } catch (error) {
-    console.error("Error fetching incoming papers:", error)
+    console.error("Error fetching incoming correspondences:", error)
     return NextResponse.json(
-      { error: "Could not fetch incoming papers" },
+      { error: "Could not fetch incoming correspondences" },
       { status: 500 }
     )
   }
 }
 
-// POST - Create new incoming paper
+// POST - Create new incoming correspondence
 export async function POST(request: Request) {
   try {
     const session = await auth()
@@ -172,7 +172,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(paper, { status: 201 })
   } catch (error: any) {
-    console.error("Error creating incoming paper:", error)
+    console.error("Error creating incoming correspondence:", error)
     console.error("Error details:", {
       message: error.message,
       code: error.code,
@@ -197,8 +197,8 @@ export async function POST(request: Request) {
     
     // Return detailed error message in development, generic in production
     const errorMessage = process.env.NODE_ENV === "development" 
-      ? error.message || "Could not create incoming paper"
-      : "Could not create incoming paper"
+      ? error.message || "Could not create incoming correspondence"
+      : "Could not create incoming correspondence"
     
     return NextResponse.json(
       { error: errorMessage },

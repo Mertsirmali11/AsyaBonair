@@ -72,7 +72,7 @@ Vercel otomatik olarak Next.js projelerini algılar, ancak kontrol etmek için:
 
 Deploy tamamlandıktan sonra:
 
-1. ✅ **Incoming Paper formunu test edin**: PDF yükleme çalışıyor mu?
+1. ✅ **Incoming Correspondences formunu test edin**: PDF yükleme çalışıyor mu?
 2. ✅ **Hazard Report formunu test edin**: Rapor gönderme çalışıyor mu?
 3. ✅ **Login/Logout işlemlerini test edin**: Authentication çalışıyor mu?
 4. ✅ **Database bağlantısını kontrol edin**: Veriler kaydediliyor mu?

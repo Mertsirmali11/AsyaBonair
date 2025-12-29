@@ -18,7 +18,7 @@ export default async function IncomingPaperPage() {
   }
 
   return (
-    <DashboardLayout user={user} headerTitle="Incoming Paper">
+    <DashboardLayout user={user} headerTitle="Incoming Correspondences">
       <div className="flex flex-1 flex-col p-6">
         <IncomingPaperForm userId={session.user?.id || ""} />
       </div>

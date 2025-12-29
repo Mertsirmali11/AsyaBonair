@@ -71,7 +71,7 @@ const menuItems = [
   { title: "Announcement System", url: "/announcements", icon: IconSpeakerphone },
   { title: "AI Report Creator", url: "/ai-reports", icon: IconRobot },
   { title: "Addons", url: "/addons", icon: IconPuzzle },
-  { title: "Incoming Paper", url: "/incoming-paper", icon: IconMail },
+  { title: "Incoming Correspondences", url: "/incoming-paper", icon: IconMail },
 ]
 
 const configurationsSubItems = [

@@ -86,7 +86,7 @@ export function IncomingPaperForm({ userId }: IncomingPaperFormProps) {
 
       if (!response.ok) {
         const errorData = await response.json()
-        setError(errorData.error || "Failed to submit incoming paper")
+        setError(errorData.error || "Failed to submit incoming correspondence")
         return
       }
 
@@ -107,8 +107,8 @@ export function IncomingPaperForm({ userId }: IncomingPaperFormProps) {
         setSuccess(false)
       }, 3000)
     } catch (err) {
-      console.error("Error submitting incoming paper:", err)
-      setError("An error occurred while submitting the paper")
+      console.error("Error submitting incoming correspondence:", err)
+      setError("An error occurred while submitting the correspondence")
     } finally {
       setSubmitting(false)
     }
@@ -118,7 +118,7 @@ export function IncomingPaperForm({ userId }: IncomingPaperFormProps) {
     <div className="w-full max-w-4xl mx-auto">
       <Card className="w-full shadow-lg">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold">Incoming Paper</CardTitle>
+          <CardTitle className="text-2xl font-bold">Incoming Correspondences</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -130,7 +130,7 @@ export function IncomingPaperForm({ userId }: IncomingPaperFormProps) {
             
             {success && (
               <div className="rounded-md bg-green-500/15 p-3 text-sm text-green-700 dark:text-green-400">
-                Incoming paper submitted successfully!
+                Incoming correspondence submitted successfully!
               </div>
             )}
 

@@ -112,7 +112,7 @@ model HazardReport {
   @@map("hazard_reports")
 }
 
-// Incoming Paper Tablosu
+// Incoming Correspondences Tablosu
 model IncomingPaper {
   id              Int       @id @default(autoincrement())
   paperNo         String?   @unique @map("paper_no") @db.VarChar(50)
