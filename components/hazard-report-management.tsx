@@ -171,6 +171,7 @@ export function HazardReportManagement() {
           ? "anonymous" 
           : `${report.reporter?.isim || ""} ${report.reporter?.soyisim || ""}`.toLowerCase()
         const searchableFields = [
+          report.reportNo, // BON-HR-001 formatında arama için
           formatDate(report.eventDate),
           report.sourceType,
           report.title,
