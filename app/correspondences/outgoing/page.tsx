@@ -2,6 +2,7 @@ import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { OutgoingCorrespondenceForm } from "@/components/outgoing-correspondence-form"
+import Image from "next/image"
 
 export default async function OutgoingCorrespondencesPage() {
   const session = await auth()
@@ -20,6 +21,21 @@ export default async function OutgoingCorrespondencesPage() {
   return (
     <DashboardLayout user={user} headerTitle="Outgoing Correspondences">
       <div className="flex flex-1 flex-col p-6">
+        {/* Header with Logo */}
+        <div className="mb-6 flex items-center gap-3">
+          <div className="rounded-md border border-gray-200 bg-white p-1.5 shadow-sm">
+            <Image
+              src="/logo.png"
+              alt="Bonair Logo"
+              width={24}
+              height={24}
+              className="h-6 w-6 object-contain"
+            />
+          </div>
+          <h1 className="text-lg font-medium text-muted-foreground">
+            Outgoing Correspondences
+          </h1>
+        </div>
         <OutgoingCorrespondenceForm userId={session.user?.id || ""} />
       </div>
     </DashboardLayout>

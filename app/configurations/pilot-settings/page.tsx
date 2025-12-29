@@ -2,6 +2,7 @@ import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { UserManagement } from "@/components/user-management"
+import Image from "next/image"
 
 export default async function PilotSettingsPage() {
   const session = await auth()
@@ -27,23 +28,21 @@ export default async function PilotSettingsPage() {
     <DashboardLayout user={user}>
       <div className="flex flex-col gap-6 p-6">
         {/* Header */}
-        <div className="flex items-center gap-2">
-          <svg
-            className="h-5 w-5 text-muted-foreground"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-            />
-          </svg>
-          <h1 className="text-lg font-medium text-muted-foreground">
-            Configurations
-          </h1>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <div className="rounded-md border border-gray-200 bg-white p-1.5 shadow-sm">
+              <Image
+                src="/logo.png"
+                alt="Bonair Logo"
+                width={24}
+                height={24}
+                className="h-6 w-6 object-contain"
+              />
+            </div>
+            <h1 className="text-lg font-medium text-muted-foreground">
+              Configurations
+            </h1>
+          </div>
         </div>
 
         {/* Pilot Management Section - Only shows users with Pilot department */}
