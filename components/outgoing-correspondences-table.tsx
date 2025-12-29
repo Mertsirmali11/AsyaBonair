@@ -207,7 +207,7 @@ export function OutgoingCorrespondencesTable() {
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">Papers List</h2>
+        <h2 className="text-2xl font-bold">Correspondences</h2>
       </div>
 
       {/* Search Bar */}
