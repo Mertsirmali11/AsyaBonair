@@ -34,7 +34,8 @@ export async function GET(
       )
     }
     
-    return new NextResponse(fileBuffer, {
+    // Convert Buffer to Uint8Array for NextResponse
+    return new NextResponse(new Uint8Array(fileBuffer), {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `inline; filename="${fileName}"`,

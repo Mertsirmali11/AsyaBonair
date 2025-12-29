@@ -1,23 +1,33 @@
 import { createClient } from "@supabase/supabase-js"
-
-// Supabase client oluştur
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ""
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ""
-
-if (!supabaseUrl || !supabaseServiceKey) {
-  console.warn("⚠️ Supabase environment variables are not set. File uploads will fail.")
-}
-
-// Service role key ile admin client (server-side only)
-export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
-  },
-})
+import type { SupabaseClient } from "@supabase/supabase-js"
 
 // Storage bucket adı
 export const STORAGE_BUCKET = "incoming-papers"
+
+// Lazy initialization - Supabase client'ı sadece kullanıldığında oluştur
+let supabaseAdminInstance: SupabaseClient | null = null
+
+function getSupabaseAdmin(): SupabaseClient {
+  if (supabaseAdminInstance) {
+    return supabaseAdminInstance
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ""
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ""
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error("Supabase environment variables are not set. Please configure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.")
+  }
+
+  supabaseAdminInstance = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  })
+
+  return supabaseAdminInstance
+}
 
 /**
  * PDF dosyasını Supabase Storage'a yükle
@@ -30,10 +40,6 @@ export async function uploadPdfToStorage(
   paperNo: string
 ): Promise<{ path: string; fileName: string; publicUrl: string } | null> {
   try {
-    if (!supabaseUrl || !supabaseServiceKey) {
-      throw new Error("Supabase credentials are not configured")
-    }
-
     // Dosya adını temizle
     const sanitizedFileName = file.name
       .replace(/[^a-zA-Z0-9._-]/g, "_")
@@ -48,6 +54,7 @@ export async function uploadPdfToStorage(
     const buffer = Buffer.from(arrayBuffer)
 
     // Supabase Storage'a yükle
+    const supabaseAdmin = getSupabaseAdmin()
     const { data, error } = await supabaseAdmin.storage
       .from(STORAGE_BUCKET)
       .upload(storagePath, buffer, {
@@ -85,10 +92,7 @@ export async function downloadPdfFromStorage(
   storagePath: string
 ): Promise<Buffer | null> {
   try {
-    if (!supabaseUrl || !supabaseServiceKey) {
-      throw new Error("Supabase credentials are not configured")
-    }
-
+    const supabaseAdmin = getSupabaseAdmin()
     const { data, error } = await supabaseAdmin.storage
       .from(STORAGE_BUCKET)
       .download(storagePath)
@@ -113,10 +117,7 @@ export async function downloadPdfFromStorage(
  */
 export async function deletePdfFromStorage(storagePath: string): Promise<boolean> {
   try {
-    if (!supabaseUrl || !supabaseServiceKey) {
-      throw new Error("Supabase credentials are not configured")
-    }
-
+    const supabaseAdmin = getSupabaseAdmin()
     const { error } = await supabaseAdmin.storage
       .from(STORAGE_BUCKET)
       .remove([storagePath])
@@ -132,4 +133,3 @@ export async function deletePdfFromStorage(storagePath: string): Promise<boolean
     return false
   }
 }
-
