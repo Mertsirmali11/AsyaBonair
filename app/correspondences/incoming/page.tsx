@@ -2,6 +2,7 @@ import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { IncomingPaperForm } from "@/components/incoming-paper-form"
+import { IncomingCorrespondencesTable } from "@/components/incoming-correspondences-table"
 import Image from "next/image"
 
 export default async function IncomingCorrespondencesPage() {
@@ -38,8 +39,12 @@ export default async function IncomingCorrespondencesPage() {
           </h1>
         </div>
         <IncomingPaperForm userId={session.user?.id || ""} />
+        
+        {/* Papers List Table */}
+        <div className="mt-8">
+          <IncomingCorrespondencesTable />
+        </div>
       </div>
     </DashboardLayout>
   )
 }
-

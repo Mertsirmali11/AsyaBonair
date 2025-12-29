@@ -102,10 +102,10 @@ export function OutgoingCorrespondenceForm({ userId }: OutgoingCorrespondenceFor
         fileInput.value = ""
       }
       
-      // Reset success message after 3 seconds
+      // Reload page to refresh table
       setTimeout(() => {
-        setSuccess(false)
-      }, 3000)
+        window.location.reload()
+      }, 1000)
     } catch (err) {
       console.error("Error submitting outgoing correspondence:", err)
       setError("An error occurred while submitting the correspondence")

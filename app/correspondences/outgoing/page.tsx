@@ -2,6 +2,7 @@ import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { OutgoingCorrespondenceForm } from "@/components/outgoing-correspondence-form"
+import { OutgoingCorrespondencesTable } from "@/components/outgoing-correspondences-table"
 import Image from "next/image"
 
 export default async function OutgoingCorrespondencesPage() {
@@ -38,8 +39,12 @@ export default async function OutgoingCorrespondencesPage() {
           </h1>
         </div>
         <OutgoingCorrespondenceForm userId={session.user?.id || ""} />
+        
+        {/* Papers List Table */}
+        <div className="mt-8">
+          <OutgoingCorrespondencesTable />
+        </div>
       </div>
     </DashboardLayout>
   )
 }
-
