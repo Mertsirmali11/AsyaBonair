@@ -2,6 +2,7 @@
   "name": "asya",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.4.1",
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   },
