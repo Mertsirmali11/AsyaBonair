@@ -150,3 +150,12 @@ model OutgoingCorrespondence {
 
   @@map("outgoing_correspondences")
 }
+
+// Uçaklar Tablosu
+model Ucaklar {
+  id       Int    @id @default(autoincrement())
+  register String @db.VarChar(100)
+  msn      String @db.VarChar(100)
+
+  @@map("ucaklar")
+}
