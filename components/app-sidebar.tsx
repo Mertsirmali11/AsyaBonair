@@ -76,6 +76,7 @@ const menuItems = [
 const configurationsSubItems = [
   { title: "User Settings", url: "/configurations" },
   { title: "Pilot Settings", url: "/configurations/pilot-settings" },
+  { title: "Aircraft Settings", url: "/configurations/aircraft-settings" },
 ]
 
 const correspondencesSubItems = [
@@ -90,6 +91,10 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
 export function AppSidebar({ user, ...props }: AppSidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
+
+  const sidebarContentRef = React.useRef<HTMLDivElement | null>(null)
+
+  // IMPORTANT: Initial state must be deterministic for SSR hydration.
   const [configurationsOpen, setConfigurationsOpen] = React.useState(
     pathname?.startsWith("/configurations") || false
   )
@@ -99,12 +104,64 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
 
   // Check if user has access to Configurations (Human Resources or Quality departments)
   const hasConfigurationsAccess = user.departman === "Human Resources" || user.departman === "Quality"
-  
-  // Debug: Log user department to console
+
+  // Restore persisted open/scroll state after mount (client-only).
   React.useEffect(() => {
-    console.log("User department:", user.departman)
-    console.log("Has configurations access:", hasConfigurationsAccess)
-  }, [user.departman, hasConfigurationsAccess])
+    const storedConfigurations = window.localStorage.getItem(
+      "bonair.sidebar.configurationsOpen"
+    )
+    if (storedConfigurations !== null) {
+      setConfigurationsOpen(storedConfigurations === "true")
+    }
+
+    const storedCorrespondences = window.localStorage.getItem(
+      "bonair.sidebar.correspondencesOpen"
+    )
+    if (storedCorrespondences !== null) {
+      setCorrespondencesOpen(storedCorrespondences === "true")
+    }
+  }, [])
+
+  React.useEffect(() => {
+    if (pathname?.startsWith("/configurations")) {
+      setConfigurationsOpen(true)
+    }
+    if (pathname?.startsWith("/correspondences")) {
+      setCorrespondencesOpen(true)
+    }
+  }, [pathname])
+
+  React.useEffect(() => {
+    window.localStorage.setItem(
+      "bonair.sidebar.configurationsOpen",
+      configurationsOpen ? "true" : "false"
+    )
+  }, [configurationsOpen])
+
+  React.useEffect(() => {
+    window.localStorage.setItem(
+      "bonair.sidebar.correspondencesOpen",
+      correspondencesOpen ? "true" : "false"
+    )
+  }, [correspondencesOpen])
+
+  React.useEffect(() => {
+    const el = sidebarContentRef.current
+    if (!el) return
+
+    const storedScroll = window.localStorage.getItem("bonair.sidebar.scrollTop")
+    if (storedScroll) {
+      const n = Number(storedScroll)
+      if (!Number.isNaN(n)) el.scrollTop = n
+    }
+
+    const onScroll = () => {
+      window.localStorage.setItem("bonair.sidebar.scrollTop", String(el.scrollTop))
+    }
+
+    el.addEventListener("scroll", onScroll, { passive: true })
+    return () => el.removeEventListener("scroll", onScroll)
+  }, [])
 
   return (
     <Sidebar collapsible="offcanvas" {...props}>
@@ -123,7 +180,7 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
         </Link>
       </SidebarHeader>
 
-      <SidebarContent className="px-2 py-2">
+      <SidebarContent ref={sidebarContentRef} className="px-2 py-2">
         <SidebarMenu>
           {menuItems.map((item) => {
             const isActive = pathname === item.url || pathname?.startsWith(item.url + "/")

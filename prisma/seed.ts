@@ -4,9 +4,12 @@ import { PrismaClient } from "@prisma/client"
 import { Pool } from "pg"
 import { PrismaPg } from "@prisma/adapter-pg"
 import bcrypt from "bcryptjs"
+import { existsSync } from "fs"
 
-// .env dosyasını yükle
-config({ path: resolve(process.cwd(), ".env") })
+// .env.local (preferred) then .env
+const envLocalPath = resolve(process.cwd(), ".env.local")
+const envPath = resolve(process.cwd(), ".env")
+config({ path: existsSync(envLocalPath) ? envLocalPath : envPath })
 
 // Seed için PrismaClient oluştur
 const connectionString = process.env.DATABASE_URL
@@ -249,96 +252,106 @@ async function main() {
     })
     console.log(`  ✅ Employee: ${can.isim} ${can.soyisim} (${can.email})`)
 
-    // Pilot employees
-    const pilot1 = await prisma.calisan.upsert({
-      where: { email: "ppilot1@example.com" },
-      update: {
-        isim: "Mehmet",
-        soyisim: "Pilot",
-        departman: "Pilot",
-        telNo: "05351112233",
-        dogumTarihi: new Date("1985-06-15"),
+    // Pilot employees (reset + create 5 Turkish pilots)
+    console.log("\n🧹 Resetting Pilot employees...")
+    await prisma.calisan.deleteMany({
+      where: { departman: "Pilot" },
+    })
+    console.log("  ✅ Deleted existing Pilot employees")
+
+    console.log("\n✈️ Creating 5 pilot employees...")
+    const pilotSeed = [
+      {
+        isim: "Kerem",
+        soyisim: "Yıldız",
+        email: "pilot.kerem@bonair.local",
+        telNo: "05310000001",
+        dogumTarihi: new Date("1987-02-14"),
         medeniDurum: "Married",
-        cocuk: 2,
+        cocuk: 1,
         kanGrubu: "A+",
-        password: hashedPasswordCalisan,
+        iseGirisTarihi: new Date("2011-06-01"),
       },
-      create: {
-        isim: "Mehmet",
-        soyisim: "Pilot",
-        email: "ppilot1@example.com",
-        departman: "Pilot",
-        telNo: "05351112233",
-        dogumTarihi: new Date("1985-06-15"),
+      {
+        isim: "Seda",
+        soyisim: "Aksoy",
+        email: "pilot.seda@bonair.local",
+        telNo: "05310000002",
+        dogumTarihi: new Date("1991-09-03"),
+        medeniDurum: "Single",
+        cocuk: 0,
+        kanGrubu: "B+",
+        iseGirisTarihi: new Date("2016-03-15"),
+      },
+      {
+        isim: "Emre",
+        soyisim: "Şahin",
+        email: "pilot.emre@bonair.local",
+        telNo: "05310000003",
+        dogumTarihi: new Date("1989-12-22"),
         medeniDurum: "Married",
         cocuk: 2,
-        kanGrubu: "A+",
+        kanGrubu: "O+",
+        iseGirisTarihi: new Date("2013-10-10"),
+      },
+      {
+        isim: "Buse",
+        soyisim: "Karaca",
+        email: "pilot.buse@bonair.local",
+        telNo: "05310000004",
+        dogumTarihi: new Date("1993-04-08"),
+        medeniDurum: "Single",
+        cocuk: 0,
+        kanGrubu: "AB+",
+        iseGirisTarihi: new Date("2018-07-20"),
+      },
+      {
+        isim: "Onur",
+        soyisim: "Çelik",
+        email: "pilot.onur@bonair.local",
+        telNo: "05310000005",
+        dogumTarihi: new Date("1986-07-19"),
+        medeniDurum: "Married",
+        cocuk: 1,
+        kanGrubu: "A-",
         iseGirisTarihi: new Date("2010-01-15"),
-        password: hashedPasswordCalisan,
       },
-    })
-    console.log(`  ✅ Pilot: ${pilot1.isim} ${pilot1.soyisim} (${pilot1.email})`)
+    ] as const
 
-    const pilot2 = await prisma.calisan.upsert({
-      where: { email: "ppilot2@example.com" },
-      update: {
-        isim: "Ayşe",
-        soyisim: "Aviator",
-        departman: "Pilot",
-        telNo: "05352223344",
-        dogumTarihi: new Date("1990-03-20"),
-        medeniDurum: "Single",
-        cocuk: 0,
-        kanGrubu: "B+",
-        password: hashedPasswordCalisan,
-      },
-      create: {
-        isim: "Ayşe",
-        soyisim: "Aviator",
-        email: "ppilot2@example.com",
-        departman: "Pilot",
-        telNo: "05352223344",
-        dogumTarihi: new Date("1990-03-20"),
-        medeniDurum: "Single",
-        cocuk: 0,
-        kanGrubu: "B+",
-        iseGirisTarihi: new Date("2015-07-10"),
-        password: hashedPasswordCalisan,
-      },
-    })
-    console.log(`  ✅ Pilot: ${pilot2.isim} ${pilot2.soyisim} (${pilot2.email})`)
-
-    const pilot3 = await prisma.calisan.upsert({
-      where: { email: "ppilot3@example.com" },
-      update: {
-        isim: "Fatih",
-        soyisim: "Flyer",
-        departman: "Pilot",
-        telNo: "05353334455",
-        dogumTarihi: new Date("1988-11-08"),
-        medeniDurum: "Married",
-        cocuk: 1,
-        kanGrubu: "O+",
-        password: hashedPasswordCalisan,
-      },
-      create: {
-        isim: "Fatih",
-        soyisim: "Flyer",
-        email: "ppilot3@example.com",
-        departman: "Pilot",
-        telNo: "05353334455",
-        dogumTarihi: new Date("1988-11-08"),
-        medeniDurum: "Married",
-        cocuk: 1,
-        kanGrubu: "O+",
-        iseGirisTarihi: new Date("2012-04-01"),
-        password: hashedPasswordCalisan,
-      },
-    })
-    console.log(`  ✅ Pilot: ${pilot3.isim} ${pilot3.soyisim} (${pilot3.email})`)
+    const createdPilots = []
+    for (const p of pilotSeed) {
+      const created = await prisma.calisan.create({
+        data: {
+          ...p,
+          departman: "Pilot",
+          password: hashedPasswordCalisan,
+        },
+        select: { id: true, isim: true, soyisim: true, email: true },
+      })
+      createdPilots.push(created)
+      console.log(`  ✅ Pilot: ${created.isim} ${created.soyisim} (${created.email})`)
+    }
 
     // ============ HAZARD REPORTS ============
     console.log("\n⚠️ Creating hazard reports...")
+
+    // Reset existing seed hazard reports to avoid unique conflicts
+    await prisma.hazardReport.deleteMany({
+      where: {
+        reportNo: {
+          in: [
+            "BON-HR-001",
+            "BON-HR-002",
+            "BON-HR-003",
+            "BON-HR-004",
+            "BON-HR-005",
+            "BON-HR-006",
+            "BON-HR-007",
+            "BON-HR-008",
+          ],
+        },
+      },
+    })
     
     // Report 1 - Safety Observation from Maintenance
     const report1 = await prisma.hazardReport.create({
@@ -433,10 +446,10 @@ async function main() {
         isAnonymous: false,
         title: "Ground vehicle too close to aircraft",
         details: "During aircraft parking, a ground vehicle came dangerously close to the aircraft wing. Better communication and coordination between ground crew and vehicle operators is needed. No damage occurred but the risk was high.",
-        reportedBy: pilot1.id,
+        reportedBy: createdPilots[0].id,
       },
     })
-    console.log(`  ✅ Report 7: ${report7.reportNo} - ${report7.title} (by ${pilot1.isim} ${pilot1.soyisim})`)
+    console.log(`  ✅ Report 7: ${report7.reportNo} - ${report7.title} (by ${createdPilots[0].isim} ${createdPilots[0].soyisim})`)
 
     // Report 8 - Other type from Quality
     const report8 = await prisma.hazardReport.create({
@@ -462,9 +475,12 @@ async function main() {
     console.log("  Employee: ademir@example.com / bonair2025")
     console.log("  Employee: zozturk@example.com / bonair2025")
     console.log("  Employee: carslan@example.com / bonair2025")
-    console.log("  Pilot: ppilot1@example.com / bonair2025")
-    console.log("  Pilot: ppilot2@example.com / bonair2025")
-    console.log("  Pilot: ppilot3@example.com / bonair2025")
+    console.log("  Pilots:")
+    console.log("    pilot.kerem@bonair.local / bonair2025")
+    console.log("    pilot.seda@bonair.local / bonair2025")
+    console.log("    pilot.emre@bonair.local / bonair2025")
+    console.log("    pilot.buse@bonair.local / bonair2025")
+    console.log("    pilot.onur@bonair.local / bonair2025")
     console.log("\n⚠️ Hazard Reports:")
     console.log("  Created 8 sample hazard reports in the database")
     
