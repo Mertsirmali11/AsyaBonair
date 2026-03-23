@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useState, useEffect, useMemo } from "react"
-import { IconArrowsSort, IconDotsVertical, IconSortAscending, IconSortDescending, IconTrash, IconEye } from "@tabler/icons-react"
+import { IconArrowsSort, IconSortAscending, IconSortDescending, IconTrash, IconEye } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
 import {
   Table,

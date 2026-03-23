@@ -69,7 +69,7 @@ interface ColumnDef {
   getValue: (calisan: Calisan) => string | number
 }
 
-const columns: ColumnDef[] = [
+const defaultColumns: ColumnDef[] = [
   { key: "fullName", label: "NAME-SURNAME", sortKey: "fullName", getValue: (c) => `${c.isim || ""} ${c.soyisim || ""}`.trim() },
   { key: "departman", label: "Department", sortKey: "departman", getValue: (c) => c.departman || "-" },
   { key: "tcNo", label: "ID Number", sortKey: "tcNo", getValue: (c) => c.tcNo || "-" },
@@ -91,6 +91,15 @@ const columns: ColumnDef[] = [
   { key: "iseGirisTarihi", label: "Hire Date", sortKey: "iseGirisTarihi", getValue: (c) => c.iseGirisTarihi || "" },
   { key: "istenCikisTarihi", label: "Termination Date", sortKey: "istenCikisTarihi", getValue: (c) => c.istenCikisTarihi || "" },
 ]
+
+const pilotColumns: ColumnDef[] = [
+  { key: "fullName", label: "Ad Soyad", sortKey: "fullName", getValue: (c) => `${c.isim || ""} ${c.soyisim || ""}`.trim() },
+  { key: "telNo", label: "Telefon", sortKey: "telNo", getValue: (c) => c.telNo || "-" },
+  { key: "email", label: "Mail", sortKey: "email", getValue: (c) => c.email || "-" },
+  { key: "ekstra3", label: "Kaptan / F/O", sortKey: "ekstra3", getValue: (c) => c.ekstra3 || "-" },
+]
+
+const pilotRanks = ["Kaptan", "F/O"] as const
 
 const initialFormData = {
   isim: "",
@@ -126,6 +135,7 @@ interface UserManagementProps {
 }
 
 export function UserManagement({ departmentFilter, title = "User Management" }: UserManagementProps) {
+  const isPilotSettings = departmentFilter === "Pilot"
   const [calisanlar, setCalisanlar] = useState<Calisan[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -139,6 +149,9 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
   const [searchTerm, setSearchTerm] = useState("")
   const [sortField, setSortField] = useState<SortField>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
+  const activeColumns = isPilotSettings ? pilotColumns : defaultColumns
+  const selectedDepartment = departmentFilter || formData.departman
+  const shouldShowPilotRankField = selectedDepartment === "Pilot"
 
   // Fetch employees
   const fetchCalisanlar = async () => {
@@ -171,6 +184,12 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
     setSubmitting(true)
 
     try {
+      if (shouldShowPilotRankField && !pilotRanks.includes(formData.ekstra3 as (typeof pilotRanks)[number])) {
+        alert("Pilot mevkisi sadece Kaptan veya F/O olabilir.")
+        setSubmitting(false)
+        return
+      }
+
       const url = isEditMode && selectedCalisan 
         ? `/api/calisanlar/${selectedCalisan.id}` 
         : "/api/calisanlar"
@@ -178,6 +197,8 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
       // Convert dd.mm.yyyy dates to ISO format for API
       const submitData = {
         ...formData,
+        departman: departmentFilter || formData.departman,
+        ekstra3: shouldShowPilotRankField ? formData.ekstra3 : "",
         dogumTarihi: turkeyToIsoFormat(formData.dogumTarihi),
         iseGirisTarihi: turkeyToIsoFormat(formData.iseGirisTarihi),
         istenCikisTarihi: turkeyToIsoFormat(formData.istenCikisTarihi),
@@ -247,13 +268,6 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
     return `${year}-${month}-${day}`
   }
 
-  // Handle date input change
-  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target
-    const cleaned = value.replace(/[^\d.]/g, '')
-    setFormData((prev) => ({ ...prev, [name]: cleaned }))
-  }
-
   // Handle sort
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -296,17 +310,19 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
       const lowerSearch = searchTerm.toLowerCase()
       data = data.filter((calisan) => {
         const fullName = `${calisan.isim || ""} ${calisan.soyisim || ""}`.toLowerCase()
-        const searchableFields = [
-          fullName,
-          calisan.departman,
-          calisan.tcNo,
-          calisan.telNo,
-          calisan.adres,
-          calisan.email,
-          calisan.anneAdi,
-          calisan.babaAdi,
-          calisan.medeniDurum,
-        ]
+        const searchableFields = isPilotSettings
+          ? [fullName, calisan.telNo, calisan.email, calisan.ekstra3]
+          : [
+              fullName,
+              calisan.departman,
+              calisan.tcNo,
+              calisan.telNo,
+              calisan.adres,
+              calisan.email,
+              calisan.anneAdi,
+              calisan.babaAdi,
+              calisan.medeniDurum,
+            ]
         return searchableFields.some((field) => field?.toLowerCase().includes(lowerSearch))
       })
     }
@@ -332,7 +348,7 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
     }
 
     return data
-  }, [calisanlar, searchTerm, sortField, sortDirection, departmentFilter])
+  }, [calisanlar, searchTerm, sortField, sortDirection, departmentFilter, isPilotSettings])
 
   // Pagination
   const totalEntries = filteredAndSortedData.length
@@ -438,50 +454,89 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                         </p>
                       )}
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="departman">Department</Label>
-                      <Select
-                        value={formData.departman}
-                        onValueChange={(value) => setFormData((prev) => ({ ...prev, departman: value }))}
-                        disabled={!!departmentFilter}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select department" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Maintenance">Maintenance</SelectItem>
-                          <SelectItem value="Human Resources">Human Resources</SelectItem>
-                          <SelectItem value="Handling">Handling</SelectItem>
-                          <SelectItem value="Camo">Camo</SelectItem>
-                          <SelectItem value="Engineering">Engineering</SelectItem>
-                          <SelectItem value="Kitchen & Cleaning Staff">Kitchen & Cleaning Staff</SelectItem>
-                          <SelectItem value="Supply">Supply</SelectItem>
-                          <SelectItem value="Accounting">Accounting</SelectItem>
-                          <SelectItem value="Quality">Quality</SelectItem>
-                          <SelectItem value="Administrative Affairs">Administrative Affairs</SelectItem>
-                          <SelectItem value="IT">IT</SelectItem>
-                          <SelectItem value="Planning">Planning</SelectItem>
-                          <SelectItem value="Pilot">Pilot</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="tcNo">ID Number</Label>
-                      <Input
-                        id="tcNo"
-                        name="tcNo"
-                        value={formData.tcNo}
-                        onChange={handleInputChange}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="dogumTarihi">Date of Birth</Label>
-                      <DatePicker
-                        value={formData.dogumTarihi}
-                        onChange={(value) => setFormData((prev) => ({ ...prev, dogumTarihi: value }))}
-                        placeholder="dd.mm.yyyy"
-                      />
-                    </div>
+                    {isPilotSettings ? (
+                      <div className="space-y-2">
+                        <Label htmlFor="ekstra3">Mevki *</Label>
+                        <Select
+                          value={formData.ekstra3}
+                          onValueChange={(value) => setFormData((prev) => ({ ...prev, ekstra3: value }))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Mevki seçin" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Kaptan">Kaptan</SelectItem>
+                            <SelectItem value="F/O">F/O</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="space-y-2">
+                          <Label htmlFor="departman">Department</Label>
+                          <Select
+                            value={formData.departman}
+                            onValueChange={(value) => setFormData((prev) => ({ ...prev, departman: value }))}
+                            disabled={!!departmentFilter}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select department" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Maintenance">Maintenance</SelectItem>
+                              <SelectItem value="Human Resources">Human Resources</SelectItem>
+                              <SelectItem value="Handling">Handling</SelectItem>
+                              <SelectItem value="Camo">Camo</SelectItem>
+                              <SelectItem value="Engineering">Engineering</SelectItem>
+                              <SelectItem value="Kitchen & Cleaning Staff">Kitchen & Cleaning Staff</SelectItem>
+                              <SelectItem value="Supply">Supply</SelectItem>
+                              <SelectItem value="Accounting">Accounting</SelectItem>
+                              <SelectItem value="Quality">Quality</SelectItem>
+                              <SelectItem value="Administrative Affairs">Administrative Affairs</SelectItem>
+                              <SelectItem value="IT">IT</SelectItem>
+                              <SelectItem value="Planning">Planning</SelectItem>
+                              <SelectItem value="Pilot">Pilot</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        {shouldShowPilotRankField && (
+                          <div className="space-y-2">
+                            <Label htmlFor="ekstra3">Mevki *</Label>
+                            <Select
+                              value={formData.ekstra3}
+                              onValueChange={(value) =>
+                                setFormData((prev) => ({ ...prev, ekstra3: value }))
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Mevki seçin" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Kaptan">Kaptan</SelectItem>
+                                <SelectItem value="F/O">F/O</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+                        <div className="space-y-2">
+                          <Label htmlFor="tcNo">ID Number</Label>
+                          <Input
+                            id="tcNo"
+                            name="tcNo"
+                            value={formData.tcNo}
+                            onChange={handleInputChange}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="dogumTarihi">Date of Birth</Label>
+                          <DatePicker
+                            value={formData.dogumTarihi}
+                            onChange={(value) => setFormData((prev) => ({ ...prev, dogumTarihi: value }))}
+                            placeholder="dd.mm.yyyy"
+                          />
+                        </div>
+                      </>
+                    )}
                     <div className="space-y-2">
                       <Label htmlFor="telNo">Phone Number</Label>
                       <Input
@@ -492,19 +547,21 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                       />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="adres">Address</Label>
-                    <Input
-                      id="adres"
-                      name="adres"
-                      value={formData.adres}
-                      onChange={handleInputChange}
-                    />
-                  </div>
+                  {!isPilotSettings && (
+                    <div className="space-y-2">
+                      <Label htmlFor="adres">Address</Label>
+                      <Input
+                        id="adres"
+                        name="adres"
+                        value={formData.adres}
+                        onChange={handleInputChange}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Family Information */}
-                <div className="space-y-4">
+                {!isPilotSettings && <div className="space-y-4">
                   <h3 className="font-semibold text-lg border-b pb-2">Family Information</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -584,10 +641,10 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                       />
                     </div>
                   </div>
-                </div>
+                </div>}
 
                 {/* Emergency Contact */}
-                <div className="space-y-4">
+                {!isPilotSettings && <div className="space-y-4">
                   <h3 className="font-semibold text-lg border-b pb-2">Emergency Contact</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -609,10 +666,10 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                       />
                     </div>
                   </div>
-                </div>
+                </div>}
 
                 {/* Employment Information */}
-                <div className="space-y-4">
+                {!isPilotSettings && <div className="space-y-4">
                   <h3 className="font-semibold text-lg border-b pb-2">Employment Information</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -659,7 +716,7 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                       />
                     </div>
                   </div>
-                </div>
+                </div>}
 
                 <div className="flex justify-end gap-2 pt-4 border-t">
                   <Button
@@ -700,7 +757,7 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
           <Table className="border-collapse">
             <TableHeader>
               <TableRow className="bg-slate-100 border-b border-gray-300">
-                {columns.map((column) => (
+                {activeColumns.map((column) => (
                   <TableHead 
                     key={column.key}
                     className="font-semibold text-slate-700 whitespace-nowrap cursor-pointer hover:bg-slate-200 select-none border-r border-gray-300 last:border-r-0"
@@ -718,41 +775,54 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={columns.length + 1} className="text-center py-8">
+                  <TableCell colSpan={activeColumns.length + 1} className="text-center py-8">
                     Loading...
                   </TableCell>
                 </TableRow>
               ) : paginatedCalisanlar.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={columns.length + 1} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={activeColumns.length + 1} className="text-center py-8 text-muted-foreground">
                     No employees found
                   </TableCell>
                 </TableRow>
               ) : (
                 paginatedCalisanlar.map((calisan) => (
                   <TableRow key={calisan.id} className="hover:bg-slate-50 border-b border-gray-300">
-                    <TableCell className="whitespace-nowrap border-r border-gray-200">
-                      {calisan.isim} {calisan.soyisim}
-                    </TableCell>
-                    <TableCell className="border-r border-gray-200">{calisan.departman || "-"}</TableCell>
-                    <TableCell className="border-r border-gray-200">{calisan.tcNo || "-"}</TableCell>
-                    <TableCell className="border-r border-gray-200">{formatDate(calisan.dogumTarihi)}</TableCell>
-                    <TableCell className="border-r border-gray-200">{calisan.telNo || "-"}</TableCell>
-                    <TableCell className="max-w-xs truncate border-r border-gray-200">{calisan.adres || "-"}</TableCell>
-                    <TableCell className="border-r border-gray-200">{calisan.anneAdi || "-"}</TableCell>
-                    <TableCell className="border-r border-gray-200">{calisan.babaAdi || "-"}</TableCell>
-                    <TableCell className="border-r border-gray-200">{calisan.medeniDurum || "-"}</TableCell>
-                    <TableCell className="border-r border-gray-200">{calisan.cocuk ?? "-"}</TableCell>
-                    <TableCell className="border-r border-gray-200">{calisan.kanGrubu || "-"}</TableCell>
-                    <TableCell className="border-r border-gray-200">{calisan.email}</TableCell>
-                    <TableCell className="border-r border-gray-200">{calisan.egitimDurum || "-"}</TableCell>
-                    <TableCell className="border-r border-gray-200">{calisan.acilIletisim || "-"}</TableCell>
-                    <TableCell className="border-r border-gray-200">{calisan.acilIletisimTel || "-"}</TableCell>
-                    <TableCell className="border-r border-gray-200">{calisan.sgkSicilNo || "-"}</TableCell>
-                    <TableCell className="border-r border-gray-200">{calisan.bankaAdi || "-"}</TableCell>
-                    <TableCell className="border-r border-gray-200">{calisan.iban || "-"}</TableCell>
-                    <TableCell className="border-r border-gray-200">{formatDate(calisan.iseGirisTarihi)}</TableCell>
-                    <TableCell className="border-r border-gray-200">{formatDate(calisan.istenCikisTarihi)}</TableCell>
+                    {isPilotSettings ? (
+                      <>
+                        <TableCell className="whitespace-nowrap border-r border-gray-200">
+                          {calisan.isim} {calisan.soyisim}
+                        </TableCell>
+                        <TableCell className="border-r border-gray-200">{calisan.telNo || "-"}</TableCell>
+                        <TableCell className="border-r border-gray-200">{calisan.email}</TableCell>
+                        <TableCell className="border-r border-gray-200">{calisan.ekstra3 || "-"}</TableCell>
+                      </>
+                    ) : (
+                      <>
+                        <TableCell className="whitespace-nowrap border-r border-gray-200">
+                          {calisan.isim} {calisan.soyisim}
+                        </TableCell>
+                        <TableCell className="border-r border-gray-200">{calisan.departman || "-"}</TableCell>
+                        <TableCell className="border-r border-gray-200">{calisan.tcNo || "-"}</TableCell>
+                        <TableCell className="border-r border-gray-200">{formatDate(calisan.dogumTarihi)}</TableCell>
+                        <TableCell className="border-r border-gray-200">{calisan.telNo || "-"}</TableCell>
+                        <TableCell className="max-w-xs truncate border-r border-gray-200">{calisan.adres || "-"}</TableCell>
+                        <TableCell className="border-r border-gray-200">{calisan.anneAdi || "-"}</TableCell>
+                        <TableCell className="border-r border-gray-200">{calisan.babaAdi || "-"}</TableCell>
+                        <TableCell className="border-r border-gray-200">{calisan.medeniDurum || "-"}</TableCell>
+                        <TableCell className="border-r border-gray-200">{calisan.cocuk ?? "-"}</TableCell>
+                        <TableCell className="border-r border-gray-200">{calisan.kanGrubu || "-"}</TableCell>
+                        <TableCell className="border-r border-gray-200">{calisan.email}</TableCell>
+                        <TableCell className="border-r border-gray-200">{calisan.egitimDurum || "-"}</TableCell>
+                        <TableCell className="border-r border-gray-200">{calisan.acilIletisim || "-"}</TableCell>
+                        <TableCell className="border-r border-gray-200">{calisan.acilIletisimTel || "-"}</TableCell>
+                        <TableCell className="border-r border-gray-200">{calisan.sgkSicilNo || "-"}</TableCell>
+                        <TableCell className="border-r border-gray-200">{calisan.bankaAdi || "-"}</TableCell>
+                        <TableCell className="border-r border-gray-200">{calisan.iban || "-"}</TableCell>
+                        <TableCell className="border-r border-gray-200">{formatDate(calisan.iseGirisTarihi)}</TableCell>
+                        <TableCell className="border-r border-gray-200">{formatDate(calisan.istenCikisTarihi)}</TableCell>
+                      </>
+                    )}
                     <TableCell>
                       <Button 
                         variant="ghost" 

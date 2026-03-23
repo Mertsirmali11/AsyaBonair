@@ -52,6 +52,15 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
+    const isPilot = body.departman === "Pilot"
+    const pilotRanks = ["Kaptan", "F/O"]
+
+    if (isPilot && !pilotRanks.includes(body.ekstra3)) {
+      return NextResponse.json(
+        { error: "Pilot mevki alanı sadece Kaptan veya F/O olabilir" },
+        { status: 400 }
+      )
+    }
     
     // Hash password
     const hashedPassword = await bcrypt.hash(body.password || "123456", 10)

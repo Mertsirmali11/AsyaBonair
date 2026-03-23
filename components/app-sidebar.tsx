@@ -7,7 +7,6 @@ import { usePathname, useRouter } from "next/navigation"
 import { signOut } from "next-auth/react"
 import {
   IconAlertTriangle,
-  IconBell,
   IconCalendarEvent,
   IconChartBar,
   IconChecklist,
@@ -18,8 +17,6 @@ import {
   IconInbox,
   IconLogout,
   IconMail,
-  IconPaperclip,
-  IconPlane,
   IconPuzzle,
   IconRobot,
   IconSettings,
@@ -27,7 +24,6 @@ import {
   IconSpeakerphone,
   IconUrgent,
   IconUser,
-  IconUsers,
 } from "@tabler/icons-react"
 
 import { cn } from "@/lib/utils"
