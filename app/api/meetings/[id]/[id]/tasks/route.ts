@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
+import { prisma } from "@/lib/prisma-server"
 
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
   const tasks = await prisma.meetingTask.findMany({
