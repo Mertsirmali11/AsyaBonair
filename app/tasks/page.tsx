@@ -6,6 +6,11 @@ export default async function TasksPage() {
   const session = await auth()
   if (!session) redirect("/login")
 
+const userDepartman = session.user?.departman
+if (userDepartman !== "Quality") {
+  redirect("/dashboard")
+}
+
   const user = {
     name: session.user?.name || "User",
     email: session.user?.email || "",
