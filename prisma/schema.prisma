@@ -88,9 +88,11 @@ model Calisan {
   ekstra3         String?   @db.VarChar(255) @map("ekstra_3")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
-  hazardReports   HazardReport[]
-  incomingPapers  IncomingPaper[]
+  hazardReports            HazardReport[]
+  incomingPapers           IncomingPaper[]
   outgoingCorrespondences  OutgoingCorrespondence[]
+  meetingParticipations    MeetingParticipant[]
+  meetingTasksAssigned     MeetingTask[]          @relation("MeetingTaskAssignee")
 
   @@map("calisanlar")
 }
@@ -158,4 +160,69 @@ model Ucaklar {
   msn      String @db.VarChar(100)
 
   @@map("ucaklar")
+}
+
+// Toplantı türleri (Supabase’te mevcut tablo: bigint id, text name, created_at)
+model MeetingType {
+  id        BigInt   @id @default(autoincrement())
+  name      String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  meetings  Meeting[]
+
+  @@map("meeting_types")
+}
+
+// Toplantılar
+model Meeting {
+  id              Int       @id @default(autoincrement())
+  meetingNo       String    @map("meeting_no") @db.VarChar(50)
+  title           String    @db.VarChar(500)
+  plannedDate     DateTime  @map("planned_date") @db.Date
+  initializedDate DateTime? @map("initialized_date")
+  isOnline        Boolean   @default(false) @map("is_online")
+  agenda          String?   @db.Text
+  meetingTypeId   BigInt?   @map("meeting_type_id")
+  status          String    @default("Planned") @db.VarChar(50)
+  meetingMinutes  String?   @map("meeting_minutes") @db.Text
+  actualDate      DateTime? @map("actual_date") @db.Date
+  filePath        String?   @map("file_path") @db.VarChar(1000)
+  fileName        String?   @map("file_name") @db.VarChar(255)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  meetingType  MeetingType?           @relation(fields: [meetingTypeId], references: [id], onDelete: SetNull)
+  participants MeetingParticipant[]
+  tasks        MeetingTask[]
+
+  @@map("meetings")
+}
+
+model MeetingParticipant {
+  id        Int @id @default(autoincrement())
+  meetingId Int @map("meeting_id")
+  calisanId Int @map("calisan_id")
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  calisan Calisan @relation(fields: [calisanId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, calisanId])
+  @@map("meeting_participants")
+}
+
+model MeetingTask {
+  id         Int       @id @default(autoincrement())
+  title      String    @db.VarChar(500)
+  status     String    @default("Open") @db.VarChar(50)
+  dueDate    DateTime? @map("due_date") @db.Date
+  meetingId  Int       @map("meeting_id")
+  assigneeId Int?      @map("assignee_id")
+  filePath   String?   @map("file_path") @db.VarChar(1000)
+  fileName   String?   @map("file_name") @db.VarChar(255)
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  meeting  Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  assignee Calisan? @relation("MeetingTaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  @@map("meeting_tasks")
 }

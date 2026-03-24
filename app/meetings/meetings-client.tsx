@@ -67,10 +67,26 @@ export function MeetingsClient({
   const [saving, setSaving] = useState(false)
 
   const fetchMeetings = useCallback(async () => {
-    const res = await fetch(`/api/meetings?year=${year}`)
-    const data = await res.json()
-    setMeetings(data)
-    setPage(1)
+    try {
+      const res = await fetch(`/api/meetings?year=${year}`)
+      const text = await res.text()
+      if (!text) {
+        setMeetings([])
+        setPage(1)
+        return
+      }
+      const data = JSON.parse(text) as unknown
+      if (!res.ok || !Array.isArray(data)) {
+        setMeetings([])
+        setPage(1)
+        return
+      }
+      setMeetings(data as Meeting[])
+      setPage(1)
+    } catch {
+      setMeetings([])
+      setPage(1)
+    }
   }, [year])
 
   useEffect(() => { fetchMeetings() }, [fetchMeetings])

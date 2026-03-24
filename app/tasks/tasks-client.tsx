@@ -28,8 +28,22 @@ export function TasksClient() {
   const [filter, setFilter] = useState("All")
 
   const fetchTasks = async () => {
-    const res = await fetch("/api/tasks")
-    setTasks(await res.json())
+    try {
+      const res = await fetch("/api/tasks")
+      const text = await res.text()
+      if (!text) {
+        setTasks([])
+        return
+      }
+      const data = JSON.parse(text) as unknown
+      if (!res.ok || !Array.isArray(data)) {
+        setTasks([])
+        return
+      }
+      setTasks(data as Task[])
+    } catch {
+      setTasks([])
+    }
   }
 
   useEffect(() => { fetchTasks() }, [])

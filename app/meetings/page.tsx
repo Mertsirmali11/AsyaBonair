@@ -1,35 +1,41 @@
-import { redirect, notFound } from "next/navigation"
+import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
 import { DashboardLayout } from "@/components/dashboard-layout"
-import { AircraftDetailClient } from "./aircraft-detail-client"
+import { MeetingsClient } from "./meetings-client"
 
-export default async function AircraftDetailPage({ params }: { params: { id: string } }) {
+export default async function MeetingsPage() {
   const session = await auth()
   if (!session) redirect("/login")
 
   const user = {
-    id: 0,
     name: session.user?.name || "User",
     email: session.user?.email || "",
     avatar: session.user?.image || "",
     departman: session.user?.departman || null,
   }
 
-  const calisan = await prisma.calisan.findUnique({
-    where: { email: session.user?.email ?? "" },
-    select: { id: true },
+  const calisanlar = await prisma.calisan.findMany({
+    select: {
+      id: true,
+      isim: true,
+      soyisim: true,
+      departman: true,
+    },
+    orderBy: { isim: "asc" },
   })
 
-  const aircraft = await prisma.ucaklar.findUnique({
-    where: { id: parseInt(params.id) },
+  const meetingTypesRaw = await prisma.meetingType.findMany({
+    orderBy: { name: "asc" },
   })
-
-  if (!aircraft) notFound()
+  const meetingTypes = meetingTypesRaw.map((t) => ({
+    id: Number(t.id),
+    name: t.name,
+  }))
 
   return (
-    <DashboardLayout user={user} headerTitle={`${aircraft.register} — Documents`}>
-      <AircraftDetailClient aircraft={aircraft as any} currentUserId={calisan?.id ?? 0} />
+    <DashboardLayout user={user} headerTitle="Meeting Plans">
+      <MeetingsClient calisanlar={calisanlar} meetingTypes={meetingTypes} />
     </DashboardLayout>
   )
 }

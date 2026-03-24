@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
-import { DashboardLayout } from "@/components/dashboard-layout"
-import { TasksClient } from "./tasks-client"
+import { TasksDashboard } from "./tasks-dashboard"
 
 export default async function TasksPage() {
   const session = await auth()
@@ -14,9 +13,5 @@ export default async function TasksPage() {
     departman: session.user?.departman || null,
   }
 
-  return (
-    <DashboardLayout user={user} headerTitle="Tasks & Actions">
-      <TasksClient />
-    </DashboardLayout>
-  )
+  return <TasksDashboard user={user} />
 }

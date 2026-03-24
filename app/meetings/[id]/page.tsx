@@ -1,12 +1,15 @@
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { auth } from "@/auth"
 import { redirect, notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma-server"
+import { prismaJson } from "@/lib/prisma-json"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { MeetingDetailClient } from "./meeting-detail-client"
 
-export default async function MeetingDetailPage({ params }: { params: { id: string } }) {
-  const session = await getServerSession(authOptions)
+type Props = { params: Promise<{ id: string }> }
+
+export default async function MeetingDetailPage({ params }: Props) {
+  const { id } = await params
+  const session = await auth()
   if (!session) redirect("/login")
 
   const calisan = await prisma.calisan.findUnique({
@@ -23,7 +26,7 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
   }
 
   const meeting = await prisma.meeting.findUnique({
-    where: { id: parseInt(params.id) },
+    where: { id: parseInt(id, 10) },
     include: {
       meetingType: true,
       participants: {
@@ -54,7 +57,7 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
   return (
     <DashboardLayout user={user} headerTitle={`Manage ${meeting.meetingNo} "${meeting.meetingType?.name}" Plan`}>
       <MeetingDetailClient
-        meeting={meeting as any}
+        meeting={prismaJson(meeting) as any}
         calisanlar={calisanlar}
         hazardReports={hazardReports as any}
         currentUserName={user.name}
