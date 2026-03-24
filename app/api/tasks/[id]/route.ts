@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   const contentType = req.headers.get("content-type") || ""
 
   if (contentType.includes("multipart/form-data")) {
@@ -13,15 +14,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     let fileName: string | undefined
 
     if (file) {
-      const { supabase } = await import("@/lib/supabase-storage")
+      const { createClient } = await import("@supabase/supabase-js")
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+        process.env.SUPABASE_SERVICE_ROLE_KEY || "",
+        { auth: { autoRefreshToken: false, persistSession: false } }
+      )
       const bytes = await file.arrayBuffer()
-      const buffer = Buffer.from(bytes)
       const safeName = `${Date.now()}_${file.name}`
-      const storagePath = `tasks/${params.id}/${safeName}`
+      const storagePath = `tasks/${id}/${safeName}`
 
       const { error } = await supabase.storage
         .from("Aircraft-Manuals")
-        .upload(storagePath, buffer, { contentType: file.type })
+        .upload(storagePath, bytes, { contentType: file.type })
 
       if (!error) {
         const { data: urlData } = supabase.storage
@@ -33,7 +38,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
 
     const task = await prisma.meetingTask.update({
-      where: { id: parseInt(params.id) },
+      where: { id: parseInt(id) },
       data: {
         ...(status && { status }),
         ...(filePath && { filePath }),
@@ -46,14 +51,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const body = await req.json()
   const task = await prisma.meetingTask.update({
-    where: { id: parseInt(params.id) },
+    where: { id: parseInt(id) },
     data: body,
     include: { assignee: { select: { isim: true, soyisim: true } } },
   })
   return NextResponse.json(task)
 }
 
-export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
-  await prisma.meetingTask.delete({ where: { id: parseInt(params.id) } })
+export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  await prisma.meetingTask.delete({ where: { id: parseInt(id) } })
   return NextResponse.json({ success: true })
 }

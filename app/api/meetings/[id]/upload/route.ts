@@ -10,12 +10,13 @@ function getSupabase() {
   )
 }
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   const formData = await req.formData()
   const file = formData.get("file") as File
   const bytes = await file.arrayBuffer()
   const safeName = `${Date.now()}_${file.name}`
-  const storagePath = `meetings/${params.id}/${safeName}`
+  const storagePath = `meetings/${id}/${safeName}`
   const supabase = getSupabase()
 
   const { error } = await supabase.storage
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     .getPublicUrl(storagePath)
 
   await prisma.meeting.update({
-    where: { id: parseInt(params.id) },
+    where: { id: parseInt(id) },
     data: {
       filePath: urlData.publicUrl,
       fileName: file.name,
