@@ -1,19 +1,26 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
-import { supabase } from "@/lib/supabase-storage"
+import { createClient } from "@supabase/supabase-js"
+
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+    process.env.SUPABASE_SERVICE_ROLE_KEY || "",
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  )
+}
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const formData = await req.formData()
   const file = formData.get("file") as File
-
   const bytes = await file.arrayBuffer()
-  const buffer = Buffer.from(bytes)
   const safeName = `${Date.now()}_${file.name}`
   const storagePath = `meetings/${params.id}/${safeName}`
+  const supabase = getSupabase()
 
   const { error } = await supabase.storage
     .from("Aircraft-Manuals")
-    .upload(storagePath, buffer, {
+    .upload(storagePath, bytes, {
       contentType: file.type,
       upsert: false,
     })
