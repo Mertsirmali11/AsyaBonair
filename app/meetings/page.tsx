@@ -1,38 +1,35 @@
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
-import { redirect } from "next/navigation"
+import { redirect, notFound } from "next/navigation"
+import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
 import { DashboardLayout } from "@/components/dashboard-layout"
-import { MeetingsClient } from "./meetings-client"
+import { AircraftDetailClient } from "./aircraft-detail-client"
 
-export default async function MeetingsPage() {
-  const session = await getServerSession(authOptions)
+export default async function AircraftDetailPage({ params }: { params: { id: string } }) {
+  const session = await auth()
   if (!session) redirect("/login")
+
+  const user = {
+    id: 0,
+    name: session.user?.name || "User",
+    email: session.user?.email || "",
+    avatar: session.user?.image || "",
+    departman: session.user?.departman || null,
+  }
 
   const calisan = await prisma.calisan.findUnique({
     where: { email: session.user?.email ?? "" },
-    select: { isim: true, soyisim: true, email: true, departman: true },
+    select: { id: true },
   })
 
-  const user = {
-    name: `${calisan?.isim ?? ""} ${calisan?.soyisim ?? ""}`.trim(),
-    email: calisan?.email ?? "",
-    avatar: "",
-    departman: calisan?.departman,
-  }
-
-  const calisanlar = await prisma.calisan.findMany({
-    select: { id: true, isim: true, soyisim: true, departman: true },
-    orderBy: { isim: "asc" },
+  const aircraft = await prisma.ucaklar.findUnique({
+    where: { id: parseInt(params.id) },
   })
 
-  const meetingTypes = await prisma.meetingType.findMany({
-    orderBy: { name: "asc" },
-  })
+  if (!aircraft) notFound()
 
   return (
-    <DashboardLayout user={user} headerTitle="Meetings">
-      <MeetingsClient calisanlar={calisanlar} meetingTypes={meetingTypes} />
+    <DashboardLayout user={user} headerTitle={`${aircraft.register} — Documents`}>
+      <AircraftDetailClient aircraft={aircraft as any} currentUserId={calisan?.id ?? 0} />
     </DashboardLayout>
   )
 }
