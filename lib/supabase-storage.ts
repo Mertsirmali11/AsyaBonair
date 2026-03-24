@@ -76,3 +76,52 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   return NextResponse.json(doc)
 }
+
+export async function downloadPdfFromStorage(
+  storagePath: string
+): Promise<Buffer | null> {
+  try {
+    const supabaseAdmin = getSupabaseAdmin()
+    const { data, error } = await supabaseAdmin.storage
+      .from(STORAGE_BUCKET)
+      .download(storagePath)
+    if (error) return null
+    const arrayBuffer = await data.arrayBuffer()
+    return Buffer.from(arrayBuffer)
+  } catch {
+    return null
+  }
+}
+
+export async function uploadPdfToStorage(
+  file: File,
+  paperNo: string
+): Promise<{ path: string; fileName: string; publicUrl: string } | null> {
+  try {
+    const sanitizedFileName = file.name
+      .replace(/[^a-zA-Z0-9._-]/g, "_")
+      .replace(/\.\./g, "_")
+      .replace(/\s+/g, "_")
+    const storagePath = `${paperNo}/${sanitizedFileName}`
+    const arrayBuffer = await file.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+    const supabaseAdmin = getSupabaseAdmin()
+    const { error } = await supabaseAdmin.storage
+      .from(STORAGE_BUCKET)
+      .upload(storagePath, buffer, {
+        contentType: "application/pdf",
+        upsert: false,
+      })
+    if (error) throw error
+    const { data: urlData } = supabaseAdmin.storage
+      .from(STORAGE_BUCKET)
+      .getPublicUrl(storagePath)
+    return {
+      path: storagePath,
+      fileName: sanitizedFileName,
+      publicUrl: urlData.publicUrl,
+    }
+  } catch {
+    return null
+  }
+}
