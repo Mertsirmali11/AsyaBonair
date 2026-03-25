@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
 import { Resend } from "resend"
+import { prismaJson } from "@/lib/prisma-json"
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
@@ -99,5 +100,9 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  return NextResponse.json(meeting)
+  // GET'te:
+return NextResponse.json(prismaJson(meetings))
+
+// POST'ta:
+return NextResponse.json(prismaJson(meeting))
 }
