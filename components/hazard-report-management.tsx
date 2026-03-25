@@ -3,6 +3,7 @@
 import * as React from "react"
 import { useState, useEffect, useMemo } from "react"
 import Link from "next/link"
+import { formatDateOnlyIstanbul, formatDateTimeIstanbul } from "@/lib/date-format"
 import { IconArrowsSort, IconSortAscending, IconSortDescending, IconTrash, IconEye } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -107,11 +108,7 @@ export function HazardReportManagement() {
   const formatDate = (dateString: string | null) => {
     if (!dateString) return "-"
     try {
-      return new Date(dateString).toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      })
+      return formatDateOnlyIstanbul(dateString)
     } catch {
       return "-"
     }
@@ -120,13 +117,7 @@ export function HazardReportManagement() {
   const formatDateTime = (dateString: string | null) => {
     if (!dateString) return "-"
     try {
-      return new Date(dateString).toLocaleString("en-US", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
+      return formatDateTimeIstanbul(dateString)
     } catch {
       return "-"
     }

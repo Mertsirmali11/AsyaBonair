@@ -1,4 +1,6 @@
 "use client"
+
+import { formatDateOnlyIstanbul } from "@/lib/date-format"
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -177,9 +179,9 @@ export function MeetingsClient({
                 </TableCell>
                 <TableCell className="font-mono text-sm">{m.meetingNo}</TableCell>
                 <TableCell className="max-w-xs truncate">{m.title}</TableCell>
-                <TableCell>{new Date(m.plannedDate).toLocaleDateString("en-US")}</TableCell>
+                <TableCell>{formatDateOnlyIstanbul(m.plannedDate)}</TableCell>
                 <TableCell>{m.meetingType?.name ?? "—"}</TableCell>
-                <TableCell>{m.initializedDate ? new Date(m.initializedDate).toLocaleDateString("en-US") : "—"}</TableCell>
+                <TableCell>{m.initializedDate ? formatDateOnlyIstanbul(m.initializedDate) : "—"}</TableCell>
                 <TableCell className="max-w-xs truncate">
                   {m.participants.map(p => `${p.calisan.isim} ${p.calisan.soyisim}`).join(", ")}
                 </TableCell>

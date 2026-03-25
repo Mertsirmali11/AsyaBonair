@@ -1,7 +1,9 @@
 "use client"
 import { useState, useEffect } from "react"
+import Link from "next/link"
 import { DashboardLayout } from "@/components/dashboard-layout"
-import { Bell, Plus, Calendar, AlertTriangle, Cake, Trash2 } from "lucide-react"
+import { Bell, Plus, Calendar, AlertTriangle, Cake, Trash2, ArrowRight } from "lucide-react"
+import { formatDateOnlyIstanbul, formatDateTimeIstanbul } from "@/lib/date-format"
 import { Button } from "@/components/ui/button"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -39,6 +41,7 @@ interface HazardReport {
   reportNo: string | null
   title: string | null
   eventDate: string
+  createdAt: string
   sourceType: string | null
 }
 
@@ -48,12 +51,6 @@ interface Birthday {
   soyisim: string | null
   departman: string | null
   dogumTarihi: string | null
-}
-
-const dateOpts: Intl.DateTimeFormatOptions = {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
 }
 
 export function DashboardHome({ user }: { user: DashboardUser }) {
@@ -70,7 +67,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
   const canAnnounce = user.departman === "Quality" || user.departman === "Human Resources"
 
   const fetchAll = async () => {
-    const res = await fetch("/api/dashboard/summary")
+    const res = await fetch("/api/dashboard/summary", { cache: "no-store" })
     if (!res.ok) return
     const data = await res.json()
     setAnnouncements(data.announcements ?? [])
@@ -117,9 +114,38 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
     }
   }
 
+  const canOpenMeetingsPage = user.departman === "Quality"
+
   return (
     <DashboardLayout user={user}>
       <div className="flex flex-col gap-6 p-4 md:p-6">
+        {todayMeetings.length > 0 && (
+          <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950 shadow-sm dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="font-medium">
+                Bugün için {todayMeetings.length} toplantınız planlandı.
+              </p>
+              {canOpenMeetingsPage ? (
+                <Link
+                  href="/meetings"
+                  className="inline-flex items-center gap-1 font-semibold text-sky-800 underline-offset-4 hover:underline dark:text-sky-200"
+                >
+                  Toplantı planlarına git
+                  <ArrowRight className="size-4" />
+                </Link>
+              ) : (
+                <Link
+                  href={`/meetings/${todayMeetings[0].id}`}
+                  className="inline-flex items-center gap-1 font-semibold text-sky-800 underline-offset-4 hover:underline dark:text-sky-200"
+                >
+                  Toplantı detayına git
+                  <ArrowRight className="size-4" />
+                </Link>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
           <div className="flex flex-col gap-4">
@@ -145,7 +171,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="font-semibold text-sm">{a.title}</h3>
                     <span className="text-xs text-gray-400 shrink-0">
-                      {new Date(a.createdAt).toLocaleDateString("en-US", dateOpts)}
+                      {formatDateOnlyIstanbul(a.createdAt)}
                     </span>
                   </div>
                   <p className="text-sm text-gray-600 mt-1 whitespace-pre-wrap">{a.content}</p>
@@ -191,6 +217,9 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                     <div>
                       <p className="font-medium text-sm">{m.title}</p>
                       <p className="text-xs text-gray-500">{m.meetingType?.name ?? "—"} · {m.meetingNo}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {formatDateOnlyIstanbul(m.plannedDate)} (İstanbul)
+                      </p>
                     </div>
                     <span className={`text-xs px-2 py-0.5 rounded font-semibold ${m.status === "Completed" ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"}`}>
                       {m.status}
@@ -214,6 +243,9 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                   <div key={h.id} className="border rounded-lg p-3 bg-white">
                     <p className="font-medium text-sm">{h.title ?? "Untitled"}</p>
                     <p className="text-xs text-gray-500">{h.reportNo} · {h.sourceType}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Reported {formatDateTimeIstanbul(h.createdAt)} (Istanbul)
+                    </p>
                   </div>
                 ))}
               </div>

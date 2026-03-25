@@ -1,6 +1,7 @@
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { IstanbulClock } from "@/components/istanbul-clock"
 
 interface SiteHeaderProps {
   user?: {
@@ -34,6 +35,7 @@ export function SiteHeader({ user, title = "Documents" }: SiteHeaderProps) {
         />
         <h1 className="text-base font-medium">{title}</h1>
         <div className="ml-auto flex items-center gap-3">
+          <IstanbulClock />
           {user && (
             <div className="flex items-center gap-3">
               <div className="flex flex-col items-end text-right">

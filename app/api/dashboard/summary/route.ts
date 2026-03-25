@@ -3,15 +3,36 @@ import { prisma } from "@/lib/prisma-server"
 import {
   APP_TIMEZONE,
   getCalendarYmdInTimeZone,
-  getTodayUtcRange,
+  getIstanbulLocalDayUtcRange,
 } from "@/lib/day-range"
+
+export const dynamic = "force-dynamic"
+export const revalidate = 0
 
 export async function GET() {
   try {
-    const { start, end } = getTodayUtcRange(APP_TIMEZONE)
-    const { month, day } = getCalendarYmdInTimeZone(APP_TIMEZONE)
+    const { year, month, day } = getCalendarYmdInTimeZone(APP_TIMEZONE)
+    /** PG `@db.Date` değerleri ilgili takvim günü için UTC gece yarısı ile saklanır. */
+    const dayStartUtc = new Date(Date.UTC(year, month - 1, day))
+    const dayEndUtc = new Date(Date.UTC(year, month - 1, day + 1))
+    const { start: hazardDayStart, end: hazardDayEnd } =
+      getIstanbulLocalDayUtcRange(year, month, day)
 
-    const [announcements, meetings, hazards, calisanlar] = await Promise.all([
+    const [meetings, hazards, announcements, calisanlar] = await Promise.all([
+      prisma.meeting.findMany({
+        where: {
+          plannedDate: { gte: dayStartUtc, lt: dayEndUtc },
+        },
+        include: { meetingType: true },
+        orderBy: { plannedDate: "asc" },
+      }),
+      /** Bugün = İstanbul takviminde `created_at` (reported at) — `event_date` değil. */
+      prisma.hazardReport.findMany({
+        where: {
+          createdAt: { gte: hazardDayStart, lt: hazardDayEnd },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
       prisma.announcement.findMany({
         orderBy: { createdAt: "desc" },
         include: {
@@ -19,15 +40,6 @@ export async function GET() {
             select: { isim: true, soyisim: true, departman: true },
           },
         },
-      }),
-      prisma.meeting.findMany({
-        where: { plannedDate: { gte: start, lt: end } },
-        include: { meetingType: true },
-        orderBy: { plannedDate: "asc" },
-      }),
-      prisma.hazardReport.findMany({
-        where: { eventDate: { gte: start, lt: end } },
-        orderBy: { createdAt: "desc" },
       }),
       prisma.calisan.findMany({
         where: { dogumTarihi: { not: null } },
