@@ -123,6 +123,7 @@ model HazardAttachment {
   hazardReportId Int      @map("hazard_report_id")
   storagePath    String   @map("storage_path") @db.VarChar(1000)
   fileName       String   @map("file_name") @db.VarChar(255)
+  externalParticipants   String?   @map("external_participants") @db.Text
   mimeType       String   @map("mime_type") @db.VarChar(200)
   kind           String   @db.VarChar(20)
   publicUrl      String   @map("public_url") @db.VarChar(2000)
