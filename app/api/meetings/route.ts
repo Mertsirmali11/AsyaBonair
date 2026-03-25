@@ -18,21 +18,16 @@ export async function GET(req: NextRequest) {
       }
     : {}
 
-const meeting = await prisma.meeting.create({
-  data: {
-    meetingNo,
-    title,
-    plannedDate: new Date(plannedDate),
-    initializedDate: new Date(),
-    isOnline: isOnline ?? false,
-    agenda,
-    meetingTypeId: meetingTypeId ? parseInt(meetingTypeId) : null,
-    status: "Planned",
-    externalParticipants: externalEmails ? JSON.stringify(externalEmails) : null,
-    participants: {
-      create: (participantIds ?? []).map((id: number) => ({ calisanId: id })),
+  const meetings = await prisma.meeting.findMany({
+    where,
+    include: {
+      meetingType: true,
+      participants: {
+        include: { calisan: { select: { isim: true, soyisim: true } } },
+      },
     },
-  },
+    orderBy: { plannedDate: "desc" },
+  })
 
   return NextResponse.json(prismaJson(meetings))
 }
@@ -65,6 +60,7 @@ export async function POST(req: NextRequest) {
       agenda,
       meetingTypeId: meetingTypeId ? parseInt(meetingTypeId) : null,
       status: "Planned",
+      externalParticipants: externalEmails ? JSON.stringify(externalEmails) : null,
       participants: {
         create: (participantIds ?? []).map((id: number) => ({ calisanId: id })),
       },
