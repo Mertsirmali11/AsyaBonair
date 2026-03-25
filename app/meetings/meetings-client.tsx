@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label"
 import { CalendarCheck2, ChevronLeft, ChevronRight } from "lucide-react"
 
 interface Calisan { id: number; isim: string | null; soyisim: string | null; departman: string | null }
-interface MeetingType { id: number; name: string }
+interface MeetingType { id: number; name: string; code: string }
 interface Meeting {
   id: number
   meetingNo: string
@@ -242,7 +242,9 @@ export function MeetingsClient({
                 </SelectTrigger>
                 <SelectContent>
                   {meetingTypes.map(t => (
-                    <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
+                    <SelectItem key={t.id} value={String(t.id)}>
+                      {t.name} ({t.code})
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>

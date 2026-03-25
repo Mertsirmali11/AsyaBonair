@@ -36,6 +36,7 @@ if (userDepartman !== "Quality") {
   const meetingTypes = meetingTypesRaw.map((t) => ({
     id: Number(t.id),
     name: t.name,
+    code: t.code,
   }))
 
   return (

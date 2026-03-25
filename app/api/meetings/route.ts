@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma-server"
 import { prismaJson } from "@/lib/prisma-json"
+import { allocateMeetingNo } from "@/lib/meeting-number"
 
 /** Align with dashboard "today" filters: DATE-only from yyyy-mm-dd as UTC midnight. */
 function parsePlannedDateInput(isoDateStr: string): Date {
@@ -53,48 +55,63 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { title, plannedDate, meetingTypeId, participantIds, isOnline, agenda } = body
 
-    const existing = await prisma.meeting.findMany({
-      select: { meetingNo: true },
-      orderBy: { id: "asc" },
-    })
-
-    const usedNumbers = existing
-      .map(m => parseInt(m.meetingNo?.replace("BON-ME-", "") ?? "0"))
-      .filter(n => !isNaN(n))
-
-    let nextNo = 1
-    while (usedNumbers.includes(nextNo)) {
-      nextNo++
+    if (
+      meetingTypeId === undefined ||
+      meetingTypeId === null ||
+      meetingTypeId === ""
+    ) {
+      return NextResponse.json(
+        { error: "Meeting type is required" },
+        { status: 400 }
+      )
     }
 
-    const meetingNo = `BON-ME-${String(nextNo).padStart(3, "0")}`
+    const typeId = BigInt(meetingTypeId)
+    const planned = parsePlannedDateInput(String(plannedDate))
 
-    const meeting = await prisma.meeting.create({
-      data: {
-        meetingNo,
-        title,
-        plannedDate: parsePlannedDateInput(String(plannedDate)),
-        initializedDate: new Date(),
-        isOnline: isOnline ?? false,
-        agenda,
-        meetingTypeId:
-          meetingTypeId !== undefined && meetingTypeId !== null && meetingTypeId !== ""
-            ? BigInt(meetingTypeId)
-            : null,
-        status: "Planned",
-        participants: {
-          create: participantIds.map((id: number) => ({ calisanId: id })),
-        },
-      },
-      include: {
-        meetingType: true,
-        participants: {
-          include: { calisan: { select: { isim: true, soyisim: true } } },
-        },
-      },
-    })
-
-    return NextResponse.json(prismaJson(meeting))
+    const maxAttempts = 8
+    let lastError: unknown
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const meetingNo = await allocateMeetingNo(prisma, typeId, planned)
+      try {
+        const meeting = await prisma.meeting.create({
+          data: {
+            meetingNo,
+            title,
+            plannedDate: planned,
+            initializedDate: new Date(),
+            isOnline: isOnline ?? false,
+            agenda,
+            meetingTypeId: typeId,
+            status: "Planned",
+            participants: {
+              create: participantIds.map((id: number) => ({ calisanId: id })),
+            },
+          },
+          include: {
+            meetingType: true,
+            participants: {
+              include: { calisan: { select: { isim: true, soyisim: true } } },
+            },
+          },
+        })
+        return NextResponse.json(prismaJson(meeting))
+      } catch (e) {
+        lastError = e
+        if (
+          e instanceof Prisma.PrismaClientKnownRequestError &&
+          e.code === "P2002"
+        ) {
+          continue
+        }
+        throw e
+      }
+    }
+    console.error("[POST /api/meetings] meetingNo collision after retries", lastError)
+    return NextResponse.json(
+      { error: "Could not assign a unique meeting number" },
+      { status: 409 }
+    )
   } catch (e) {
     console.error("[POST /api/meetings]", e)
     return NextResponse.json(

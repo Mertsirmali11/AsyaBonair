@@ -166,13 +166,13 @@ async function main() {
   ])
 
   const mtGuvenlik = await prisma.meetingType.create({
-    data: { name: "Güvenlik İncelemesi" },
+    data: { name: "Güvenlik İncelemesi", code: "TOPL" },
   })
   const mtOperasyon = await prisma.meetingType.create({
-    data: { name: "Operasyonel Brifing" },
+    data: { name: "Operasyonel Brifing", code: "OPR" },
   })
   const mtKalite = await prisma.meetingType.create({
-    data: { name: "Kalite Değerlendirme" },
+    data: { name: "Kalite Değerlendirme", code: "KAL" },
   })
 
   const today = new Date()
@@ -186,7 +186,7 @@ async function main() {
 
   const meeting1 = await prisma.meeting.create({
     data: {
-      meetingNo: "TOPL-2026-001",
+      meetingNo: `TOPL-${y}-001`,
       title: "Aylık güvenlik brifingi ve açık aksiyonlar",
       plannedDate: tomorrow,
       initializedDate: new Date(),
@@ -200,7 +200,7 @@ async function main() {
 
   const meeting2 = await prisma.meeting.create({
     data: {
-      meetingNo: "TOPL-2026-002",
+      meetingNo: `OPR-${y}-001`,
       title: "Kış operasyonları hazırlık toplantısı",
       plannedDate: inThreeDays,
       isOnline: true,
@@ -213,7 +213,7 @@ async function main() {
 
   const meeting3 = await prisma.meeting.create({
     data: {
-      meetingNo: "TOPL-2026-003",
+      meetingNo: `KAL-${y}-001`,
       title: "SMS kalite göstergeleri (KPI) değerlendirmesi",
       plannedDate: nextWeek,
       isOnline: false,
@@ -226,7 +226,7 @@ async function main() {
 
   const meeting4 = await prisma.meeting.create({
     data: {
-      meetingNo: "TOPL-2026-004",
+      meetingNo: `TOPL-${y}-002`,
       title: "Hızlı güvenlik turu (hangar)",
       plannedDate: new Date(y, m, d),
       initializedDate: new Date(y, m, d - 1),
