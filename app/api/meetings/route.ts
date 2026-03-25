@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
-import { Resend } from "resend"
 import { prismaJson } from "@/lib/prisma-json"
+import { Resend } from "resend"
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
@@ -29,14 +29,13 @@ export async function GET(req: NextRequest) {
     orderBy: { plannedDate: "desc" },
   })
 
-  return NextResponse.json(meetings)
+  return NextResponse.json(prismaJson(meetings))
 }
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
   const { title, plannedDate, meetingTypeId, participantIds, externalEmails, isOnline, agenda } = body
 
-  // Boşlukları doldur mantığı
   const existing = await prisma.meeting.findMany({
     select: { meetingNo: true },
     orderBy: { id: "asc" },
@@ -73,36 +72,33 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  // Sistemdeki katılımcıların maillerini topla
   const internalEmails = meeting.participants
     .map(p => p.calisan.email)
     .filter(Boolean) as string[]
 
-  // Dış katılımcı mailleri
   const allEmails = [...internalEmails, ...(externalEmails ?? [])]
 
-  // Mail gönder
   if (allEmails.length > 0) {
-    await resend.emails.send({
-      from: "Bonair <onboarding@resend.dev>",
-      to: allEmails,
-      subject: `📅 Meeting Invitation: ${title}`,
-      html: `
-        <h2>You are invited to a meeting</h2>
-        <p><strong>Title:</strong> ${title}</p>
-        <p><strong>Date:</strong> ${new Date(plannedDate).toLocaleDateString("tr-TR")}</p>
-        <p><strong>Meeting No:</strong> ${meetingNo}</p>
-        ${isOnline ? "<p><strong>Type:</strong> Online Meeting</p>" : ""}
-        ${agenda ? `<p><strong>Agenda:</strong> ${agenda}</p>` : ""}
-        <hr />
-        <small>Bonair SMS System</small>
-      `,
-    })
+    try {
+      await resend.emails.send({
+        from: "Bonair <onboarding@resend.dev>",
+        to: allEmails,
+        subject: `📅 Meeting Invitation: ${title}`,
+        html: `
+          <h2>You are invited to a meeting</h2>
+          <p><strong>Title:</strong> ${title}</p>
+          <p><strong>Date:</strong> ${new Date(plannedDate).toLocaleDateString("tr-TR")}</p>
+          <p><strong>Meeting No:</strong> ${meetingNo}</p>
+          ${isOnline ? "<p><strong>Type:</strong> Online Meeting</p>" : ""}
+          ${agenda ? `<p><strong>Agenda:</strong> ${agenda}</p>` : ""}
+          <hr />
+          <small>Bonair SMS System</small>
+        `,
+      })
+    } catch (e) {
+      console.error("Mail sending failed:", e)
+    }
   }
 
-  // GET'te:
-return NextResponse.json(prismaJson(meetings))
-
-// POST'ta:
-return NextResponse.json(prismaJson(meeting))
+  return NextResponse.json(prismaJson(meeting))
 }
