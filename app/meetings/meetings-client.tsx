@@ -5,7 +5,6 @@ import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
@@ -61,6 +60,8 @@ export function MeetingsClient({
   const [plannedDate, setPlannedDate] = useState("")
   const [meetingTypeId, setMeetingTypeId] = useState("")
   const [selectedParticipants, setSelectedParticipants] = useState<number[]>([])
+  const [externalEmail, setExternalEmail] = useState("")
+  const [externalParticipants, setExternalParticipants] = useState<string[]>([])
   const [isOnline, setIsOnline] = useState(false)
   const [agenda, setAgenda] = useState("")
   const [participantSearch, setParticipantSearch] = useState("")
@@ -71,22 +72,13 @@ export function MeetingsClient({
     try {
       const res = await fetch(`/api/meetings?year=${year}`)
       const text = await res.text()
-      if (!text) {
-        setMeetings([])
-        setPage(1)
-        return
-      }
+      if (!text) { setMeetings([]); setPage(1); return }
       const data = JSON.parse(text) as unknown
-      if (!res.ok || !Array.isArray(data)) {
-        setMeetings([])
-        setPage(1)
-        return
-      }
+      if (!res.ok || !Array.isArray(data)) { setMeetings([]); setPage(1); return }
       setMeetings(data as Meeting[])
       setPage(1)
     } catch {
-      setMeetings([])
-      setPage(1)
+      setMeetings([]); setPage(1)
     }
   }, [year])
 
@@ -105,19 +97,32 @@ export function MeetingsClient({
     )
   }
 
+  const addExternalEmail = () => {
+    if (externalEmail.includes("@") && !externalParticipants.includes(externalEmail)) {
+      setExternalParticipants(prev => [...prev, externalEmail])
+      setExternalEmail("")
+    }
+  }
+
   const resetForm = () => {
     setTitle(""); setPlannedDate(""); setMeetingTypeId("")
     setSelectedParticipants([]); setIsOnline(false); setAgenda("")
-    setParticipantSearch("")
+    setParticipantSearch(""); setExternalEmail(""); setExternalParticipants([])
   }
 
   const handleCreate = async () => {
-    if (!title || !plannedDate || !meetingTypeId || selectedParticipants.length === 0) return
+    if (!title || !plannedDate || !meetingTypeId) return
+    if (selectedParticipants.length === 0 && externalParticipants.length === 0) return
     setSaving(true)
     await fetch("/api/meetings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, plannedDate, meetingTypeId, participantIds: selectedParticipants, isOnline, agenda }),
+      body: JSON.stringify({
+        title, plannedDate, meetingTypeId,
+        participantIds: selectedParticipants,
+        externalEmails: externalParticipants,
+        isOnline, agenda
+      }),
     })
     setSaving(false)
     setOpen(false)
@@ -138,9 +143,7 @@ export function MeetingsClient({
       <div className="flex items-center gap-3">
         <span className="text-sm font-medium">Filter by Year:</span>
         <Select value={year} onValueChange={setYear}>
-          <SelectTrigger className="w-28">
-            <SelectValue />
-          </SelectTrigger>
+          <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
           <SelectContent>
             {YEARS.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}
           </SelectContent>
@@ -164,19 +167,11 @@ export function MeetingsClient({
           <TableBody>
             {paginated.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center text-gray-400 py-10">
-                  No meetings found.
-                </TableCell>
+                <TableCell colSpan={8} className="text-center text-gray-400 py-10">No meetings found.</TableCell>
               </TableRow>
             ) : paginated.map(m => (
-              <TableRow
-                key={m.id}
-                className="cursor-pointer hover:bg-gray-50"
-                onClick={() => router.push(`/meetings/${m.id}`)}
-              >
-                <TableCell>
-                  <button className="p-1 rounded hover:bg-gray-200">⋮</button>
-                </TableCell>
+              <TableRow key={m.id} className="cursor-pointer hover:bg-gray-50" onClick={() => router.push(`/meetings/${m.id}`)}>
+                <TableCell><button className="p-1 rounded hover:bg-gray-200">⋮</button></TableCell>
                 <TableCell className="font-mono text-sm">{m.meetingNo}</TableCell>
                 <TableCell className="max-w-xs truncate">{m.title}</TableCell>
                 <TableCell>{formatDateOnlyIstanbul(m.plannedDate)}</TableCell>
@@ -186,9 +181,7 @@ export function MeetingsClient({
                   {m.participants.map(p => `${p.calisan.isim} ${p.calisan.soyisim}`).join(", ")}
                 </TableCell>
                 <TableCell>
-                  <span className={`px-2 py-1 rounded text-xs font-semibold ${statusColor(m.status)}`}>
-                    {m.status}
-                  </span>
+                  <span className={`px-2 py-1 rounded text-xs font-semibold ${statusColor(m.status)}`}>{m.status}</span>
                 </TableCell>
               </TableRow>
             ))}
@@ -199,9 +192,7 @@ export function MeetingsClient({
           <div className="flex items-center gap-2 text-sm">
             <span>Page Size:</span>
             <Select value={String(pageSize)} onValueChange={v => { setPageSize(Number(v)); setPage(1) }}>
-              <SelectTrigger className="w-16 h-7">
-                <SelectValue />
-              </SelectTrigger>
+              <SelectTrigger className="w-16 h-7"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {PAGE_SIZE_OPTIONS.map(s => <SelectItem key={s} value={String(s)}>{s}</SelectItem>)}
               </SelectContent>
@@ -210,20 +201,16 @@ export function MeetingsClient({
           <div className="flex items-center gap-2 text-sm">
             <span>{meetings.length === 0 ? 0 : (page - 1) * pageSize + 1} to {Math.min(page * pageSize, meetings.length)} of {meetings.length}</span>
             <button onClick={() => setPage(1)} disabled={page === 1} className="p-1 disabled:opacity-40">«</button>
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="p-1 disabled:opacity-40">
-              <ChevronLeft size={16} />
-            </button>
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="p-1 disabled:opacity-40"><ChevronLeft size={16} /></button>
             <span>Page {page} of {totalPages}</span>
-            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="p-1 disabled:opacity-40">
-              <ChevronRight size={16} />
-            </button>
+            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="p-1 disabled:opacity-40"><ChevronRight size={16} /></button>
             <button onClick={() => setPage(totalPages)} disabled={page === totalPages} className="p-1 disabled:opacity-40">»</button>
           </div>
         </div>
       </div>
 
       <Dialog open={open} onOpenChange={v => { setOpen(v); if (!v) resetForm() }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create a New Meeting</DialogTitle>
           </DialogHeader>
@@ -239,20 +226,18 @@ export function MeetingsClient({
             <div>
               <Label>Meeting Type <span className="text-red-500">*</span></Label>
               <Select value={meetingTypeId} onValueChange={setMeetingTypeId}>
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="Select a type" />
-                </SelectTrigger>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select a type" /></SelectTrigger>
                 <SelectContent>
                   {meetingTypes.map(t => (
-                    <SelectItem key={t.id} value={String(t.id)}>
-                      {t.name} ({t.code})
-                    </SelectItem>
+                    <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Sistemdeki Katılımcılar */}
             <div>
-              <Label>Participators <span className="text-red-500">*</span></Label>
+              <Label>Participators</Label>
               <div className="relative mt-1">
                 <div
                   className="min-h-10 border rounded-md px-2 py-1 flex flex-wrap gap-1 items-center cursor-text bg-white focus-within:ring-2 focus-within:ring-ring"
@@ -289,9 +274,7 @@ export function MeetingsClient({
                           onClick={() => { toggleParticipant(c.id); setParticipantSearch("") }}
                         >
                           {selectedParticipants.includes(c.id) && <span className="text-blue-600">✓</span>}
-                          <span className={selectedParticipants.includes(c.id) ? "text-blue-700" : ""}>
-                            {c.isim} {c.soyisim}
-                          </span>
+                          <span className={selectedParticipants.includes(c.id) ? "text-blue-700" : ""}>{c.isim} {c.soyisim}</span>
                           {c.departman && <span className="text-gray-400 text-xs ml-auto">{c.departman}</span>}
                         </div>
                       ))}
@@ -303,6 +286,36 @@ export function MeetingsClient({
                 <p className="text-xs text-gray-500 mt-1">{selectedParticipants.length} selected</p>
               )}
             </div>
+
+            {/* Dış Katılımcılar */}
+            <div>
+              <Label>External Participants (Email)</Label>
+              <div className="flex gap-2 mt-1">
+                <Input
+                  placeholder="ornek@mail.com"
+                  value={externalEmail}
+                  onChange={e => setExternalEmail(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addExternalEmail() } }}
+                />
+                <button
+                  type="button"
+                  className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                  onClick={addExternalEmail}
+                >+</button>
+              </div>
+              {externalParticipants.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {externalParticipants.map(email => (
+                    <span key={email} className="flex items-center gap-1 bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full">
+                      {email}
+                      <button type="button" className="hover:text-red-500 font-bold"
+                        onClick={() => setExternalParticipants(prev => prev.filter(e => e !== email))}>×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="flex items-center gap-3 rounded-lg bg-yellow-50 px-3 py-2">
               <Label className="flex-1">Online Meeting</Label>
               <Switch checked={isOnline} onCheckedChange={setIsOnline} />
@@ -313,7 +326,7 @@ export function MeetingsClient({
             </div>
             <Button
               onClick={handleCreate}
-              disabled={saving || !title || !plannedDate || !meetingTypeId || selectedParticipants.length === 0}
+              disabled={saving || !title || !plannedDate || !meetingTypeId || (selectedParticipants.length === 0 && externalParticipants.length === 0)}
               className="bg-green-600 hover:bg-green-700 text-white"
             >
               {saving ? "Creating..." : "Create"}
