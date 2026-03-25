@@ -29,6 +29,7 @@ interface Meeting {
   initializedDate: string | null
   isOnline: boolean
   status: string
+  externalParticipants: string | null  // bunu ekle
   meetingType: MeetingType | null
   participants: { calisan: { isim: string | null; soyisim: string | null } }[]
 }
@@ -178,8 +179,11 @@ export function MeetingsClient({
                 <TableCell>{m.meetingType?.name ?? "—"}</TableCell>
                 <TableCell>{m.initializedDate ? formatDateOnlyIstanbul(m.initializedDate) : "—"}</TableCell>
                 <TableCell className="max-w-xs truncate">
-                  {m.participants.map(p => `${p.calisan.isim} ${p.calisan.soyisim}`).join(", ")}
-                </TableCell>
+  {[
+    ...m.participants.map(p => `${p.calisan.isim} ${p.calisan.soyisim}`),
+    ...(m.externalParticipants ? JSON.parse(m.externalParticipants) : [])
+  ].join(", ")}
+</TableCell>
                 <TableCell>
                   <span className={`px-2 py-1 rounded text-xs font-semibold ${statusColor(m.status)}`}>{m.status}</span>
                 </TableCell>
