@@ -87,6 +87,7 @@ model Calisan {
   ekstra2         String?   @db.VarChar(255) @map("ekstra_2")
   ekstra3         String?   @db.VarChar(255) @map("ekstra_3")
   createdAt       DateTime  @default(now()) @map("created_at")
+  announcements Announcement[]
   updatedAt       DateTime  @updatedAt @map("updated_at")
   hazardReports            HazardReport[]
   incomingPapers           IncomingPaper[]
@@ -225,4 +226,19 @@ model MeetingTask {
   assignee Calisan? @relation("MeetingTaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
 
   @@map("meeting_tasks")
+}
+
+
+// Duyurular Tablosu
+model Announcement {
+  id          Int       @id @default(autoincrement())
+  title       String    @db.VarChar(500)
+  content     String    @db.Text
+  createdBy   Int?      @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  creator Calisan? @relation(fields: [createdBy], references: [id])
+
+  @@map("announcements")
 }

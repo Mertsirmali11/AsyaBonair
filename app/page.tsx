@@ -2,11 +2,8 @@ import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { DashboardHome } from "@/components/dashboard-home"
 
-import data from "./dashboard/data.json"
-
 export default async function Home() {
   const session = await auth()
-
   if (!session) {
     redirect("/login")
   }
@@ -18,5 +15,5 @@ export default async function Home() {
     departman: session.user?.departman || null,
   }
 
-  return <DashboardHome user={user} tableData={data} />
+  return <DashboardHome user={user} />
 }
