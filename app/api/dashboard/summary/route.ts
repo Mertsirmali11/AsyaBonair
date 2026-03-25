@@ -1,21 +1,15 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
+import {
+  APP_TIMEZONE,
+  getCalendarYmdInTimeZone,
+  getTodayUtcRange,
+} from "@/lib/day-range"
 
 export async function GET() {
   try {
-    const today = new Date()
-    const start = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate()
-    )
-    const end = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate() + 1
-    )
-    const month = today.getMonth() + 1
-    const day = today.getDate()
+    const { start, end } = getTodayUtcRange(APP_TIMEZONE)
+    const { month, day } = getCalendarYmdInTimeZone(APP_TIMEZONE)
 
     const [announcements, meetings, hazards, calisanlar] = await Promise.all([
       prisma.announcement.findMany({
@@ -50,7 +44,7 @@ export async function GET() {
     const birthdays = calisanlar.filter((c) => {
       if (!c.dogumTarihi) return false
       const d = new Date(c.dogumTarihi)
-      return d.getMonth() + 1 === month && d.getDate() === day
+      return d.getUTCMonth() + 1 === month && d.getUTCDate() === day
     })
 
     return NextResponse.json({

@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
+import { APP_TIMEZONE, getTodayUtcRange } from "@/lib/day-range"
 
 export async function GET() {
-  const today = new Date()
-  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1)
+  const { start, end } = getTodayUtcRange(APP_TIMEZONE)
 
   const hazards = await prisma.hazardReport.findMany({
     where: {

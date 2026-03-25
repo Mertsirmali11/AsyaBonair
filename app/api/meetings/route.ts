@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
 import { prismaJson } from "@/lib/prisma-json"
 
+/** Align with dashboard "today" filters: DATE-only from yyyy-mm-dd as UTC midnight. */
+function parsePlannedDateInput(isoDateStr: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDateStr.trim())
+  if (!m) return new Date(isoDateStr)
+  const y = Number(m[1])
+  const mo = Number(m[2])
+  const d = Number(m[3])
+  return new Date(Date.UTC(y, mo - 1, d, 0, 0, 0, 0))
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
@@ -63,7 +73,7 @@ export async function POST(req: NextRequest) {
       data: {
         meetingNo,
         title,
-        plannedDate: new Date(plannedDate),
+        plannedDate: parsePlannedDateInput(String(plannedDate)),
         initializedDate: new Date(),
         isOnline: isOnline ?? false,
         agenda,
