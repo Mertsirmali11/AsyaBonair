@@ -231,6 +231,7 @@ model Meeting {
   actualDate      DateTime? @map("actual_date") @db.Date
   filePath        String?   @map("file_path") @db.VarChar(1000)
   fileName        String?   @map("file_name") @db.VarChar(255)
+  externalParticipants String? @map("external_participants") @db.Text
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
