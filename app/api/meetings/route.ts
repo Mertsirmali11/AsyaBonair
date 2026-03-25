@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
       initializedDate: new Date(),
       isOnline: isOnline ?? false,
       agenda,
-      meetingTypeId: meetingTypeId ? parseInt(meetingTypeId) : null,
+      meetingType: meetingTypeId ? { connect: { id: parseInt(meetingTypeId) } } : undefined,
       status: "Planned",
       externalParticipants: externalEmails ? JSON.stringify(externalEmails) : null,
       participants: {
