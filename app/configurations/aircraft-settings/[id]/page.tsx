@@ -1,5 +1,6 @@
 import { redirect, notFound } from "next/navigation"
 import { auth } from "@/auth"
+import { canAccessConfigurationsArea } from "@/lib/department-access"
 import { prisma } from "@/lib/prisma-server"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { AircraftDetailClient } from "./aircraft-detail-client"
@@ -9,6 +10,10 @@ export default async function AircraftDetailPage({ params }: { params: Promise<{
   
   const session = await auth()
   if (!session) redirect("/login")
+
+  if (!canAccessConfigurationsArea(session.user?.departman)) {
+    redirect("/dashboard")
+  }
 
   const user = {
     name: session.user?.name || "User",

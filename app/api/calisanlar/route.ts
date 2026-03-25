@@ -2,7 +2,6 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
 import bcrypt from "bcryptjs"
 
-// GET - Get all employees
 export async function GET() {
   try {
     const calisanlar = await prisma.calisan.findMany({
@@ -48,21 +47,19 @@ export async function GET() {
   }
 }
 
-// POST - Add new employee
 export async function POST(request: Request) {
   try {
     const body = await request.json()
     const isPilot = body.departman === "Pilot"
-    const pilotRanks = ["Kaptan", "F/O"]
+    const pilotRanks = ["Captain", "F/O"]
 
     if (isPilot && !pilotRanks.includes(body.ekstra3)) {
       return NextResponse.json(
-        { error: "Pilot mevki alanı sadece Kaptan veya F/O olabilir" },
+        { error: "Pilot position must be Captain or F/O" },
         { status: 400 }
       )
     }
-    
-    // Hash password
+
     const hashedPassword = await bcrypt.hash(body.password || "123456", 10)
 
     const calisan = await prisma.calisan.create({

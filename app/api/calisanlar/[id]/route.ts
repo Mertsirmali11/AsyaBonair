@@ -2,7 +2,6 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
 import bcrypt from "bcryptjs"
 
-// GET - Get single employee
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -30,7 +29,6 @@ export async function GET(
   }
 }
 
-// PUT - Update employee
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -39,16 +37,15 @@ export async function PUT(
     const { id } = await params
     const body = await request.json()
     const isPilot = body.departman === "Pilot"
-    const pilotRanks = ["Kaptan", "F/O"]
+    const pilotRanks = ["Captain", "F/O"]
 
     if (isPilot && !pilotRanks.includes(body.ekstra3)) {
       return NextResponse.json(
-        { error: "Pilot mevki alanı sadece Kaptan veya F/O olabilir" },
+        { error: "Pilot position must be Captain or F/O" },
         { status: 400 }
       )
     }
 
-    // Prepare update data
     let updateData: any = {
       isim: body.isim,
       soyisim: body.soyisim,
@@ -76,7 +73,6 @@ export async function PUT(
       ekstra3: body.ekstra3,
     }
 
-    // If password is being changed
     if (body.password && body.password.trim() !== "") {
       updateData.password = await bcrypt.hash(body.password, 10)
     }
@@ -104,7 +100,6 @@ export async function PUT(
   }
 }
 
-// DELETE - Delete employee
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }

@@ -1,18 +1,22 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
 import { auth } from "@/auth"
+import { canAccessConfigurationsArea } from "@/lib/department-access"
 import { uploadPdfToStorage } from "@/lib/supabase-storage"
 
-// GET - Get all outgoing correspondences
 export async function GET() {
   try {
     const session = await auth()
-    
+
     if (!session) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
       )
+    }
+
+    if (!canAccessConfigurationsArea(session.user?.departman)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
     const correspondences = await prisma.outgoingCorrespondence.findMany({
@@ -40,11 +44,10 @@ export async function GET() {
   }
 }
 
-// POST - Create new outgoing correspondence
 export async function POST(request: Request) {
   try {
     const session = await auth()
-    
+
     if (!session) {
       return NextResponse.json(
         { error: "Unauthorized" },
@@ -52,8 +55,12 @@ export async function POST(request: Request) {
       )
     }
 
+    if (!canAccessConfigurationsArea(session.user?.departman)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
     const formData = await request.formData()
-    
+
     const to = formData.get("to") as string
     const subject = formData.get("subject") as string
     const dateStr = formData.get("date") as string
@@ -61,7 +68,6 @@ export async function POST(request: Request) {
     const createdBy = formData.get("createdBy") as string
     const pdfFile = formData.get("pdf") as File | null
 
-    // Validate required fields
     if (!to || !subject || !dateStr) {
       return NextResponse.json(
         { error: "To, Subject, and Date are required" },
@@ -69,7 +75,6 @@ export async function POST(request: Request) {
       )
     }
 
-    // Validate date
     const date = new Date(dateStr)
     if (isNaN(date.getTime())) {
       return NextResponse.json(
@@ -78,7 +83,6 @@ export async function POST(request: Request) {
       )
     }
 
-    // Generate paper number (BON-OC-001, BON-OC-002, etc.)
     const lastCorrespondence = await prisma.outgoingCorrespondence.findFirst({
       orderBy: { id: "desc" },
       select: { paperNo: true },
@@ -98,12 +102,10 @@ export async function POST(request: Request) {
       paperNo = "BON-OC-001"
     }
 
-    // Handle PDF file upload to Supabase Storage
     let pdfPath: string | null = null
     let pdfFileName: string | null = null
 
     if (pdfFile && pdfFile.size > 0) {
-      // Validate file size (50MB)
       const maxSize = 50 * 1024 * 1024
       if (pdfFile.size > maxSize) {
         return NextResponse.json(
@@ -112,7 +114,6 @@ export async function POST(request: Request) {
         )
       }
 
-      // Validate file type
       if (pdfFile.type !== "application/pdf") {
         return NextResponse.json(
           { error: "Only PDF files are allowed" },
@@ -121,10 +122,8 @@ export async function POST(request: Request) {
       }
 
       try {
-        // Upload to Supabase Storage (use "outgoing" prefix for path)
-        // We'll modify the upload function to accept a prefix
         const uploadResult = await uploadPdfToStorage(pdfFile, `outgoing/${paperNo}`)
-        
+
         if (!uploadResult) {
           return NextResponse.json(
             { error: "Failed to upload file to storage" },
@@ -132,7 +131,6 @@ export async function POST(request: Request) {
           )
         }
 
-        // Store storage path and filename in database
         pdfPath = uploadResult.path
         pdfFileName = uploadResult.fileName
       } catch (fileError: any) {
@@ -144,7 +142,6 @@ export async function POST(request: Request) {
       }
     }
 
-    // Create correspondence in database
     const correspondence = await prisma.outgoingCorrespondence.create({
       data: {
         paperNo: paperNo,
@@ -178,31 +175,28 @@ export async function POST(request: Request) {
       name: error.name,
       stack: error.stack,
     })
-    
-    // Handle Prisma errors
+
     if (error.code === "P2003") {
       return NextResponse.json(
         { error: "Invalid creator ID" },
         { status: 400 }
       )
     }
-    
+
     if (error.code === "P2002") {
       return NextResponse.json(
         { error: "Paper number already exists" },
         { status: 400 }
       )
     }
-    
-    // Return detailed error message in development, generic in production
-    const errorMessage = process.env.NODE_ENV === "development" 
+
+    const errorMessage = process.env.NODE_ENV === "development"
       ? error.message || "Could not create outgoing correspondence"
       : "Could not create outgoing correspondence"
-    
+
     return NextResponse.json(
       { error: errorMessage },
       { status: 500 }
     )
   }
 }
-

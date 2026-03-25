@@ -31,7 +31,6 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 
-// Kullanıcı adından baş harfleri al
 function getInitials(name: string): string {
   return name
     .split(" ")

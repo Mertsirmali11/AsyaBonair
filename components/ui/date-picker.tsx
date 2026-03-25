@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { format, parse, isValid } from "date-fns"
-import { tr } from "date-fns/locale"
+import { enUS } from "date-fns/locale"
 import { CalendarIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/popover"
 
 interface DatePickerProps {
-  value?: string // dd.mm.yyyy format
+  value?: string
   onChange?: (value: string) => void
   placeholder?: string
   disabled?: boolean
@@ -29,14 +29,12 @@ export function DatePicker({
 }: DatePickerProps) {
   const [open, setOpen] = React.useState(false)
 
-  // Convert dd.mm.yyyy string to Date object
   const parseDate = (dateStr: string | undefined): Date | undefined => {
     if (!dateStr) return undefined
     const parsed = parse(dateStr, "dd.MM.yyyy", new Date())
     return isValid(parsed) ? parsed : undefined
   }
 
-  // Convert Date object to dd.mm.yyyy string
   const formatDate = (date: Date): string => {
     return format(date, "dd.MM.yyyy")
   }
@@ -70,7 +68,7 @@ export function DatePicker({
           mode="single"
           selected={selectedDate}
           onSelect={handleSelect}
-          locale={tr}
+          locale={enUS}
           initialFocus
         />
       </PopoverContent>

@@ -130,7 +130,7 @@ export function AircraftDetailClient({
   }
 
   const deleteDoc = async (doc: Doc) => {
-    if (!confirm(`"${doc.fileName}" silinsin mi?`)) return
+    if (!confirm(`Delete "${doc.fileName}"?`)) return
     await fetch(`/api/aircraft/${aircraft.id}/documents/${doc.id}`, { method: "DELETE" })
     fetchDocs()
   }
@@ -158,10 +158,10 @@ export function AircraftDetailClient({
                 </div>
                 <div className="flex gap-4 mt-1 text-xs text-gray-500 flex-wrap">
                   {doc.fileSize && <span>{formatSize(doc.fileSize)}</span>}
-                  {doc.validFrom && <span>From: {new Date(doc.validFrom).toLocaleDateString("tr-TR")}</span>}
-                  {doc.validUntil && <span>Until: {new Date(doc.validUntil).toLocaleDateString("tr-TR")}</span>}
+                  {doc.validFrom && <span>From: {new Date(doc.validFrom).toLocaleDateString("en-US")}</span>}
+                  {doc.validUntil && <span>Until: {new Date(doc.validUntil).toLocaleDateString("en-US")}</span>}
                   {doc.uploader && <span>By: {doc.uploader.isim} {doc.uploader.soyisim}</span>}
-                  <span>{new Date(doc.createdAt).toLocaleDateString("tr-TR")}</span>
+                  <span>{new Date(doc.createdAt).toLocaleDateString("en-US")}</span>
                 </div>
               </div>
             </div>

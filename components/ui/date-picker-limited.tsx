@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { format, parse, isValid, isAfter, startOfDay } from "date-fns"
-import { tr } from "date-fns/locale"
+import { enUS } from "date-fns/locale"
 import { CalendarIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/popover"
 
 interface DatePickerLimitedProps {
-  value?: string // dd.mm.yyyy format
+  value?: string
   onChange?: (value: string) => void
   placeholder?: string
   disabled?: boolean
@@ -29,24 +29,20 @@ export function DatePickerLimited({
 }: DatePickerLimitedProps) {
   const [open, setOpen] = React.useState(false)
 
-  // Convert dd.mm.yyyy string to Date object
   const parseDate = (dateStr: string | undefined): Date | undefined => {
     if (!dateStr) return undefined
     const parsed = parse(dateStr, "dd.MM.yyyy", new Date())
     return isValid(parsed) ? parsed : undefined
   }
 
-  // Convert Date object to dd.mm.yyyy string
   const formatDate = (date: Date): string => {
     return format(date, "dd.MM.yyyy")
   }
 
   const selectedDate = parseDate(value)
-  
-  // Today's date (start of day)
+
   const today = startOfDay(new Date())
 
-  // Disable dates after today (tomorrow and future dates)
   const isDateDisabled = (date: Date) => {
     return isAfter(startOfDay(date), today)
   }
@@ -78,7 +74,7 @@ export function DatePickerLimited({
           mode="single"
           selected={selectedDate}
           onSelect={handleSelect}
-          locale={tr}
+          locale={enUS}
           initialFocus
           disabled={isDateDisabled}
         />

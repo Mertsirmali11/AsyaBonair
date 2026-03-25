@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
+import { canAccessConfigurationsArea } from "@/lib/department-access"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { IncomingPaperForm } from "@/components/incoming-paper-form"
 
@@ -8,6 +9,10 @@ export default async function IncomingPaperPage() {
 
   if (!session) {
     redirect("/login")
+  }
+
+  if (!canAccessConfigurationsArea(session.user?.departman)) {
+    redirect("/dashboard")
   }
 
   const user = {

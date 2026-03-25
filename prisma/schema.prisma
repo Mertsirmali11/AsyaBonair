@@ -94,6 +94,7 @@ model Calisan {
   outgoingCorrespondences  OutgoingCorrespondence[]
   meetingParticipations    MeetingParticipant[]
   meetingTasksAssigned     MeetingTask[]          @relation("MeetingTaskAssignee")
+  aircraftDocumentsUploaded AircraftDocument[]    @relation("AircraftDocumentUploader")
 
   @@map("calisanlar")
 }
@@ -111,9 +112,26 @@ model HazardReport {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  reporter Calisan? @relation(fields: [reportedBy], references: [id], onDelete: Cascade)
+  reporter     Calisan?            @relation(fields: [reportedBy], references: [id], onDelete: Cascade)
+  attachments  HazardAttachment[]
 
   @@map("hazard_reports")
+}
+
+model HazardAttachment {
+  id             Int      @id @default(autoincrement())
+  hazardReportId Int      @map("hazard_report_id")
+  storagePath    String   @map("storage_path") @db.VarChar(1000)
+  fileName       String   @map("file_name") @db.VarChar(255)
+  mimeType       String   @map("mime_type") @db.VarChar(200)
+  kind           String   @db.VarChar(20)
+  publicUrl      String   @map("public_url") @db.VarChar(2000)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  hazardReport HazardReport @relation(fields: [hazardReportId], references: [id], onDelete: Cascade)
+
+  @@index([hazardReportId])
+  @@map("hazard_attachments")
 }
 
 // Incoming Correspondences Tablosu
@@ -156,11 +174,33 @@ model OutgoingCorrespondence {
 
 // Uçaklar Tablosu
 model Ucaklar {
-  id       Int    @id @default(autoincrement())
-  register String @db.VarChar(100)
-  msn      String @db.VarChar(100)
+  id        Int                 @id @default(autoincrement())
+  register  String              @db.VarChar(100)
+  msn       String              @db.VarChar(100)
+  documents AircraftDocument[]
 
   @@map("ucaklar")
+}
+
+model AircraftDocument {
+  id          Int       @id @default(autoincrement())
+  aircraftId  Int       @map("aircraft_id")
+  category    String    @db.VarChar(50)
+  docType     String    @map("doc_type") @db.VarChar(200)
+  fileName    String    @map("file_name") @db.VarChar(255)
+  storagePath String    @map("storage_path") @db.VarChar(1000)
+  fileSize    Int?      @map("file_size")
+  validFrom   DateTime? @map("valid_from") @db.Date
+  validUntil  DateTime? @map("valid_until") @db.Date
+  isArchived  Boolean   @default(false) @map("is_archived")
+  uploadedBy  Int?      @map("uploaded_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  aircraft Ucaklar @relation(fields: [aircraftId], references: [id], onDelete: Cascade)
+  uploader Calisan? @relation("AircraftDocumentUploader", fields: [uploadedBy], references: [id], onDelete: SetNull)
+
+  @@index([aircraftId])
+  @@map("aircraft_documents")
 }
 
 // Toplantı türleri (Supabase’te mevcut tablo: bigint id, text name, created_at)

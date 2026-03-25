@@ -31,7 +31,6 @@ export function OutgoingCorrespondenceForm({ userId }: OutgoingCorrespondenceFor
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
-      // Check file size (50MB = 50 * 1024 * 1024 bytes)
       const maxSize = 50 * 1024 * 1024
       if (file.size > maxSize) {
         setError("File size exceeds 50MB limit")
@@ -39,7 +38,6 @@ export function OutgoingCorrespondenceForm({ userId }: OutgoingCorrespondenceFor
         e.target.value = ""
         return
       }
-      // Check if file is PDF
       if (file.type !== "application/pdf") {
         setError("Only PDF files are allowed")
         setPdfFile(null)
@@ -58,7 +56,6 @@ export function OutgoingCorrespondenceForm({ userId }: OutgoingCorrespondenceFor
     setSuccess(false)
 
     try {
-      // Convert dd.mm.yyyy to YYYY-MM-DD for API
       const dateParts = date.split(".")
       if (dateParts.length !== 3) {
         setError("Invalid date format")
@@ -68,7 +65,6 @@ export function OutgoingCorrespondenceForm({ userId }: OutgoingCorrespondenceFor
       const [day, month, year] = dateParts
       const isoDate = `${year}-${month}-${day}`
 
-      // Create FormData for file upload
       const formData = new FormData()
       formData.append("to", to)
       formData.append("subject", subject)
@@ -96,13 +92,11 @@ export function OutgoingCorrespondenceForm({ userId }: OutgoingCorrespondenceFor
       setDate("")
       setContent("")
       setPdfFile(null)
-      // Reset file input
       const fileInput = document.getElementById("pdf-file") as HTMLInputElement
       if (fileInput) {
         fileInput.value = ""
       }
       
-      // Reload page to refresh table
       setTimeout(() => {
         window.location.reload()
       }, 1000)

@@ -1,18 +1,22 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
 import { auth } from "@/auth"
+import { canAccessConfigurationsArea } from "@/lib/department-access"
 import { uploadPdfToStorage } from "@/lib/supabase-storage"
 
-// GET - Get all incoming correspondences
 export async function GET() {
   try {
     const session = await auth()
-    
+
     if (!session) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
       )
+    }
+
+    if (!canAccessConfigurationsArea(session.user?.departman)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
     const papers = await prisma.incomingPaper.findMany({
@@ -40,11 +44,10 @@ export async function GET() {
   }
 }
 
-// POST - Create new incoming correspondence
 export async function POST(request: Request) {
   try {
     const session = await auth()
-    
+
     if (!session) {
       return NextResponse.json(
         { error: "Unauthorized" },
@@ -52,8 +55,12 @@ export async function POST(request: Request) {
       )
     }
 
+    if (!canAccessConfigurationsArea(session.user?.departman)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
     const formData = await request.formData()
-    
+
     const from = formData.get("from") as string
     const subject = formData.get("subject") as string
     const dateStr = formData.get("date") as string
@@ -61,7 +68,6 @@ export async function POST(request: Request) {
     const createdBy = formData.get("createdBy") as string
     const pdfFile = formData.get("pdf") as File | null
 
-    // Validate required fields
     if (!from || !subject || !dateStr) {
       return NextResponse.json(
         { error: "From, Subject, and Date are required" },
@@ -69,7 +75,6 @@ export async function POST(request: Request) {
       )
     }
 
-    // Validate date
     const date = new Date(dateStr)
     if (isNaN(date.getTime())) {
       return NextResponse.json(
@@ -78,7 +83,6 @@ export async function POST(request: Request) {
       )
     }
 
-    // Generate paper number (BON-IP-001, BON-IP-002, etc.)
     const lastPaper = await prisma.incomingPaper.findFirst({
       orderBy: { id: "desc" },
       select: { paperNo: true },
@@ -98,12 +102,10 @@ export async function POST(request: Request) {
       paperNo = "BON-IP-001"
     }
 
-    // Handle PDF file upload to Supabase Storage
     let pdfPath: string | null = null
     let pdfFileName: string | null = null
 
     if (pdfFile && pdfFile.size > 0) {
-      // Validate file size (50MB)
       const maxSize = 50 * 1024 * 1024
       if (pdfFile.size > maxSize) {
         return NextResponse.json(
@@ -112,7 +114,6 @@ export async function POST(request: Request) {
         )
       }
 
-      // Validate file type
       if (pdfFile.type !== "application/pdf") {
         return NextResponse.json(
           { error: "Only PDF files are allowed" },
@@ -121,9 +122,8 @@ export async function POST(request: Request) {
       }
 
       try {
-        // Upload to Supabase Storage
         const uploadResult = await uploadPdfToStorage(pdfFile, paperNo)
-        
+
         if (!uploadResult) {
           return NextResponse.json(
             { error: "Failed to upload file to storage" },
@@ -131,9 +131,6 @@ export async function POST(request: Request) {
           )
         }
 
-        // Store storage path and filename in database
-        // pdfPath will be the storage path (e.g., "BON-IP-001/filename.pdf")
-        // We'll use this to retrieve the file later
         pdfPath = uploadResult.path
         pdfFileName = uploadResult.fileName
       } catch (fileError: any) {
@@ -145,7 +142,6 @@ export async function POST(request: Request) {
       }
     }
 
-    // Create paper in database
     const paper = await prisma.incomingPaper.create({
       data: {
         paperNo: paperNo,
@@ -179,31 +175,28 @@ export async function POST(request: Request) {
       name: error.name,
       stack: error.stack,
     })
-    
-    // Handle Prisma errors
+
     if (error.code === "P2003") {
       return NextResponse.json(
         { error: "Invalid creator ID" },
         { status: 400 }
       )
     }
-    
+
     if (error.code === "P2002") {
       return NextResponse.json(
         { error: "Paper number already exists" },
         { status: 400 }
       )
     }
-    
-    // Return detailed error message in development, generic in production
-    const errorMessage = process.env.NODE_ENV === "development" 
+
+    const errorMessage = process.env.NODE_ENV === "development"
       ? error.message || "Could not create incoming correspondence"
       : "Could not create incoming correspondence"
-    
+
     return NextResponse.json(
       { error: errorMessage },
       { status: 500 }
     )
   }
 }
-

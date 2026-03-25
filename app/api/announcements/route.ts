@@ -3,7 +3,11 @@ import { prisma } from "@/lib/prisma-server"
 import { auth } from "@/auth"
 import { Resend } from "resend"
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+function getResend(): Resend | null {
+  const key = process.env.RESEND_API_KEY
+  if (!key) return null
+  return new Resend(key)
+}
 
 export async function GET() {
   const announcements = await prisma.announcement.findMany({
@@ -42,23 +46,23 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  // Tüm çalışanlara mail gönder
   const calisanlar = await prisma.calisan.findMany({
     select: { email: true },
   })
 
   const emails = calisanlar.map(c => c.email).filter(Boolean)
 
-  if (emails.length > 0) {
+  const resend = getResend()
+  if (emails.length > 0 && resend) {
     await resend.emails.send({
       from: "Bonair <onboarding@resend.dev>",
       to: emails,
-      subject: `📢 Yeni Duyuru: ${title}`,
+      subject: `📢 New announcement: ${title}`,
       html: `
         <h2>${title}</h2>
         <p>${content}</p>
         <hr />
-        <small>Bu duyuru Bonair SMS sistemi tarafından gönderilmiştir.</small>
+        <small>Sent by the Bonair SMS portal.</small>
       `,
     })
   }

@@ -111,7 +111,7 @@ export function TasksClient() {
                     ? "text-red-500 font-semibold text-sm"
                     : "text-sm"
                 }>
-                  {task.dueDate ? new Date(task.dueDate).toLocaleDateString("tr-TR") : "—"}
+                  {task.dueDate ? new Date(task.dueDate).toLocaleDateString("en-US") : "—"}
                 </TableCell>
                 <TableCell>
                   <Select value={task.status} onValueChange={v => updateStatus(task.id, v)}>

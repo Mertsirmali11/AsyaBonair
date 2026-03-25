@@ -70,7 +70,6 @@ export function IncomingCorrespondencesTable() {
   const [sortField, setSortField] = useState<SortField>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
 
-  // Fetch incoming papers
   const fetchPapers = async () => {
     try {
       const response = await fetch("/api/incoming-papers")
@@ -89,7 +88,6 @@ export function IncomingCorrespondencesTable() {
     fetchPapers()
   }, [])
 
-  // Date formatting (dd.mm.yyyy)
   const formatDate = (dateString: string | null) => {
     if (!dateString) return "-"
     try {
@@ -103,7 +101,6 @@ export function IncomingCorrespondencesTable() {
     }
   }
 
-  // Handle sort
   const handleSort = (field: SortField) => {
     if (!field) return
     
@@ -122,7 +119,6 @@ export function IncomingCorrespondencesTable() {
     }
   }
 
-  // Get sort icon
   const getSortIcon = (field: SortField) => {
     if (!field) return null
     if (sortField !== field) {
@@ -134,11 +130,9 @@ export function IncomingCorrespondencesTable() {
     return <IconSortDescending className="h-4 w-4 text-gray-700" />
   }
 
-  // Filter and sort data
   const filteredAndSortedData = useMemo(() => {
     let data = [...papers]
 
-    // Filter by search term
     if (searchTerm) {
       const lowerSearch = searchTerm.toLowerCase()
       data = data.filter((paper) => {
@@ -154,7 +148,6 @@ export function IncomingCorrespondencesTable() {
       })
     }
 
-    // Sort data
     if (sortField && sortDirection) {
       data.sort((a, b) => {
         let aValue: string | number
@@ -181,22 +174,18 @@ export function IncomingCorrespondencesTable() {
     return data
   }, [papers, searchTerm, sortField, sortDirection])
 
-  // Pagination
   const totalEntries = filteredAndSortedData.length
   const totalPages = Math.ceil(totalEntries / itemsPerPage)
   const startIndex = (currentPage - 1) * itemsPerPage
   const endIndex = Math.min(startIndex + itemsPerPage, totalEntries)
   const paginatedPapers = filteredAndSortedData.slice(startIndex, endIndex)
 
-  // Reset to page 1 when search changes
   useEffect(() => {
     setCurrentPage(1)
   }, [searchTerm])
 
-  // Get PDF URL
   const getPdfUrl = (paper: IncomingCorrespondence) => {
     if (!paper.pdfPath) return null
-    // pdfPath format: "BON-IP-001/filename.pdf"
     const parts = paper.pdfPath.split("/")
     const paperNo = parts[0]
     const fileName = parts[1]
@@ -205,12 +194,10 @@ export function IncomingCorrespondencesTable() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">Correspondences</h2>
       </div>
 
-      {/* Search Bar */}
       <div className="flex items-center gap-2">
         <Label htmlFor="search" className="text-sm font-medium whitespace-nowrap">
           Search:
@@ -225,7 +212,6 @@ export function IncomingCorrespondencesTable() {
         />
       </div>
 
-      {/* Table */}
       <div className="rounded-lg border bg-card">
         <div className="overflow-x-auto">
           <Table className="border-collapse">
@@ -303,14 +289,11 @@ export function IncomingCorrespondencesTable() {
           </Table>
         </div>
 
-        {/* Pagination Footer */}
         <div className="flex items-center justify-between px-4 py-3 border-t bg-white">
-          {/* Showing entries info */}
           <div className="text-sm text-muted-foreground">
             Showing {totalEntries === 0 ? 0 : startIndex + 1} to {endIndex} of {totalEntries} entries
           </div>
 
-          {/* Pagination controls */}
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground whitespace-nowrap">{itemsPerPage} entries per page</span>

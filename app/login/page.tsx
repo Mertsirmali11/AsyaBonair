@@ -49,7 +49,6 @@ export default function LoginPage() {
     <div className="flex min-h-svh items-center justify-center bg-gray-100 p-6">
       <div className="w-full max-w-md">
         <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-lg">
-          {/* Logo Container */}
           <div className="mb-8 flex justify-center">
             <div className="rounded-lg border border-gray-200 px-12 py-4">
               <Image
@@ -63,7 +62,6 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Login Form */}
           <form onSubmit={onSubmit} className="space-y-5">
             {error && (
               <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
@@ -101,7 +99,6 @@ export default function LoginPage() {
               />
             </div>
 
-            {/* Remember Me & Forgot Password */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Checkbox id="remember" className="border-gray-400" />
@@ -120,7 +117,6 @@ export default function LoginPage() {
               </a>
             </div>
 
-            {/* Login Button */}
             <Button 
               type="submit" 
               className="w-full h-11 bg-slate-700 hover:bg-slate-800 text-white font-medium"
@@ -129,7 +125,6 @@ export default function LoginPage() {
               {isLoading ? "Logging in..." : "Login"}
             </Button>
 
-            {/* Sign Up Link */}
             <div className="text-center text-sm text-gray-600">
               Don&apos;t have an account?{" "}
               <a 

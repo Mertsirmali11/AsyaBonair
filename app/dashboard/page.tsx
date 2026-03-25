@@ -9,7 +9,7 @@ export default async function Page() {
   }
 
   const user = {
-    name: session.user?.name || "Kullanıcı",
+    name: session.user?.name || "User",
     email: session.user?.email || "",
     avatar: session.user?.image || "",
     departman: session.user?.departman || null,

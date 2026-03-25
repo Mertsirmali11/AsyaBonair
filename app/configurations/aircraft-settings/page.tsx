@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
+import { canAccessConfigurationsArea } from "@/lib/department-access"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { AircraftSettingsTable } from "@/components/aircraft-settings-table"
 
@@ -7,8 +8,7 @@ export default async function AircraftSettingsPage() {
   const session = await auth()
   if (!session) redirect("/login")
 
-  const userDepartman = session.user?.departman
-  if (userDepartman !== "Human Resources" && userDepartman !== "Quality") {
+  if (!canAccessConfigurationsArea(session.user?.departman)) {
     redirect("/dashboard")
   }
 

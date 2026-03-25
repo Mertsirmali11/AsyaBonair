@@ -70,7 +70,6 @@ export function OutgoingCorrespondencesTable() {
   const [sortField, setSortField] = useState<SortField>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
 
-  // Fetch outgoing correspondences
   const fetchCorrespondences = async () => {
     try {
       const response = await fetch("/api/outgoing-correspondences")
@@ -89,7 +88,6 @@ export function OutgoingCorrespondencesTable() {
     fetchCorrespondences()
   }, [])
 
-  // Date formatting (dd.mm.yyyy)
   const formatDate = (dateString: string | null) => {
     if (!dateString) return "-"
     try {
@@ -103,7 +101,6 @@ export function OutgoingCorrespondencesTable() {
     }
   }
 
-  // Handle sort
   const handleSort = (field: SortField) => {
     if (!field) return
     
@@ -122,7 +119,6 @@ export function OutgoingCorrespondencesTable() {
     }
   }
 
-  // Get sort icon
   const getSortIcon = (field: SortField) => {
     if (!field) return null
     if (sortField !== field) {
@@ -134,11 +130,9 @@ export function OutgoingCorrespondencesTable() {
     return <IconSortDescending className="h-4 w-4 text-gray-700" />
   }
 
-  // Filter and sort data
   const filteredAndSortedData = useMemo(() => {
     let data = [...correspondences]
 
-    // Filter by search term
     if (searchTerm) {
       const lowerSearch = searchTerm.toLowerCase()
       data = data.filter((correspondence) => {
@@ -154,7 +148,6 @@ export function OutgoingCorrespondencesTable() {
       })
     }
 
-    // Sort data
     if (sortField && sortDirection) {
       data.sort((a, b) => {
         let aValue: string | number
@@ -181,36 +174,30 @@ export function OutgoingCorrespondencesTable() {
     return data
   }, [correspondences, searchTerm, sortField, sortDirection])
 
-  // Pagination
   const totalEntries = filteredAndSortedData.length
   const totalPages = Math.ceil(totalEntries / itemsPerPage)
   const startIndex = (currentPage - 1) * itemsPerPage
   const endIndex = Math.min(startIndex + itemsPerPage, totalEntries)
   const paginatedCorrespondences = filteredAndSortedData.slice(startIndex, endIndex)
 
-  // Reset to page 1 when search changes
   useEffect(() => {
     setCurrentPage(1)
   }, [searchTerm])
 
-  // Get PDF URL
   const getPdfUrl = (correspondence: OutgoingCorrespondence) => {
     if (!correspondence.pdfPath) return null
-    // pdfPath format: "outgoing/BON-OC-001/filename.pdf"
     const parts = correspondence.pdfPath.split("/")
-    const paperNo = parts[1] // BON-OC-001
-    const fileName = parts[2] // filename.pdf
+    const paperNo = parts[1]
+    const fileName = parts[2]
     return `/api/outgoing-correspondences/files/${paperNo}/${fileName}`
   }
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">Correspondences</h2>
       </div>
 
-      {/* Search Bar */}
       <div className="flex items-center gap-2">
         <Label htmlFor="search" className="text-sm font-medium whitespace-nowrap">
           Search:
@@ -225,7 +212,6 @@ export function OutgoingCorrespondencesTable() {
         />
       </div>
 
-      {/* Table */}
       <div className="rounded-lg border bg-card">
         <div className="overflow-x-auto">
           <Table className="border-collapse">
@@ -303,14 +289,11 @@ export function OutgoingCorrespondencesTable() {
           </Table>
         </div>
 
-        {/* Pagination Footer */}
         <div className="flex items-center justify-between px-4 py-3 border-t bg-white">
-          {/* Showing entries info */}
           <div className="text-sm text-muted-foreground">
             Showing {totalEntries === 0 ? 0 : startIndex + 1} to {endIndex} of {totalEntries} entries
           </div>
 
-          {/* Pagination controls */}
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground whitespace-nowrap">{itemsPerPage} entries per page</span>

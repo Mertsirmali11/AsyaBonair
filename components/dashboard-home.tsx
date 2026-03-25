@@ -1,7 +1,7 @@
 "use client"
 import { useState, useEffect } from "react"
 import { DashboardLayout } from "@/components/dashboard-layout"
-import { Bell, Plus, Calendar, AlertTriangle, Cake } from "lucide-react"
+import { Bell, Plus, Calendar, AlertTriangle, Cake, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -50,6 +50,12 @@ interface Birthday {
   dogumTarihi: string | null
 }
 
+const dateOpts: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+}
+
 export function DashboardHome({ user }: { user: DashboardUser }) {
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [todayMeetings, setTodayMeetings] = useState<Meeting[]>([])
@@ -59,20 +65,18 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
   const [title, setTitle] = useState("")
   const [content, setContent] = useState("")
   const [saving, setSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
 
   const canAnnounce = user.departman === "Quality" || user.departman === "Human Resources"
 
   const fetchAll = async () => {
-    const [annRes, meetRes, hazRes, birthRes] = await Promise.all([
-      fetch("/api/announcements"),
-      fetch("/api/dashboard/today-meetings"),
-      fetch("/api/dashboard/today-hazards"),
-      fetch("/api/dashboard/birthdays"),
-    ])
-    if (annRes.ok) setAnnouncements(await annRes.json())
-    if (meetRes.ok) setTodayMeetings(await meetRes.json())
-    if (hazRes.ok) setTodayHazards(await hazRes.json())
-    if (birthRes.ok) setBirthdays(await birthRes.json())
+    const res = await fetch("/api/dashboard/summary")
+    if (!res.ok) return
+    const data = await res.json()
+    setAnnouncements(data.announcements ?? [])
+    setTodayMeetings(data.todayMeetings ?? [])
+    setTodayHazards(data.todayHazards ?? [])
+    setBirthdays(data.birthdays ?? [])
   }
 
   useEffect(() => { fetchAll() }, [])
@@ -91,21 +95,42 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
     fetchAll()
   }
 
+  const handleDeleteAnnouncement = async (id: number) => {
+    if (
+      !confirm(
+        "Remove this announcement from the dashboard? Emails already sent cannot be recalled."
+      )
+    ) {
+      return
+    }
+    setDeletingId(id)
+    try {
+      const res = await fetch(`/api/announcements/${id}`, { method: "DELETE" })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        alert(err.error || "Could not delete announcement")
+        return
+      }
+      await fetchAll()
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   return (
     <DashboardLayout user={user}>
       <div className="flex flex-col gap-6 p-4 md:p-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-          {/* SOL — Duyurular */}
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Bell size={18} className="text-blue-600" />
-                <h2 className="text-lg font-bold">Duyurular</h2>
+                <h2 className="text-lg font-bold">Announcements</h2>
               </div>
               {canAnnounce && (
                 <Button size="sm" onClick={() => setOpen(true)} className="gap-1 bg-blue-600 hover:bg-blue-700 text-white">
-                  <Plus size={14} /> Duyuru Ekle
+                  <Plus size={14} /> New announcement
                 </Button>
               )}
             </div>
@@ -113,14 +138,14 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
             <div className="flex flex-col gap-3 max-h-[600px] overflow-y-auto">
               {announcements.length === 0 ? (
                 <div className="border rounded-lg p-6 text-center text-gray-400 bg-white">
-                  Henüz duyuru yok.
+                  No announcements yet.
                 </div>
               ) : announcements.map(a => (
                 <div key={a.id} className="border rounded-lg p-4 bg-white">
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="font-semibold text-sm">{a.title}</h3>
                     <span className="text-xs text-gray-400 shrink-0">
-                      {new Date(a.createdAt).toLocaleDateString("tr-TR")}
+                      {new Date(a.createdAt).toLocaleDateString("en-US", dateOpts)}
                     </span>
                   </div>
                   <p className="text-sm text-gray-600 mt-1 whitespace-pre-wrap">{a.content}</p>
@@ -129,24 +154,37 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                       — {a.creator.isim} {a.creator.soyisim} ({a.creator.departman})
                     </p>
                   )}
+                  {canAnnounce && (
+                    <div className="mt-3 flex justify-end border-t border-gray-100 pt-3">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        disabled={deletingId === a.id}
+                        onClick={() => handleDeleteAnnouncement(a.id)}
+                      >
+                        <Trash2 className="size-3.5" />
+                        {deletingId === a.id ? "Deleting…" : "Delete"}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           </div>
 
-          {/* SAĞ — Bugün */}
           <div className="flex flex-col gap-4">
 
-            {/* Bugünkü Meetingler */}
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <Calendar size={18} className="text-green-600" />
-                <h2 className="text-lg font-bold">Bugünkü Toplantılar</h2>
+                <h2 className="text-lg font-bold">Today&apos;s meetings</h2>
               </div>
               <div className="flex flex-col gap-2">
                 {todayMeetings.length === 0 ? (
                   <div className="border rounded-lg p-4 text-center text-gray-400 bg-white text-sm">
-                    Bugün için planlanmış toplantı yok.
+                    No meetings scheduled for today.
                   </div>
                 ) : todayMeetings.map(m => (
                   <div key={m.id} className="border rounded-lg p-3 bg-white flex items-center justify-between">
@@ -162,36 +200,34 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
               </div>
             </div>
 
-            {/* Bugünkü Hazardlar */}
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <AlertTriangle size={18} className="text-red-500" />
-                <h2 className="text-lg font-bold">Bugünkü Hazard Raporları</h2>
+                <h2 className="text-lg font-bold">Today&apos;s hazard reports</h2>
               </div>
               <div className="flex flex-col gap-2">
                 {todayHazards.length === 0 ? (
                   <div className="border rounded-lg p-4 text-center text-gray-400 bg-white text-sm">
-                    Bugün için hazard raporu yok.
+                    No hazard reports for today.
                   </div>
                 ) : todayHazards.map(h => (
                   <div key={h.id} className="border rounded-lg p-3 bg-white">
-                    <p className="font-medium text-sm">{h.title ?? "Başlıksız"}</p>
+                    <p className="font-medium text-sm">{h.title ?? "Untitled"}</p>
                     <p className="text-xs text-gray-500">{h.reportNo} · {h.sourceType}</p>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Bugün Doğanlar */}
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <Cake size={18} className="text-pink-500" />
-                <h2 className="text-lg font-bold">Bugün Doğanlar 🎂</h2>
+                <h2 className="text-lg font-bold">Birthdays today 🎂</h2>
               </div>
               <div className="flex flex-col gap-2">
                 {birthdays.length === 0 ? (
                   <div className="border rounded-lg p-4 text-center text-gray-400 bg-white text-sm">
-                    Bugün doğan çalışan yok.
+                    No birthdays today.
                   </div>
                 ) : birthdays.map(b => (
                   <div key={b.id} className="border rounded-lg p-3 bg-pink-50 flex items-center gap-3">
@@ -209,27 +245,26 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
         </div>
       </div>
 
-      {/* Duyuru Ekleme Modal */}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Yeni Duyuru</DialogTitle>
+            <DialogTitle>New announcement</DialogTitle>
           </DialogHeader>
           <div className="flex flex-col gap-4 mt-2">
             <div>
-              <Label>Başlık <span className="text-red-500">*</span></Label>
-              <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Duyuru başlığı" className="mt-1" />
+              <Label>Title <span className="text-red-500">*</span></Label>
+              <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Announcement title" className="mt-1" />
             </div>
             <div>
-              <Label>İçerik <span className="text-red-500">*</span></Label>
-              <Textarea value={content} onChange={e => setContent(e.target.value)} placeholder="Duyuru içeriği..." className="mt-1 min-h-32" />
+              <Label>Content <span className="text-red-500">*</span></Label>
+              <Textarea value={content} onChange={e => setContent(e.target.value)} placeholder="Announcement body..." className="mt-1 min-h-32" />
             </div>
             <Button
               onClick={handleAnnounce}
               disabled={saving || !title || !content}
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
-              {saving ? "Gönderiliyor..." : "Yayınla ve Mail Gönder"}
+              {saving ? "Sending..." : "Publish and email staff"}
             </Button>
           </div>
         </DialogContent>

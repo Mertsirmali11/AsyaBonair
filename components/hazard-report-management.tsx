@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { useState, useEffect, useMemo } from "react"
+import Link from "next/link"
 import { IconArrowsSort, IconSortAscending, IconSortDescending, IconTrash, IconEye } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -48,6 +49,9 @@ interface HazardReport {
     email: string
     departman: string | null
   } | null
+  _count?: {
+    attachments: number
+  }
 }
 
 type SortDirection = "asc" | "desc" | null
@@ -82,7 +86,6 @@ export function HazardReportManagement() {
   const [sortField, setSortField] = useState<SortField>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
 
-  // Fetch hazard reports
   const fetchReports = async () => {
     try {
       const response = await fetch("/api/hazard-reports")
@@ -101,37 +104,34 @@ export function HazardReportManagement() {
     fetchReports()
   }, [])
 
-  // Date formatting (dd.mm.yyyy - Turkey format)
   const formatDate = (dateString: string | null) => {
     if (!dateString) return "-"
     try {
-      const date = new Date(dateString)
-      const day = String(date.getDate()).padStart(2, '0')
-      const month = String(date.getMonth() + 1).padStart(2, '0')
-      const year = date.getFullYear()
-      return `${day}.${month}.${year}`
+      return new Date(dateString).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      })
     } catch {
       return "-"
     }
   }
 
-  // Date and time formatting
   const formatDateTime = (dateString: string | null) => {
     if (!dateString) return "-"
     try {
-      const date = new Date(dateString)
-      const day = String(date.getDate()).padStart(2, '0')
-      const month = String(date.getMonth() + 1).padStart(2, '0')
-      const year = date.getFullYear()
-      const hours = String(date.getHours()).padStart(2, '0')
-      const minutes = String(date.getMinutes()).padStart(2, '0')
-      return `${day}.${month}.${year} ${hours}:${minutes}`
+      return new Date(dateString).toLocaleString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
     } catch {
       return "-"
     }
   }
 
-  // Handle sort
   const handleSort = (field: SortField) => {
     if (sortField === field) {
       if (sortDirection === "asc") {
@@ -148,7 +148,6 @@ export function HazardReportManagement() {
     }
   }
 
-  // Get sort icon
   const getSortIcon = (field: SortField) => {
     if (sortField !== field) {
       return <IconArrowsSort className="h-4 w-4 text-gray-400" />
@@ -159,11 +158,9 @@ export function HazardReportManagement() {
     return <IconSortDescending className="h-4 w-4 text-gray-700" />
   }
 
-  // Filter and sort data
   const filteredAndSortedData = useMemo(() => {
     let data = [...reports]
 
-    // Filter by search term
     if (searchTerm) {
       const lowerSearch = searchTerm.toLowerCase()
       data = data.filter((report) => {
@@ -171,7 +168,7 @@ export function HazardReportManagement() {
           ? "anonymous" 
           : `${report.reporter?.isim || ""} ${report.reporter?.soyisim || ""}`.toLowerCase()
         const searchableFields = [
-          report.reportNo, // BON-HR-001 formatında arama için
+          report.reportNo,
           formatDate(report.eventDate),
           report.sourceType,
           report.title,
@@ -184,7 +181,6 @@ export function HazardReportManagement() {
       })
     }
 
-    // Sort data
     if (sortField && sortDirection) {
       data.sort((a, b) => {
         let aValue: string | number | boolean
@@ -211,19 +207,16 @@ export function HazardReportManagement() {
     return data
   }, [reports, searchTerm, sortField, sortDirection])
 
-  // Pagination
   const totalEntries = filteredAndSortedData.length
   const totalPages = Math.ceil(totalEntries / itemsPerPage)
   const startIndex = (currentPage - 1) * itemsPerPage
   const endIndex = Math.min(startIndex + itemsPerPage, totalEntries)
   const paginatedReports = filteredAndSortedData.slice(startIndex, endIndex)
 
-  // Reset to page 1 when search changes
   useEffect(() => {
     setCurrentPage(1)
   }, [searchTerm])
 
-  // Handle delete
   const handleDelete = async (reportId: number) => {
     if (confirm("Are you sure you want to delete this report?")) {
       try {
@@ -244,12 +237,10 @@ export function HazardReportManagement() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">Hazard Reports</h2>
       </div>
 
-      {/* Search Bar */}
       <div className="flex items-center gap-2">
         <Label htmlFor="search" className="text-sm font-medium whitespace-nowrap">
           Search:
@@ -264,7 +255,6 @@ export function HazardReportManagement() {
         />
       </div>
 
-      {/* Table */}
       <div className="rounded-lg border bg-card">
         <div className="overflow-x-auto">
           <Table className="border-collapse">
@@ -282,19 +272,22 @@ export function HazardReportManagement() {
                     </div>
                   </TableHead>
                 ))}
+                <TableHead className="font-semibold text-slate-700 whitespace-nowrap border-r border-gray-300">
+                  Attachments
+                </TableHead>
                 <TableHead className="font-semibold text-slate-700 whitespace-nowrap w-10 border-r-0">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={columns.length + 1} className="text-center py-8">
+                  <TableCell colSpan={columns.length + 2} className="text-center py-8">
                     Loading...
                   </TableCell>
                 </TableRow>
               ) : paginatedReports.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={columns.length + 1} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={columns.length + 2} className="text-center py-8 text-muted-foreground">
                     No reports found
                   </TableCell>
                 </TableRow>
@@ -339,6 +332,16 @@ export function HazardReportManagement() {
                     <TableCell className="border-r border-gray-200">
                       {formatDateTime(report.createdAt)}
                     </TableCell>
+                    <TableCell className="border-r border-gray-200">
+                      <Link
+                        href={`/hazard-inbox/${report.id}/attachments`}
+                        className="text-sm font-medium text-slate-800 underline-offset-4 hover:underline"
+                      >
+                        {report._count?.attachments
+                          ? `${report._count.attachments} file(s)`
+                          : "No files"}
+                      </Link>
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
                         <Button 
@@ -369,14 +372,11 @@ export function HazardReportManagement() {
           </Table>
         </div>
 
-        {/* Pagination Footer */}
         <div className="flex items-center justify-between px-4 py-3 border-t bg-white">
-          {/* Showing entries info */}
           <div className="text-sm text-muted-foreground">
             Showing {totalEntries === 0 ? 0 : startIndex + 1} to {endIndex} of {totalEntries} entries
           </div>
 
-          {/* Pagination controls */}
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground whitespace-nowrap">{itemsPerPage} entries per page</span>
@@ -441,7 +441,6 @@ export function HazardReportManagement() {
         </div>
       </div>
 
-      {/* View Report Dialog */}
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh]">
           <DialogHeader>

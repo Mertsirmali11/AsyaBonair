@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
+import { canAccessConfigurationsArea } from "@/lib/department-access"
 import { downloadPdfFromStorage } from "@/lib/supabase-storage"
 
-// GET - Serve PDF files from Supabase Storage
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   try {
     const session = await auth()
-    
+
     if (!session) {
       return NextResponse.json(
         { error: "Unauthorized" },
@@ -17,29 +17,30 @@ export async function GET(
       )
     }
 
+    if (!canAccessConfigurationsArea(session.user?.departman)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
     const { path: pathArray } = await params
     const fileName = pathArray[pathArray.length - 1]
     const paperNo = pathArray[0]
-    
-    // Construct storage path: BON-IP-001/filename.pdf
+
     const storagePath = `${paperNo}/${fileName}`
-    
-    // Download file from Supabase Storage
+
     const fileBuffer = await downloadPdfFromStorage(storagePath)
-    
+
     if (!fileBuffer) {
       return NextResponse.json(
         { error: "File not found" },
         { status: 404 }
       )
     }
-    
-    // Convert Buffer to Uint8Array for NextResponse
+
     return new NextResponse(new Uint8Array(fileBuffer), {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `inline; filename="${fileName}"`,
-        "Cache-Control": "public, max-age=3600", // Cache for 1 hour
+        "Cache-Control": "public, max-age=3600",
       },
     })
   } catch (error) {
@@ -50,4 +51,3 @@ export async function GET(
     )
   }
 }
-

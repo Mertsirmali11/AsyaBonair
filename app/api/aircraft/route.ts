@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
+import { deleteAircraftManualFile } from "@/lib/aircraft-manuals-storage"
 
 export async function GET() {
   const aircraft = await prisma.ucaklar.findMany({
@@ -21,6 +22,14 @@ export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const id = searchParams.get("id")
   if (!id) return NextResponse.json({ error: "No id" }, { status: 400 })
-  await prisma.ucaklar.delete({ where: { id: parseInt(id) } })
+  const aircraftId = parseInt(id)
+  const docs = await prisma.aircraftDocument.findMany({
+    where: { aircraftId },
+    select: { storagePath: true },
+  })
+  for (const d of docs) {
+    await deleteAircraftManualFile(d.storagePath)
+  }
+  await prisma.ucaklar.delete({ where: { id: aircraftId } })
   return NextResponse.json({ success: true })
 }

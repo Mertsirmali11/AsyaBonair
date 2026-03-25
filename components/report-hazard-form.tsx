@@ -1,9 +1,9 @@
 "use client"
 
-import * as React from "react"
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { cn } from "@/lib/utils"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -40,6 +40,8 @@ export function ReportHazardForm({ userId }: ReportHazardFormProps) {
   const [isAnonymous, setIsAnonymous] = useState<boolean>(false)
   const [title, setTitle] = useState<string>("")
   const [details, setDetails] = useState<string>("")
+  const [files, setFiles] = useState<File[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -51,7 +53,6 @@ export function ReportHazardForm({ userId }: ReportHazardFormProps) {
     setSuccess(false)
 
     try {
-      // Convert dd.mm.yyyy to YYYY-MM-DD for API
       const dateParts = eventDate.split(".")
       if (dateParts.length !== 3) {
         setError("Invalid date format")
@@ -61,19 +62,22 @@ export function ReportHazardForm({ userId }: ReportHazardFormProps) {
       const [day, month, year] = dateParts
       const isoDate = `${year}-${month}-${day}`
 
+      const formData = new FormData()
+      formData.append("eventDate", isoDate)
+      formData.append("sourceType", sourceType || "")
+      formData.append("isAnonymous", String(isAnonymous))
+      formData.append("title", title || "")
+      formData.append("details", details || "")
+      if (!isAnonymous) {
+        formData.append("reportedBy", userId)
+      }
+      for (const file of files) {
+        formData.append("files", file)
+      }
+
       const response = await fetch("/api/hazard-reports", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          eventDate: isoDate,
-          sourceType: sourceType || null,
-          isAnonymous: isAnonymous,
-          title: title || null,
-          details: details || null,
-          reportedBy: isAnonymous ? null : parseInt(userId),
-        }),
+        body: formData,
       })
 
       if (!response.ok) {
@@ -82,17 +86,28 @@ export function ReportHazardForm({ userId }: ReportHazardFormProps) {
         return
       }
 
-      setSuccess(true)
+      const payload = await response.json().catch(() => ({}))
+      if (payload._uploadStats?.failed > 0) {
+        setError(
+          `Report saved, but ${payload._uploadStats.failed} file(s) could not be uploaded (invalid type or size).`
+        )
+      } else {
+        setSuccess(true)
+      }
+
       setEventDate("")
       setSourceType("")
       setIsAnonymous(false)
       setTitle("")
       setDetails("")
+      setFiles([])
+      if (fileInputRef.current) fileInputRef.current.value = ""
       
-      // Reset success message after 3 seconds
-      setTimeout(() => {
-        setSuccess(false)
-      }, 3000)
+      if (!payload?._uploadStats?.failed) {
+        setTimeout(() => {
+          setSuccess(false)
+        }, 3000)
+      }
     } catch (err) {
       console.error("Error submitting hazard report:", err)
       setError("An error occurred while submitting the report")
@@ -188,6 +203,44 @@ export function ReportHazardForm({ userId }: ReportHazardFormProps) {
                 placeholder="Please write the details of your report. Do not omit any information that may be important."
                 className="w-full min-h-[120px]"
               />
+            </div>
+
+            <div className="space-y-3 border-t pt-6">
+              <div className="space-y-2">
+                <Label htmlFor="hazard-files" className="text-sm font-medium">
+                  Attachments (optional)
+                </Label>
+                <p className="text-sm text-muted-foreground">
+                  Upload photos, videos, or PDFs. Maximum 50 MB per file.
+                </p>
+                <input
+                  id="hazard-files"
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*,video/*,.pdf,application/pdf"
+                  onChange={(e) => {
+                    const list = e.target.files
+                    setFiles(list ? Array.from(list) : [])
+                  }}
+                  className={cn(
+                    "flex h-9 w-full min-w-0 cursor-pointer rounded-md border border-dashed border-input bg-muted/30 px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none file:mr-3 file:rounded file:border-0 file:bg-slate-700 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:bg-muted/50 md:text-sm",
+                    "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                  )}
+                />
+                {files.length > 0 && (
+                  <ul className="mt-2 space-y-1 rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+                    {files.map((f, i) => (
+                      <li key={`${f.name}-${i}`}>
+                        {f.name}{" "}
+                        <span className="text-xs">
+                          ({(f.size / (1024 * 1024)).toFixed(1)} MB)
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
 
             <div className="flex justify-end gap-2 pt-4">

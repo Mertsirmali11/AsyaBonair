@@ -1,5 +1,3 @@
-// Bu dosya sadece Node.js runtime'da kullanılır (API routes, Server Components)
-// Edge Runtime'da kullanılamaz
 import "server-only"
 
 import { PrismaClient } from "@prisma/client"
@@ -17,7 +15,6 @@ function createPrismaClient() {
     throw new Error("DATABASE_URL environment variable is not set")
   }
   
-  // Connection string'i temizle
   const cleanConnectionString = connectionString.startsWith("prisma+postgres://")
     ? connectionString.replace("prisma+postgres://", "postgresql://")
     : connectionString
@@ -31,9 +28,14 @@ function createPrismaClient() {
   
   const adapter = new PrismaPg(pool)
   
+  const devLogs: ("query" | "error" | "warn")[] =
+    process.env.PRISMA_LOG_QUERIES === "1"
+      ? ["query", "error", "warn"]
+      : ["error", "warn"]
+
   return new PrismaClient({
     adapter,
-    log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
+    log: process.env.NODE_ENV === "development" ? devLogs : ["error"],
   })
 }
 

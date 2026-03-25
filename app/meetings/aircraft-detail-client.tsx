@@ -27,15 +27,21 @@ export function AircraftDetailClient({
     <div className="flex flex-1 flex-col gap-6 p-4 lg:p-6">
       <Card>
         <CardHeader>
-          <CardTitle>Uçak bilgisi</CardTitle>
+          <CardTitle>Aircraft</CardTitle>
           <CardDescription>
-            Kayıt ve MSN bilgileri; belge yükleme akışı ileride bu sayfaya
-            bağlanabilir.
+            Registration and MSN. Full document management is available under{" "}
+            <Link
+              href={`/configurations/aircraft-settings/${aircraft.id}`}
+              className="font-medium text-primary underline-offset-4 hover:underline"
+            >
+              Configurations → Aircraft Settings
+            </Link>
+            .
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <div>
-            <p className="text-muted-foreground text-sm">Register</p>
+            <p className="text-muted-foreground text-sm">Registration</p>
             <p className="text-lg font-semibold">{aircraft.register}</p>
           </div>
           <div>
@@ -47,14 +53,19 @@ export function AircraftDetailClient({
 
       <Card className="border-dashed">
         <CardHeader>
-          <CardTitle className="text-base">Belgeler</CardTitle>
+          <CardTitle className="text-base">Documents</CardTitle>
           <CardDescription>
-            Bu uçağa ait doküman listesi ve yükleme henüz tanımlanmadı.
+            Open the aircraft record in Aircraft Settings to upload and view PDFs.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-wrap gap-2">
           <Button variant="outline" asChild>
-            <Link href="/meetings">Toplantı planlarına dön</Link>
+            <Link href="/meetings">Back to meetings</Link>
+          </Button>
+          <Button asChild>
+            <Link href={`/configurations/aircraft-settings/${aircraft.id}`}>
+              Open aircraft documents
+            </Link>
           </Button>
         </CardContent>
       </Card>

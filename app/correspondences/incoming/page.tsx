@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
+import { canAccessConfigurationsArea } from "@/lib/department-access"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { IncomingPaperForm } from "@/components/incoming-paper-form"
 import { IncomingCorrespondencesTable } from "@/components/incoming-correspondences-table"
@@ -9,6 +10,10 @@ export default async function IncomingCorrespondencesPage() {
 
   if (!session) {
     redirect("/login")
+  }
+
+  if (!canAccessConfigurationsArea(session.user?.departman)) {
+    redirect("/dashboard")
   }
 
   const user = {
@@ -23,7 +28,6 @@ export default async function IncomingCorrespondencesPage() {
       <div className="flex flex-1 flex-col p-6">
         <IncomingPaperForm userId={session.user?.id || ""} />
         
-        {/* Papers List Table */}
         <div className="mt-8">
           <IncomingCorrespondencesTable />
         </div>

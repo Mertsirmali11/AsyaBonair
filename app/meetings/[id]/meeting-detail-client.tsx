@@ -106,7 +106,6 @@ export function MeetingDetailClient({
     <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
 
-        {/* SOL PANEL */}
         <div className="flex flex-col gap-4">
           <label className="cursor-pointer">
             <input
@@ -160,7 +159,6 @@ export function MeetingDetailClient({
           </Button>
         </div>
 
-        {/* SAĞ PANEL */}
         <div className="flex flex-col gap-4">
 
           <div className="border rounded-lg p-4 bg-white">

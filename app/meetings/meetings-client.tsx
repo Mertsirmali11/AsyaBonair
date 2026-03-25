@@ -55,7 +55,6 @@ export function MeetingsClient({
   const [pageSize, setPageSize] = useState(10)
   const [open, setOpen] = useState(false)
 
-  // Form state
   const [title, setTitle] = useState("")
   const [plannedDate, setPlannedDate] = useState("")
   const [meetingTypeId, setMeetingTypeId] = useState("")
@@ -178,9 +177,9 @@ export function MeetingsClient({
                 </TableCell>
                 <TableCell className="font-mono text-sm">{m.meetingNo}</TableCell>
                 <TableCell className="max-w-xs truncate">{m.title}</TableCell>
-                <TableCell>{new Date(m.plannedDate).toLocaleDateString("tr-TR")}</TableCell>
+                <TableCell>{new Date(m.plannedDate).toLocaleDateString("en-US")}</TableCell>
                 <TableCell>{m.meetingType?.name ?? "—"}</TableCell>
-                <TableCell>{m.initializedDate ? new Date(m.initializedDate).toLocaleDateString("tr-TR") : "—"}</TableCell>
+                <TableCell>{m.initializedDate ? new Date(m.initializedDate).toLocaleDateString("en-US") : "—"}</TableCell>
                 <TableCell className="max-w-xs truncate">
                   {m.participants.map(p => `${p.calisan.isim} ${p.calisan.soyisim}`).join(", ")}
                 </TableCell>
@@ -221,7 +220,6 @@ export function MeetingsClient({
         </div>
       </div>
 
-      {/* Create Modal */}
       <Dialog open={open} onOpenChange={v => { setOpen(v); if (!v) resetForm() }}>
         <DialogContent className="max-w-md">
           <DialogHeader>

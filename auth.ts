@@ -4,7 +4,6 @@ import bcrypt from "bcryptjs"
 import { prisma } from "@/lib/prisma-server"
 import { authConfig } from "./auth.config"
 
-// Extend the User and Session types to include departman
 declare module "next-auth" {
   interface User {
     departman?: string | null
@@ -33,7 +32,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null
         }
 
-        // Find user from employees table
         const calisan = await prisma.calisan.findUnique({
           where: {
             email: credentials.email as string,
@@ -44,7 +42,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null
         }
 
-        // Verify password
         const isPasswordValid = await bcrypt.compare(
           credentials.password as string,
           calisan.password
@@ -54,7 +51,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null
         }
 
-        // Return employee info with departman
         return {
           id: String(calisan.id),
           email: calisan.email,

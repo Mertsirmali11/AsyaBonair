@@ -137,7 +137,7 @@ export function MeetingTasks({
                     ? `${task.assignee.isim ?? ""} ${task.assignee.soyisim ?? ""}`.trim() || "—"
                     : "—"}
                   {task.dueDate
-                    ? ` · Due ${new Date(task.dueDate).toLocaleDateString("tr-TR")}`
+                    ? ` · Due ${new Date(task.dueDate).toLocaleDateString("en-US")}`
                     : ""}
                 </p>
               </div>

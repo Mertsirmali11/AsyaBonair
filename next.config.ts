@@ -9,7 +9,6 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  // External packages - server-side only
   serverExternalPackages: ["@prisma/client", "pg", "@prisma/adapter-pg"],
 };
 

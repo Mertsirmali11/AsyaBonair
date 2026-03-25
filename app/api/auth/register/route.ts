@@ -8,27 +8,24 @@ export async function POST(request: Request) {
 
     if (!email || !password) {
       return NextResponse.json(
-        { error: "Email ve şifre gerekli" },
+        { error: "Email and password are required" },
         { status: 400 }
       )
     }
 
-    // Kullanıcı zaten var mı kontrol et
     const existingUser = await prisma.user.findUnique({
       where: { email },
     })
 
     if (existingUser) {
       return NextResponse.json(
-        { error: "Bu email adresi zaten kullanılıyor" },
+        { error: "This email is already registered" },
         { status: 400 }
       )
     }
 
-    // Şifreyi hashle
     const hashedPassword = await bcrypt.hash(password, 10)
 
-    // Yeni kullanıcı oluştur
     const user = await prisma.user.create({
       data: {
         name,
@@ -38,13 +35,13 @@ export async function POST(request: Request) {
     })
 
     return NextResponse.json(
-      { message: "Kullanıcı başarıyla oluşturuldu", userId: user.id },
+      { message: "Account created successfully", userId: user.id },
       { status: 201 }
     )
   } catch (error) {
     console.error("Register error:", error)
     return NextResponse.json(
-      { error: "Kayıt sırasında bir hata oluştu" },
+      { error: "Registration failed" },
       { status: 500 }
     )
   }

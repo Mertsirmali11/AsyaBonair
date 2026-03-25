@@ -96,10 +96,10 @@ const pilotColumns: ColumnDef[] = [
   { key: "fullName", label: "Ad Soyad", sortKey: "fullName", getValue: (c) => `${c.isim || ""} ${c.soyisim || ""}`.trim() },
   { key: "telNo", label: "Telefon", sortKey: "telNo", getValue: (c) => c.telNo || "-" },
   { key: "email", label: "Mail", sortKey: "email", getValue: (c) => c.email || "-" },
-  { key: "ekstra3", label: "Kaptan / F/O", sortKey: "ekstra3", getValue: (c) => c.ekstra3 || "-" },
+  { key: "ekstra3", label: "Captain / F/O", sortKey: "ekstra3", getValue: (c) => c.ekstra3 || "-" },
 ]
 
-const pilotRanks = ["Kaptan", "F/O"] as const
+const pilotRanks = ["Captain", "F/O"] as const
 
 const initialFormData = {
   isim: "",
@@ -153,7 +153,6 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
   const selectedDepartment = departmentFilter || formData.departman
   const shouldShowPilotRankField = selectedDepartment === "Pilot"
 
-  // Fetch employees
   const fetchCalisanlar = async () => {
     try {
       const response = await fetch("/api/calisanlar")
@@ -172,20 +171,18 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
     fetchCalisanlar()
   }, [])
 
-  // Handle form input changes
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
-  // Submit form (Add or Update)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitting(true)
 
     try {
       if (shouldShowPilotRankField && !pilotRanks.includes(formData.ekstra3 as (typeof pilotRanks)[number])) {
-        alert("Pilot mevkisi sadece Kaptan veya F/O olabilir.")
+        alert("Pilot position must be Captain or F/O.")
         setSubmitting(false)
         return
       }
@@ -194,7 +191,6 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
         ? `/api/calisanlar/${selectedCalisan.id}` 
         : "/api/calisanlar"
       
-      // Convert dd.mm.yyyy dates to ISO format for API
       const submitData = {
         ...formData,
         departman: departmentFilter || formData.departman,
@@ -231,7 +227,6 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
     }
   }
 
-  // Date formatting (dd.mm.yyyy - Turkey format)
   const formatDate = (dateString: string | null) => {
     if (!dateString) return "-"
     try {
@@ -245,7 +240,6 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
     }
   }
 
-  // Convert ISO date to Turkey format for form display
   const isoToTurkeyFormat = (isoDate: string | null) => {
     if (!isoDate) return ""
     try {
@@ -259,7 +253,6 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
     }
   }
 
-  // Convert Turkey format to ISO format for saving
   const turkeyToIsoFormat = (turkeyDate: string) => {
     if (!turkeyDate) return ""
     const parts = turkeyDate.split(".")
@@ -268,7 +261,6 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
     return `${year}-${month}-${day}`
   }
 
-  // Handle sort
   const handleSort = (field: SortField) => {
     if (sortField === field) {
       if (sortDirection === "asc") {
@@ -285,7 +277,6 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
     }
   }
 
-  // Get sort icon
   const getSortIcon = (field: SortField) => {
     if (sortField !== field) {
       return <IconArrowsSort className="h-4 w-4 text-gray-400" />
@@ -296,16 +287,13 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
     return <IconSortDescending className="h-4 w-4 text-gray-700" />
   }
 
-  // Filter and sort data
   const filteredAndSortedData = useMemo(() => {
     let data = [...calisanlar]
 
-    // Filter by department if departmentFilter is provided
     if (departmentFilter) {
       data = data.filter((calisan) => calisan.departman === departmentFilter)
     }
 
-    // Filter by search term
     if (searchTerm) {
       const lowerSearch = searchTerm.toLowerCase()
       data = data.filter((calisan) => {
@@ -327,7 +315,6 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
       })
     }
 
-    // Sort data
     if (sortField && sortDirection) {
       data.sort((a, b) => {
         let aValue: string | number
@@ -350,21 +337,18 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
     return data
   }, [calisanlar, searchTerm, sortField, sortDirection, departmentFilter, isPilotSettings])
 
-  // Pagination
   const totalEntries = filteredAndSortedData.length
   const totalPages = Math.ceil(totalEntries / itemsPerPage)
   const startIndex = (currentPage - 1) * itemsPerPage
   const endIndex = Math.min(startIndex + itemsPerPage, totalEntries)
   const paginatedCalisanlar = filteredAndSortedData.slice(startIndex, endIndex)
 
-  // Reset to page 1 when search changes
   useEffect(() => {
     setCurrentPage(1)
   }, [searchTerm])
 
   return (
     <div className="space-y-4">
-      {/* Header with Title and Add User Button */}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">{title}</h2>
         <Dialog open={dialogOpen} onOpenChange={(open) => {
@@ -400,7 +384,6 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
             </DialogHeader>
             <ScrollArea className="max-h-[70vh] pr-4">
               <form onSubmit={handleSubmit} className="space-y-6 p-1">
-                {/* Personal Information */}
                 <div className="space-y-4">
                   <h3 className="font-semibold text-lg border-b pb-2">Personal Information</h3>
                   <div className="grid grid-cols-2 gap-4">
@@ -456,16 +439,16 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                     </div>
                     {isPilotSettings ? (
                       <div className="space-y-2">
-                        <Label htmlFor="ekstra3">Mevki *</Label>
+                        <Label htmlFor="ekstra3">Position *</Label>
                         <Select
                           value={formData.ekstra3}
                           onValueChange={(value) => setFormData((prev) => ({ ...prev, ekstra3: value }))}
                         >
                           <SelectTrigger>
-                            <SelectValue placeholder="Mevki seçin" />
+                            <SelectValue placeholder="Select position" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="Kaptan">Kaptan</SelectItem>
+                            <SelectItem value="Captain">Captain</SelectItem>
                             <SelectItem value="F/O">F/O</SelectItem>
                           </SelectContent>
                         </Select>
@@ -501,7 +484,7 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                         </div>
                         {shouldShowPilotRankField && (
                           <div className="space-y-2">
-                            <Label htmlFor="ekstra3">Mevki *</Label>
+                            <Label htmlFor="ekstra3">Position *</Label>
                             <Select
                               value={formData.ekstra3}
                               onValueChange={(value) =>
@@ -509,10 +492,10 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                               }
                             >
                               <SelectTrigger>
-                                <SelectValue placeholder="Mevki seçin" />
+                                <SelectValue placeholder="Select position" />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="Kaptan">Kaptan</SelectItem>
+                                <SelectItem value="Captain">Captain</SelectItem>
                                 <SelectItem value="F/O">F/O</SelectItem>
                               </SelectContent>
                             </Select>
@@ -560,7 +543,6 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                   )}
                 </div>
 
-                {/* Family Information */}
                 {!isPilotSettings && <div className="space-y-4">
                   <h3 className="font-semibold text-lg border-b pb-2">Family Information</h3>
                   <div className="grid grid-cols-2 gap-4">
@@ -643,7 +625,6 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                   </div>
                 </div>}
 
-                {/* Emergency Contact */}
                 {!isPilotSettings && <div className="space-y-4">
                   <h3 className="font-semibold text-lg border-b pb-2">Emergency Contact</h3>
                   <div className="grid grid-cols-2 gap-4">
@@ -668,7 +649,6 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                   </div>
                 </div>}
 
-                {/* Employment Information */}
                 {!isPilotSettings && <div className="space-y-4">
                   <h3 className="font-semibold text-lg border-b pb-2">Employment Information</h3>
                   <div className="grid grid-cols-2 gap-4">
@@ -736,7 +716,6 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
         </Dialog>
       </div>
 
-      {/* Search Bar */}
       <div className="flex items-center gap-2">
         <Label htmlFor="search" className="text-sm font-medium whitespace-nowrap">
           Search:
@@ -751,7 +730,6 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
         />
       </div>
 
-      {/* Table */}
       <div className="rounded-lg border bg-card">
         <div className="overflow-x-auto">
           <Table className="border-collapse">
@@ -843,14 +821,11 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
           </Table>
         </div>
 
-        {/* Pagination Footer */}
         <div className="flex items-center justify-between px-4 py-3 border-t bg-white">
-          {/* Showing entries info */}
           <div className="text-sm text-muted-foreground">
             Showing {totalEntries === 0 ? 0 : startIndex + 1} to {endIndex} of {totalEntries} entries
           </div>
 
-          {/* Pagination controls */}
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground whitespace-nowrap">{itemsPerPage} entries per page</span>
@@ -915,7 +890,6 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
         </div>
       </div>
 
-      {/* Action Selection Modal */}
       <Dialog open={actionDialogOpen} onOpenChange={setActionDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -929,7 +903,6 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
               className="w-full bg-sky-500 hover:bg-sky-600 text-white"
               onClick={() => {
                 if (selectedCalisan) {
-                  // Edit action - fill form data
                   setFormData({
                     isim: selectedCalisan.isim || "",
                     soyisim: selectedCalisan.soyisim || "",

@@ -20,7 +20,6 @@ export default async function HazardInboxPage() {
   return (
     <DashboardLayout user={user}>
       <div className="flex flex-col gap-6 p-6">
-        {/* Hazard Report Management Section */}
         <HazardReportManagement />
       </div>
     </DashboardLayout>

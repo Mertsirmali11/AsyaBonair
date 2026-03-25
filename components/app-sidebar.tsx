@@ -27,6 +27,7 @@ import {
 } from "@tabler/icons-react"
 
 import { cn } from "@/lib/utils"
+import { canAccessConfigurationsArea } from "@/lib/department-access"
 import {
   Sidebar,
   SidebarContent,
@@ -90,7 +91,6 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
 
   const sidebarContentRef = React.useRef<HTMLDivElement | null>(null)
 
-  // IMPORTANT: Initial state must be deterministic for SSR hydration.
   const [configurationsOpen, setConfigurationsOpen] = React.useState(
     pathname?.startsWith("/configurations") || false
   )
@@ -98,10 +98,8 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
     pathname?.startsWith("/correspondences") || false
   )
 
-  // Check if user has access to Configurations (Human Resources or Quality departments)
-  const hasConfigurationsAccess = user.departman === "Human Resources" || user.departman === "Quality"
+  const hasConfigurationsAccess = canAccessConfigurationsArea(user.departman)
 
-  // Restore persisted open/scroll state after mount (client-only).
   React.useEffect(() => {
     const storedConfigurations = window.localStorage.getItem(
       "bonair.sidebar.configurationsOpen"
@@ -198,7 +196,6 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
             )
           })}
 
-          {/* Configurations with submenu - Only visible for Human Resources or Quality */}
           {hasConfigurationsAccess && (
             <Collapsible
               open={configurationsOpen}
@@ -249,56 +246,56 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
             </Collapsible>
           )}
 
-          {/* Correspondences with submenu */}
-          <Collapsible
-            open={correspondencesOpen}
-            onOpenChange={setCorrespondencesOpen}
-            className="group/collapsible"
-          >
-            <SidebarMenuItem>
-              <CollapsibleTrigger asChild>
-                <SidebarMenuButton
-                  className={cn(
-                    "h-10 px-3 rounded-lg transition-colors w-full justify-between",
-                    pathname?.startsWith("/correspondences") && "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    <IconMail className="size-5" />
-                    <span>Correspondences</span>
-                  </div>
-                  <IconChevronDown className={cn(
-                    "size-4 transition-transform duration-200",
-                    correspondencesOpen && "rotate-180"
-                  )} />
-                </SidebarMenuButton>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <SidebarMenuSub>
-                  {correspondencesSubItems.map((subItem) => {
-                    const isSubActive = pathname === subItem.url
-                    return (
-                      <SidebarMenuSubItem key={subItem.title}>
-                        <SidebarMenuSubButton
-                          asChild
-                          className={cn(
-                            "h-9 pl-9",
-                            isSubActive && "bg-sidebar-accent/50 font-medium"
-                          )}
-                        >
-                          <Link href={subItem.url}>
-                            <span>{subItem.title}</span>
-                          </Link>
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
-                    )
-                  })}
-                </SidebarMenuSub>
-              </CollapsibleContent>
-            </SidebarMenuItem>
-          </Collapsible>
+          {hasConfigurationsAccess && (
+            <Collapsible
+              open={correspondencesOpen}
+              onOpenChange={setCorrespondencesOpen}
+              className="group/collapsible"
+            >
+              <SidebarMenuItem>
+                <CollapsibleTrigger asChild>
+                  <SidebarMenuButton
+                    className={cn(
+                      "h-10 px-3 rounded-lg transition-colors w-full justify-between",
+                      pathname?.startsWith("/correspondences") && "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      <IconMail className="size-5" />
+                      <span>Correspondences</span>
+                    </div>
+                    <IconChevronDown className={cn(
+                      "size-4 transition-transform duration-200",
+                      correspondencesOpen && "rotate-180"
+                    )} />
+                  </SidebarMenuButton>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <SidebarMenuSub>
+                    {correspondencesSubItems.map((subItem) => {
+                      const isSubActive = pathname === subItem.url
+                      return (
+                        <SidebarMenuSubItem key={subItem.title}>
+                          <SidebarMenuSubButton
+                            asChild
+                            className={cn(
+                              "h-9 pl-9",
+                              isSubActive && "bg-sidebar-accent/50 font-medium"
+                            )}
+                          >
+                            <Link href={subItem.url}>
+                              <span>{subItem.title}</span>
+                            </Link>
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                      )
+                    })}
+                  </SidebarMenuSub>
+                </CollapsibleContent>
+              </SidebarMenuItem>
+            </Collapsible>
+          )}
 
-          {/* Account Managing */}
           <SidebarMenuItem>
             <SidebarMenuButton
               asChild
