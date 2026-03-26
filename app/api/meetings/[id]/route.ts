@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
+import { prismaJson } from "@/lib/prisma-json"
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -8,7 +9,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     where: { id: parseInt(id) },
     data: body,
   })
-  return NextResponse.json(meeting)
+  return NextResponse.json(prismaJson(meeting))
 }
 
 export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -22,5 +23,5 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
       },
     },
   })
-  return NextResponse.json(meeting)
+  return NextResponse.json(prismaJson(meeting))
 }
