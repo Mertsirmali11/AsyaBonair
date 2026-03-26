@@ -64,6 +64,20 @@ export function MeetingDetailClient({
     )
   }
 
+  const handleSave = async () => {
+    setSaving(true)
+    await fetch(`/api/meetings/${meeting.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title,
+        actualDate: actualDate ? new Date(actualDate) : null,
+        meetingMinutes: minutes,
+      }),
+    })
+    setSaving(false)
+  }
+
   const handleSubmit = async () => {
     setSaving(true)
     await fetch(`/api/meetings/${meeting.id}`, {
@@ -150,13 +164,23 @@ export function MeetingDetailClient({
             </p>
           </div>
 
-          <Button
-            onClick={handleSubmit}
-            disabled={saving}
-            className="bg-green-600 hover:bg-green-700 text-white self-end px-8"
-          >
-            {saving ? "Submitting..." : "Submit"}
-          </Button>
+          <div className="flex gap-2 self-end">
+            <Button
+              onClick={handleSave}
+              disabled={saving}
+              variant="outline"
+              className="px-8"
+            >
+              {saving ? "Saving..." : "Save"}
+            </Button>
+            <Button
+              onClick={handleSubmit}
+              disabled={saving}
+              className="bg-green-600 hover:bg-green-700 text-white px-8"
+            >
+              {saving ? "Submitting..." : "Submit"}
+            </Button>
+          </div>
         </div>
 
         <div className="flex flex-col gap-4">
