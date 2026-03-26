@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
+import { prismaJson } from "@/lib/prisma-json"
 import {
   APP_TIMEZONE,
   getCalendarYmdInTimeZone,
@@ -12,13 +13,14 @@ export const revalidate = 0
 export async function GET() {
   try {
     const { year, month, day } = getCalendarYmdInTimeZone(APP_TIMEZONE)
-    /** PG `@db.Date` değerleri ilgili takvim günü için UTC gece yarısı ile saklanır. */
+
     const dayStartUtc = new Date(Date.UTC(year, month - 1, day))
     const dayEndUtc = new Date(Date.UTC(year, month - 1, day + 1))
+
     const { start: hazardDayStart, end: hazardDayEnd } =
       getIstanbulLocalDayUtcRange(year, month, day)
 
-    const [meetings, hazards, announcements, calisanlar] = await Promise.all([
+    const [meetings, hazards, announcements, calisanlar, tasks] = await Promise.all([
       prisma.meeting.findMany({
         where: {
           plannedDate: { gte: dayStartUtc, lt: dayEndUtc },
@@ -26,7 +28,6 @@ export async function GET() {
         include: { meetingType: true },
         orderBy: { plannedDate: "asc" },
       }),
-      /** Bugün = İstanbul takviminde `created_at` (reported at) — `event_date` değil. */
       prisma.hazardReport.findMany({
         where: {
           createdAt: { gte: hazardDayStart, lt: hazardDayEnd },
@@ -51,6 +52,18 @@ export async function GET() {
           dogumTarihi: true,
         },
       }),
+      prisma.meetingTask.findMany({
+        where: {
+          status: { not: "Completed" },
+          dueDate: { not: null },
+        },
+        include: {
+          assignee: { select: { isim: true, soyisim: true } },
+          meeting: { select: { meetingNo: true, title: true } },
+        },
+        orderBy: { dueDate: "asc" },
+        take: 10,
+      }),
     ])
 
     const birthdays = calisanlar.filter((c) => {
@@ -59,12 +72,13 @@ export async function GET() {
       return d.getUTCMonth() + 1 === month && d.getUTCDate() === day
     })
 
-    return NextResponse.json({
+    return NextResponse.json(prismaJson({
       announcements,
       todayMeetings: meetings,
       todayHazards: hazards,
       birthdays,
-    })
+      tasks,
+    }))
   } catch (e) {
     console.error("GET /api/dashboard/summary:", e)
     return NextResponse.json(
