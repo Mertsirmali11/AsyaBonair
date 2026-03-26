@@ -286,3 +286,31 @@ model Announcement {
 
   @@map("announcements")
 }
+
+model TaskMessage {
+  id        Int      @id @default(autoincrement())
+  taskId    Int      @map("task_id")
+  senderId  Int?     @map("sender_id")
+  message   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task   MeetingTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  sender Calisan?    @relation(fields: [senderId], references: [id])
+
+  @@map("task_messages")
+}
+model TaskAttachment {
+  id        Int      @id @default(autoincrement())
+  taskId    Int      @map("task_id")
+  fileName  String   @db.VarChar(255) @map("file_name")
+  filePath  String   @db.VarChar(500) @map("file_path")
+  fileSize  Int?     @map("file_size")
+  fileType  String?  @db.VarChar(100) @map("file_type")
+  uploadedBy Int?    @map("uploaded_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task     MeetingTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploader Calisan?    @relation(fields: [uploadedBy], references: [id])
+
+  @@map("task_attachments")
+}
