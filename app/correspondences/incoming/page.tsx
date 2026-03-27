@@ -2,7 +2,6 @@ import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { canAccessConfigurationsArea } from "@/lib/department-access"
 import { DashboardLayout } from "@/components/dashboard-layout"
-import { IncomingPaperForm } from "@/components/incoming-paper-form"
 import { IncomingCorrespondencesTable } from "@/components/incoming-correspondences-table"
 
 export default async function IncomingCorrespondencesPage() {
@@ -25,12 +24,8 @@ export default async function IncomingCorrespondencesPage() {
 
   return (
     <DashboardLayout user={user} headerTitle="Incoming Correspondences">
-      <div className="flex flex-1 flex-col p-6">
-        <IncomingPaperForm userId={session.user?.id || ""} />
-        
-        <div className="mt-8">
-          <IncomingCorrespondencesTable />
-        </div>
+      <div className="flex flex-1 flex-col p-4 md:p-6">
+        <IncomingCorrespondencesTable userId={session.user?.id ?? ""} />
       </div>
     </DashboardLayout>
   )

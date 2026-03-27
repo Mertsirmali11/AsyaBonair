@@ -2,7 +2,6 @@ import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { canAccessConfigurationsArea } from "@/lib/department-access"
 import { DashboardLayout } from "@/components/dashboard-layout"
-import { OutgoingCorrespondenceForm } from "@/components/outgoing-correspondence-form"
 import { OutgoingCorrespondencesTable } from "@/components/outgoing-correspondences-table"
 
 export default async function OutgoingCorrespondencesPage() {
@@ -25,12 +24,8 @@ export default async function OutgoingCorrespondencesPage() {
 
   return (
     <DashboardLayout user={user} headerTitle="Outgoing Correspondences">
-      <div className="flex flex-1 flex-col p-6">
-        <OutgoingCorrespondenceForm userId={session.user?.id || ""} />
-        
-        <div className="mt-8">
-          <OutgoingCorrespondencesTable />
-        </div>
+      <div className="flex flex-1 flex-col p-4 md:p-6">
+        <OutgoingCorrespondencesTable userId={session.user?.id ?? ""} />
       </div>
     </DashboardLayout>
   )
