@@ -74,6 +74,7 @@ const configurationsSubItems = [
   { title: "User Settings", url: "/configurations" },
   { title: "Pilot Settings", url: "/configurations/pilot-settings" },
   { title: "Aircraft Settings", url: "/configurations/aircraft-settings" },
+  { title: "Announcements", url: "/configurations/announcements" },
 ]
 
 const correspondencesSubItems = [

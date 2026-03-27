@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
 import { auth } from "@/auth"
+import { assertCanManageAnnouncements } from "@/lib/announcements-access"
 import { Resend } from "resend"
+
+const ANNOUNCEMENTS_ADMIN_LIST_MAX = 2000
 
 function getResend(): Resend | null {
   const key = process.env.RESEND_API_KEY?.trim()
@@ -69,9 +72,12 @@ async function sendAnnouncementEmails(
 }
 
 export async function GET() {
+  const gate = await assertCanManageAnnouncements()
+  if (!gate.ok) return gate.response
+
   const announcements = await prisma.announcement.findMany({
     orderBy: { createdAt: "desc" },
-    take: 150,
+    take: ANNOUNCEMENTS_ADMIN_LIST_MAX,
     include: {
       creator: { select: { isim: true, soyisim: true, departman: true } },
     },
@@ -93,7 +99,15 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { title, content } = body
+  const title = typeof body.title === "string" ? body.title.trim() : ""
+  const content = typeof body.content === "string" ? body.content.trim() : ""
+
+  if (!title || !content) {
+    return NextResponse.json(
+      { error: "Title and content are required" },
+      { status: 400 }
+    )
+  }
 
   const announcement = await prisma.announcement.create({
     data: {
