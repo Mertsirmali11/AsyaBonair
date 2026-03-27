@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
 import { prismaJson } from "@/lib/prisma-json"
+import { nextBonMeMeetingNumber } from "@/lib/next-bon-me-number"
 import { Resend } from "resend"
 
 const resend = new Resend(process.env.RESEND_API_KEY)
+
+/** "Tüm yıllar" seçildiğinde bellek/yanıt boyutu sınırı */
+const MEETINGS_UNFILTERED_CAP = 500
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -27,6 +31,7 @@ export async function GET(req: NextRequest) {
       },
     },
     orderBy: { plannedDate: "desc" },
+    ...(!year || year === "All" ? { take: MEETINGS_UNFILTERED_CAP } : {}),
   })
 
   return NextResponse.json(prismaJson(meetings))
@@ -36,18 +41,13 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const { title, plannedDate, meetingTypeId, participantIds, externalEmails, isOnline, agenda } = body
 
-  const existing = await prisma.meeting.findMany({
-    select: { meetingNo: true },
-    orderBy: { id: "asc" },
-  })
-
-  const usedNumbers = existing
-    .map(m => parseInt(m.meetingNo?.replace("BON-ME-", "") ?? "0"))
-    .filter(n => !isNaN(n))
-
-  let nextNo = 1
-  while (usedNumbers.includes(nextNo)) { nextNo++ }
-
+  const nextNo = await nextBonMeMeetingNumber(prisma)
+  if (nextNo > 999) {
+    return NextResponse.json(
+      { error: "BON-ME numarası üst sınırına (999) ulaşıldı" },
+      { status: 400 }
+    )
+  }
   const meetingNo = `BON-ME-${String(nextNo).padStart(3, "0")}`
 
   const meeting = await prisma.meeting.create({

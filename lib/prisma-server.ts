@@ -19,9 +19,13 @@ function createPrismaClient() {
     ? connectionString.replace("prisma+postgres://", "postgresql://")
     : connectionString
   
+  const poolMax =
+    Number(process.env.DATABASE_POOL_MAX) ||
+    (process.env.VERCEL ? 5 : 20)
+
   const pool = new Pool({
     connectionString: cleanConnectionString,
-    max: 20,
+    max: poolMax,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 10000,
   })

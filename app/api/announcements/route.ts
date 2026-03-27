@@ -71,6 +71,7 @@ async function sendAnnouncementEmails(
 export async function GET() {
   const announcements = await prisma.announcement.findMany({
     orderBy: { createdAt: "desc" },
+    take: 150,
     include: {
       creator: { select: { isim: true, soyisim: true, departman: true } },
     },

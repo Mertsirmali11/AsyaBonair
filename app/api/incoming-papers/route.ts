@@ -21,6 +21,7 @@ export async function GET() {
 
     const papers = await prisma.incomingPaper.findMany({
       orderBy: { createdAt: "desc" },
+      take: 300,
       include: {
         creator: {
           select: {

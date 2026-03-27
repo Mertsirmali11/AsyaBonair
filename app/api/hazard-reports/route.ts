@@ -62,6 +62,7 @@ export async function GET() {
     const reports = await prisma.hazardReport.findMany({
       where: whereClause,
       orderBy: { createdAt: "desc" },
+      take: 300,
       include: {
         reporter: {
           select: {

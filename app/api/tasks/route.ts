@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
         meeting: { select: { meetingNo: true, title: true } },
       },
       orderBy: { createdAt: "desc" },
+      ...(Object.keys(where).length === 0 ? { take: 500 } : {}),
     })
     return NextResponse.json(tasks)
   } catch (e) {

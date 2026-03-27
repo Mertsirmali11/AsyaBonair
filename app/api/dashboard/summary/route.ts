@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
 import { prismaJson } from "@/lib/prisma-json"
+import { findCalisanlarWithBirthdayOnCalendarDay } from "@/lib/birthdays-db"
 import {
   APP_TIMEZONE,
   getCalendarYmdInTimeZone,
   getIstanbulLocalDayUtcRange,
 } from "@/lib/day-range"
+
+const ANNOUNCEMENTS_DASHBOARD_LIMIT = 80
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -20,64 +23,53 @@ export async function GET() {
     const { start: hazardDayStart, end: hazardDayEnd } =
       getIstanbulLocalDayUtcRange(year, month, day)
 
-    const [meetings, hazards, announcements, calisanlar, tasks] = await Promise.all([
+    const [meetings, hazards, announcements, birthdays] = await Promise.all([
       prisma.meeting.findMany({
         where: {
           plannedDate: { gte: dayStartUtc, lt: dayEndUtc },
         },
-        include: { meetingType: true },
+        select: {
+          id: true,
+          meetingNo: true,
+          title: true,
+          plannedDate: true,
+          status: true,
+          meetingType: { select: { name: true } },
+        },
         orderBy: { plannedDate: "asc" },
       }),
       prisma.hazardReport.findMany({
         where: {
           createdAt: { gte: hazardDayStart, lt: hazardDayEnd },
         },
+        select: {
+          id: true,
+          reportNo: true,
+          title: true,
+          eventDate: true,
+          createdAt: true,
+          sourceType: true,
+        },
         orderBy: { createdAt: "desc" },
+        take: 100,
       }),
       prisma.announcement.findMany({
         orderBy: { createdAt: "desc" },
+        take: ANNOUNCEMENTS_DASHBOARD_LIMIT,
         include: {
           creator: {
             select: { isim: true, soyisim: true, departman: true },
           },
         },
       }),
-      prisma.calisan.findMany({
-        where: { dogumTarihi: { not: null } },
-        select: {
-          id: true,
-          isim: true,
-          soyisim: true,
-          departman: true,
-          dogumTarihi: true,
-        },
-      }),
-      prisma.meetingTask.findMany({
-        where: {
-          status: { not: "Completed" },
-          dueDate: { not: null },
-        },
-        include: {
-          assignee: { select: { isim: true, soyisim: true } },
-          meeting: { select: { meetingNo: true, title: true } },
-        },
-        orderBy: { dueDate: "asc" },
-        take: 10,
-      }),
+      findCalisanlarWithBirthdayOnCalendarDay(prisma, month, day),
     ])
-
-    const birthdays = calisanlar.filter((c) => {
-      if (!c.dogumTarihi) return false
-      const d = new Date(c.dogumTarihi)
-      return d.getUTCMonth() + 1 === month && d.getUTCDate() === day
-    })
 
     return NextResponse.json(prismaJson({
       announcements,
       todayMeetings: meetings,
       todayHazards: hazards,
       birthdays,
-      tasks,
     }))
   } catch (e) {
     console.error("GET /api/dashboard/summary:", e)

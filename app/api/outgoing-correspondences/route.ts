@@ -21,6 +21,7 @@ export async function GET() {
 
     const correspondences = await prisma.outgoingCorrespondence.findMany({
       orderBy: { createdAt: "desc" },
+      take: 300,
       include: {
         creator: {
           select: {
