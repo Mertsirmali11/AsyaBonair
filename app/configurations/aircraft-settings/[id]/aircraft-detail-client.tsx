@@ -186,22 +186,23 @@ export function AircraftDetailClient({
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-      <div className="flex items-center justify-between mt-4">
-        <div>
-          <h1 className="text-2xl font-bold">{aircraft.register}</h1>
-          <p className="text-sm text-gray-500">MSN: {aircraft.msn}</p>
+    <div className="flex flex-1 flex-col gap-4 p-4 pt-0 md:p-6 md:pt-0">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight">{aircraft.register}</h1>
+          <p className="text-muted-foreground text-sm">MSN: {aircraft.msn}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <button
+            type="button"
             onClick={() => setShowArchived(!showArchived)}
-            className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border transition-colors ${showArchived ? "bg-gray-800 text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
+            className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors ${showArchived ? "bg-gray-800 text-white" : "bg-background text-muted-foreground hover:bg-muted"}`}
           >
             <Archive size={14} />
             {showArchived ? "Show Active" : "Show Archived"}
           </button>
-          <Button onClick={() => setOpen(true)} className="bg-green-600 hover:bg-green-700 text-white gap-2">
-            <Plus size={15} /> Upload Document
+          <Button type="button" onClick={() => setOpen(true)} className="gap-2">
+            <Plus className="size-4 shrink-0" /> Upload Document
           </Button>
         </div>
       </div>

@@ -97,6 +97,72 @@ export function classifyHazardFileKind(
   return null
 }
 
+const DM_ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024
+
+/** Mesaj eki için izin verilen MIME türleri */
+export function isAllowedDmAttachmentMime(mime: string): boolean {
+  const m = mime.toLowerCase()
+  if (m.startsWith("image/")) return true
+  if (m === "application/pdf") return true
+  if (m === "text/plain") return true
+  if (m === "application/zip" || m === "application/x-zip-compressed") return true
+  if (m.startsWith("application/vnd.openxmlformats-officedocument")) return true
+  if (m === "application/msword") return true
+  if (m === "application/vnd.ms-excel") return true
+  return false
+}
+
+export async function uploadDmAttachmentToStorage(
+  file: File,
+  conversationId: number,
+  calisanId: number
+): Promise<{
+  path: string
+  fileName: string
+  publicUrl: string
+  mimeType: string
+  size: number
+} | null> {
+  try {
+    if (file.size > DM_ATTACHMENT_MAX_BYTES) return null
+    const mime = file.type || "application/octet-stream"
+    if (!isAllowedDmAttachmentMime(mime)) return null
+
+    const safe =
+      file.name
+        .replace(/[^a-zA-Z0-9._-]/g, "_")
+        .replace(/\.\./g, "_")
+        .replace(/\s+/g, "_") || "file"
+    const uid =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}_${Math.random().toString(16).slice(2)}`
+    const storagePath = `dm/${conversationId}/${calisanId}/${uid}_${safe}`
+    const arrayBuffer = await file.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+    const supabaseAdmin = getSupabaseAdmin()
+    const { error } = await supabaseAdmin.storage
+      .from(getStorageBucket())
+      .upload(storagePath, buffer, {
+        contentType: mime,
+        upsert: false,
+      })
+    if (error) throw error
+    const { data: urlData } = supabaseAdmin.storage
+      .from(getStorageBucket())
+      .getPublicUrl(storagePath)
+    return {
+      path: storagePath,
+      fileName: file.name || safe,
+      publicUrl: urlData.publicUrl,
+      mimeType: mime,
+      size: file.size,
+    }
+  } catch {
+    return null
+  }
+}
+
 export async function uploadHazardFileToStorage(
   file: File,
   hazardReportId: number

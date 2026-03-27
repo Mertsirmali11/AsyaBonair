@@ -17,6 +17,7 @@ import {
   IconInbox,
   IconLogout,
   IconMail,
+  IconMessage,
   IconPuzzle,
   IconRobot,
   IconSettings,
@@ -26,6 +27,7 @@ import {
   IconUser,
 } from "@tabler/icons-react"
 
+import { useDmInbox } from "@/components/dm-inbox-provider"
 import { cn } from "@/lib/utils"
 import { canAccessConfigurationsArea } from "@/lib/department-access"
 import {
@@ -86,8 +88,14 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   user: User
 }
 
-export function AppSidebar({ user, ...props }: AppSidebarProps) {
+export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
   const pathname = usePathname()
+  const { hasUnread } = useDmInbox()
+  const flushMessagesGutter =
+    pathname === "/messages" || pathname?.startsWith("/messages/")
+  const messagesRouteActive =
+    pathname === "/messages" || pathname?.startsWith("/messages/")
+  const messagesNavHighlight = messagesRouteActive || hasUnread
   const router = useRouter()
 
   const sidebarContentRef = React.useRef<HTMLDivElement | null>(null)
@@ -159,7 +167,11 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
   }, [])
 
   return (
-    <Sidebar collapsible="offcanvas" {...props}>
+    <Sidebar
+      collapsible="offcanvas"
+      className={cn(flushMessagesGutter && "md:!pr-0", className)}
+      {...props}
+    >
       <SidebarHeader className="border-b border-sidebar-border p-4">
         <Link href="/dashboard" className="flex justify-center">
           <div className="rounded-lg border border-gray-200 bg-white px-6 py-3 shadow-md">
@@ -196,6 +208,22 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
               </SidebarMenuItem>
             )
           })}
+
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              className={cn(
+                "h-10 px-3 rounded-lg transition-colors",
+                messagesNavHighlight &&
+                  "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+              )}
+            >
+              <Link href="/messages">
+                <IconMessage className="size-5" />
+                <span>Messages</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
 
           {hasConfigurationsAccess && (
             <Collapsible

@@ -155,7 +155,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                 <h2 className="text-lg font-bold">Announcements</h2>
               </div>
               {canAnnounce && (
-                <Button size="sm" onClick={() => setOpen(true)} className="gap-1 bg-blue-600 hover:bg-blue-700 text-white">
+                <Button size="sm" onClick={() => setOpen(true)} className="gap-1">
                   <Plus size={14} /> New announcement
                 </Button>
               )}

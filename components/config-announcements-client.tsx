@@ -5,13 +5,7 @@ import { IconPencil, IconPlus, IconSearch, IconTrash } from "@tabler/icons-react
 
 import { formatDateTimeIstanbul } from "@/lib/date-format"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
@@ -229,31 +223,32 @@ export function ConfigAnnouncementsClient() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+    <div className="flex w-full flex-col gap-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 space-y-1.5">
+          <h2 className="text-2xl font-bold tracking-tight">Announcements</h2>
+          <p className="text-muted-foreground text-sm">
+            Create, view, edit, and delete announcements. New posts email all staff when Resend is
+            configured. Same permissions as the dashboard (Quality / Human Resources).
+          </p>
+        </div>
+        <Button
+          type="button"
+          className="shrink-0 gap-2 self-end sm:self-center"
+          onClick={() => {
+            setCreateOpen(true)
+            setNewTitle("")
+            setNewContent("")
+          }}
+          disabled={loading}
+        >
+          <IconPlus className="size-4 shrink-0" />
+          New announcement
+        </Button>
+      </div>
+
       <Card className="border-border/80 shadow-sm">
-        <CardHeader className="flex flex-col gap-4 pb-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-1.5">
-            <CardTitle className="text-xl">Announcements</CardTitle>
-            <CardDescription>
-              Create, view, edit, and delete announcements. New posts email all staff when Resend is
-              configured. Same permissions as the dashboard (Quality / Human Resources).
-            </CardDescription>
-          </div>
-          <Button
-            type="button"
-            className="shrink-0 gap-1.5"
-            onClick={() => {
-              setCreateOpen(true)
-              setNewTitle("")
-              setNewContent("")
-            }}
-            disabled={loading}
-          >
-            <IconPlus className="size-4" />
-            New announcement
-          </Button>
-        </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 pt-6">
           {banner && (
             <div
               role="status"
@@ -313,12 +308,7 @@ export function ConfigAnnouncementsClient() {
                           </p>
                         </div>
                         <div className="flex shrink-0 gap-2 sm:flex-col">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => openDetail(a)}
-                          >
+                          <Button type="button" size="sm" onClick={() => openDetail(a)}>
                             Details
                           </Button>
                           <Button
@@ -414,7 +404,7 @@ export function ConfigAnnouncementsClient() {
                 <>
                   <Button
                     type="button"
-                    variant="secondary"
+                    variant="outline"
                     className="gap-1.5"
                     onClick={() => {
                       setDetailEditing(true)

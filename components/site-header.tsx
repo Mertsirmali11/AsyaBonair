@@ -1,6 +1,7 @@
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { DmHeaderInbox } from "@/components/dm-header-inbox"
 import { IstanbulClock } from "@/components/istanbul-clock"
 
 interface SiteHeaderProps {
@@ -34,7 +35,8 @@ export function SiteHeader({ user, title = "Documents" }: SiteHeaderProps) {
           className="mx-2 data-[orientation=vertical]:h-4"
         />
         <h1 className="text-base font-medium">{title}</h1>
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
+          <DmHeaderInbox />
           <IstanbulClock />
           {user && (
             <div className="flex items-center gap-3">

@@ -349,8 +349,9 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">{title}</h2>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-2xl font-bold tracking-tight">{title}</h2>
+        <div className="flex shrink-0 justify-end sm:justify-end">
         <Dialog open={dialogOpen} onOpenChange={(open) => {
           setDialogOpen(open)
           if (!open) {
@@ -363,8 +364,8 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
           }
         }}>
           <DialogTrigger asChild>
-            <Button 
-              className="bg-slate-700 hover:bg-slate-800"
+            <Button
+              className="gap-2"
               onClick={() => {
                 setIsEditMode(false)
                 setSelectedCalisan(null)
@@ -374,7 +375,7 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                 setFormData(newFormData)
               }}
             >
-              <IconPlus className="mr-2 h-4 w-4" />
+              <IconPlus className="size-4 shrink-0" />
               Add User
             </Button>
           </DialogTrigger>
@@ -714,6 +715,7 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
             </ScrollArea>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <div className="flex items-center gap-2">
@@ -900,7 +902,9 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
           </DialogHeader>
           <div className="flex flex-col gap-3 mt-4">
             <Button
-              className="w-full bg-sky-500 hover:bg-sky-600 text-white"
+              type="button"
+              variant="outline"
+              className="w-full"
               onClick={() => {
                 if (selectedCalisan) {
                   setFormData({

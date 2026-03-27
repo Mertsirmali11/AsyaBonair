@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { AppSidebar } from "@/components/app-sidebar"
+import { DmInboxProvider } from "@/components/dm-inbox-provider"
 import { SiteHeader } from "@/components/site-header"
 import {
   SidebarInset,
@@ -24,6 +25,7 @@ interface DashboardLayoutProps {
 export function DashboardLayout({ children, user, headerTitle }: DashboardLayoutProps) {
   return (
     <SidebarProvider
+      className="h-dvh max-h-dvh min-h-0 overflow-hidden"
       style={
         {
           "--sidebar-width": "calc(var(--spacing) * 72)",
@@ -31,15 +33,17 @@ export function DashboardLayout({ children, user, headerTitle }: DashboardLayout
         } as React.CSSProperties
       }
     >
-      <AppSidebar variant="inset" user={user} />
-      <SidebarInset>
-        <SiteHeader user={user} title={headerTitle} />
-        <div className="flex flex-1 flex-col">
-          <div className="@container/main flex flex-1 flex-col gap-2">
-            {children}
+      <DmInboxProvider>
+        <AppSidebar variant="inset" user={user} />
+        <SidebarInset className="min-h-0 overflow-hidden">
+          <SiteHeader user={user} title={headerTitle} />
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="@container/main flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+              {children}
+            </div>
           </div>
-        </div>
-      </SidebarInset>
+        </SidebarInset>
+      </DmInboxProvider>
     </SidebarProvider>
   )
 }

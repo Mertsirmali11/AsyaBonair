@@ -74,37 +74,39 @@ export function AircraftSettingsTable() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">Aircraft List</h3>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-slate-700 hover:bg-slate-800">
-              <IconPlus className="mr-2 h-4 w-4" />
-              Add Aircraft
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Add Aircraft</DialogTitle>
-            </DialogHeader>
-            <div className="flex flex-col gap-4 mt-2">
-              <div>
-                <Label>Register *</Label>
-                <Input value={register} onChange={e => setRegister(e.target.value)} placeholder="TC-XXX" className="mt-1" />
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-2xl font-bold tracking-tight">Aircraft Settings</h2>
+        <div className="flex shrink-0 justify-end sm:justify-end">
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button type="button" className="gap-2">
+                <IconPlus className="size-4 shrink-0" />
+                Add Aircraft
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Add Aircraft</DialogTitle>
+              </DialogHeader>
+              <div className="mt-2 flex flex-col gap-4">
+                <div>
+                  <Label>Register *</Label>
+                  <Input value={register} onChange={e => setRegister(e.target.value)} placeholder="TC-XXX" className="mt-1" />
+                </div>
+                <div>
+                  <Label>MSN *</Label>
+                  <Input value={msn} onChange={e => setMsn(e.target.value)} placeholder="MSN" className="mt-1" />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+                  <Button type="button" onClick={handleAdd} disabled={saving || !register || !msn}>
+                    {saving ? "Saving..." : "Save"}
+                  </Button>
+                </div>
               </div>
-              <div>
-                <Label>MSN *</Label>
-                <Input value={msn} onChange={e => setMsn(e.target.value)} placeholder="MSN" className="mt-1" />
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-                <Button onClick={handleAdd} disabled={saving || !register || !msn}>
-                  {saving ? "Saving..." : "Save"}
-                </Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       <div className="flex items-center gap-2">

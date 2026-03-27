@@ -135,7 +135,7 @@ export function MeetingsClient({
     <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
       <div className="flex items-center justify-between mt-4">
         <h1 className="text-2xl font-bold">Meeting Plans</h1>
-        <Button onClick={() => setOpen(true)} className="bg-green-600 hover:bg-green-700 text-white gap-2">
+        <Button onClick={() => setOpen(true)} className="gap-2">
           <CalendarCheck2 size={16} />
           Plan a Meeting
         </Button>
