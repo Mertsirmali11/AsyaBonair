@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
+import { calisanAvatarPublicUrl } from "@/lib/calisan-avatar"
 import { prisma } from "@/lib/prisma-server"
 import { otherParticipantId } from "@/lib/dm"
 import { broadcastDmInboxBoth } from "@/lib/dm-broadcast"
@@ -51,6 +52,26 @@ function mapMessage(
           size: m.attachmentSize ?? 0,
         }
       : null,
+  }
+}
+
+async function avatarUrlsForDmParticipants(myId: number, otherId: number) {
+  const rows = await prisma.calisan.findMany({
+    where: { id: { in: [myId, otherId] } },
+    select: { id: true, profilFotoStoragePath: true },
+  })
+  const map = new Map(
+    rows.map(
+      (r) =>
+        [r.id, calisanAvatarPublicUrl(r.profilFotoStoragePath)] as [
+          number,
+          string | null,
+        ]
+    )
+  )
+  return {
+    myAvatarUrl: map.get(myId) ?? null,
+    otherAvatarUrl: map.get(otherId) ?? null,
   }
 }
 
@@ -110,6 +131,7 @@ export async function GET(
 
   const otherId = otherParticipantId(conv, calisanId)
   const otherLastRead = await getOtherLastRead(conversationId, otherId)
+  const avatarPair = await avatarUrlsForDmParticipants(calisanId, otherId)
 
   const sp = request.nextUrl.searchParams
   const limitRaw = Number.parseInt(sp.get("limit") ?? "", 10)
@@ -135,6 +157,7 @@ export async function GET(
       mode: "since" as const,
       messages: rows.map((m) => mapMessage(m, calisanId, otherLastRead)),
       otherLastReadMessageId: otherLastRead,
+      ...avatarPair,
     })
   }
 
@@ -162,6 +185,7 @@ export async function GET(
       messages: asc.map((m) => mapMessage(m, calisanId, otherLastRead)),
       otherLastReadMessageId: otherLastRead,
       hasOlder,
+      ...avatarPair,
     })
   }
 
@@ -185,6 +209,7 @@ export async function GET(
     messages: asc.map((m) => mapMessage(m, calisanId, otherLastRead)),
     otherLastReadMessageId: otherLastRead,
     hasOlder,
+    ...avatarPair,
   })
 }
 

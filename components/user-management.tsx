@@ -3,6 +3,7 @@
 import * as React from "react"
 import { useState, useEffect, useMemo } from "react"
 import { IconArrowsSort, IconDotsVertical, IconPencil, IconPlus, IconSortAscending, IconSortDescending, IconTrash } from "@tabler/icons-react"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   Table,
@@ -57,6 +58,7 @@ interface Calisan {
   ekstra1: string | null
   ekstra2: string | null
   ekstra3: string | null
+  profilFotoUrl?: string | null
 }
 
 type SortDirection = "asc" | "desc" | null
@@ -100,6 +102,8 @@ const pilotColumns: ColumnDef[] = [
 ]
 
 const pilotRanks = ["Captain", "F/O"] as const
+
+const PROFILE_PHOTO_MAX_BYTES = 21 * 1024 * 1024
 
 const initialFormData = {
   isim: "",
@@ -147,6 +151,7 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
   const [selectedCalisan, setSelectedCalisan] = useState<Calisan | null>(null)
   const [isEditMode, setIsEditMode] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
+  const [avatarUploading, setAvatarUploading] = useState(false)
   const [sortField, setSortField] = useState<SortField>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
   const activeColumns = isPilotSettings ? pilotColumns : defaultColumns
@@ -174,6 +179,68 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
+  }
+
+  const handleProfilePhotoChange = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file || !selectedCalisan) return
+    if (file.size > PROFILE_PHOTO_MAX_BYTES) {
+      alert("Photo must be at most 21 MB.")
+      return
+    }
+    if (!file.type.startsWith("image/")) {
+      alert("Please choose an image file (JPEG, PNG, GIF, or WebP).")
+      return
+    }
+    setAvatarUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append("file", file)
+      const res = await fetch(`/api/calisanlar/${selectedCalisan.id}/avatar`, {
+        method: "POST",
+        body: fd,
+      })
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string
+        profilFotoUrl?: string
+      }
+      if (!res.ok) {
+        alert(data.error || "Upload failed")
+        return
+      }
+      setSelectedCalisan((s) =>
+        s ? { ...s, profilFotoUrl: data.profilFotoUrl ?? null } : null
+      )
+      fetchCalisanlar()
+    } catch {
+      alert("Upload failed")
+    } finally {
+      setAvatarUploading(false)
+    }
+  }
+
+  const removeProfilePhoto = async () => {
+    if (!selectedCalisan) return
+    setAvatarUploading(true)
+    try {
+      const res = await fetch(`/api/calisanlar/${selectedCalisan.id}/avatar`, {
+        method: "DELETE",
+      })
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) {
+        alert(data.error || "Could not remove photo")
+        return
+      }
+      setSelectedCalisan((s) => (s ? { ...s, profilFotoUrl: null } : null))
+      fetchCalisanlar()
+    } catch {
+      alert("Could not remove photo")
+    } finally {
+      setAvatarUploading(false)
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -438,6 +505,47 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                         </p>
                       )}
                     </div>
+                    {isEditMode && selectedCalisan && (
+                      <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4">
+                        <Label>Profile photo</Label>
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                          <Avatar className="size-20 shrink-0 ring-2 ring-background">
+                            <AvatarImage
+                              src={selectedCalisan.profilFotoUrl ?? undefined}
+                              alt=""
+                            />
+                            <AvatarFallback className="bg-primary/10 text-lg font-semibold text-primary">
+                              {`${selectedCalisan.isim?.[0] ?? ""}${selectedCalisan.soyisim?.[0] ?? ""}`.toUpperCase() ||
+                                "?"}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex min-w-0 flex-1 flex-col gap-2">
+                            <Input
+                              type="file"
+                              accept="image/jpeg,image/png,image/gif,image/webp"
+                              disabled={avatarUploading}
+                              onChange={(ev) => void handleProfilePhotoChange(ev)}
+                              className="cursor-pointer text-sm file:mr-2"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              JPEG, PNG, GIF or WebP — max 21 MB. Saves immediately.
+                            </p>
+                            {selectedCalisan.profilFotoUrl ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="w-fit"
+                                disabled={avatarUploading}
+                                onClick={() => void removeProfilePhoto()}
+                              >
+                                Remove photo
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                     {isPilotSettings ? (
                       <div className="space-y-2">
                         <Label htmlFor="ekstra3">Position *</Label>

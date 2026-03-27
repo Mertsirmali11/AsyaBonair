@@ -19,6 +19,7 @@ import { useDmInboxRealtime } from "@/hooks/use-dm-inbox-realtime"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { formatTimeOnlyIstanbul } from "@/lib/date-format"
 import { cn } from "@/lib/utils"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
 import {
@@ -38,6 +39,7 @@ type Colleague = {
   soyisim: string | null
   departman: string | null
   displayName: string
+  avatarUrl?: string | null
 }
 
 type ConvRow = {
@@ -49,6 +51,7 @@ type ConvRow = {
     soyisim: string | null
     departman: string | null
     displayName: string
+    avatarUrl?: string | null
   }
   lastMessage: {
     id: number
@@ -114,10 +117,34 @@ function formatFileSize(n: number) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function initialsFromDisplayName(name: string): string {
+  const parts = name.split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) {
+    return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase() || "?"
+  }
+  return (parts[0]?.[0] ?? "?").toUpperCase()
+}
+
+type ChatAvatars = { my: string | null; other: string | null }
+
+function readAvatarPairFromPayload(data: unknown): ChatAvatars | null {
+  if (!data || typeof data !== "object") return null
+  const o = data as Record<string, unknown>
+  if (!("myAvatarUrl" in o) || !("otherAvatarUrl" in o)) return null
+  return {
+    my: (o.myAvatarUrl as string | null) ?? null,
+    other: (o.otherAvatarUrl as string | null) ?? null,
+  }
+}
+
 export function MessagesClient({
   currentCalisanId,
+  currentUserName,
+  currentUserAvatarUrl,
 }: {
   currentCalisanId: number
+  currentUserName?: string | null
+  currentUserAvatarUrl?: string | null
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -145,6 +172,7 @@ export function MessagesClient({
   const [realtimeLive, setRealtimeLive] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<ConvRow | null>(null)
   const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [chatAvatars, setChatAvatars] = useState<ChatAvatars | null>(null)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const selectedRef = useRef<number | null>(null)
@@ -191,6 +219,8 @@ export function MessagesClient({
         const res = await fetch(`/api/messages/conversations/${cid}/messages`)
         if (!res.ok) return
         const data = await res.json()
+        const av = readAvatarPairFromPayload(data)
+        if (av) setChatAvatars(av)
         const otherRead = data.otherLastReadMessageId ?? 0
         const list = (data.messages ?? []) as ChatMessage[]
         setMessages(applyOtherRead(otherRead, list))
@@ -204,6 +234,8 @@ export function MessagesClient({
       )
       if (!res.ok) return
       const data = await res.json()
+      const av = readAvatarPairFromPayload(data)
+      if (av) setChatAvatars(av)
       const newMsgs = (data.messages ?? []) as ChatMessage[]
       const otherRead = data.otherLastReadMessageId ?? 0
 
@@ -229,12 +261,19 @@ export function MessagesClient({
       setLoadingMessages(true)
       setMessages([])
       setHasOlder(false)
+      const convRow = conversations.find((c) => c.id === conversationId)
+      setChatAvatars({
+        my: currentUserAvatarUrl ?? null,
+        other: convRow?.other.avatarUrl ?? null,
+      })
       try {
         const res = await fetch(
           `/api/messages/conversations/${conversationId}/messages`
         )
         if (!res.ok) return
         const data = await res.json()
+        const av = readAvatarPairFromPayload(data)
+        if (av) setChatAvatars(av)
         const otherRead = data.otherLastReadMessageId ?? 0
         const list = (data.messages ?? []) as ChatMessage[]
         setMessages(applyOtherRead(otherRead, list))
@@ -247,7 +286,12 @@ export function MessagesClient({
         setLoadingMessages(false)
       }
     },
-    [applyOtherRead, loadConversations]
+    [
+      applyOtherRead,
+      loadConversations,
+      conversations,
+      currentUserAvatarUrl,
+    ]
   )
 
   const loadOlderMessages = useCallback(async () => {
@@ -268,6 +312,8 @@ export function MessagesClient({
       )
       if (!res.ok) return
       const data = await res.json()
+      const av = readAvatarPairFromPayload(data)
+      if (av) setChatAvatars(av)
       const older = (data.messages ?? []) as ChatMessage[]
       const otherRead = data.otherLastReadMessageId ?? 0
       setHasOlder(!!data.hasOlder)
@@ -596,6 +642,15 @@ export function MessagesClient({
                           onClick={() => openConversation(c.id)}
                           className="flex min-w-0 flex-1 gap-3 px-3 py-3 text-left"
                         >
+                          <Avatar className="size-11 shrink-0 ring-2 ring-background shadow-sm">
+                            <AvatarImage
+                              src={c.other.avatarUrl ?? undefined}
+                              alt=""
+                            />
+                            <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
+                              {initialsFromDisplayName(c.other.displayName)}
+                            </AvatarFallback>
+                          </Avatar>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-baseline justify-between gap-2">
                               <span className="truncate font-medium text-foreground">
@@ -681,6 +736,19 @@ export function MessagesClient({
                     <ArrowLeft className="size-5" />
                   </Button>
                 )}
+                <Avatar className="size-10 shrink-0 ring-2 ring-white/35 md:size-11">
+                  <AvatarImage
+                    src={
+                      (chatAvatars?.other ??
+                        selectedConv.other.avatarUrl) ||
+                      undefined
+                    }
+                    alt=""
+                  />
+                  <AvatarFallback className="bg-white/20 text-sm font-semibold text-white">
+                    {initialsFromDisplayName(selectedConv.other.displayName)}
+                  </AvatarFallback>
+                </Avatar>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold leading-tight md:text-base">
                     {selectedConv.other.displayName}
@@ -713,17 +781,39 @@ export function MessagesClient({
                   </p>
                 ) : (
                   <div className="flex w-full min-w-0 flex-col gap-2">
-                    {messages.map((m) => (
+                    {messages.map((m) => {
+                      const otherInit = initialsFromDisplayName(
+                        selectedConv.other.displayName
+                      )
+                      const myInit = initialsFromDisplayName(
+                        currentUserName || "Ben"
+                      )
+                      return (
                       <div
                         key={m.id}
                         className={cn(
-                          "flex w-full min-w-0",
+                          "flex w-full min-w-0 items-end gap-2",
                           m.fromMe ? "justify-end pr-0 pl-4" : "justify-start pr-4 pl-0"
                         )}
                       >
+                        {!m.fromMe && (
+                          <Avatar className="size-8 shrink-0 ring-2 ring-border/70">
+                            <AvatarImage
+                              src={
+                                (chatAvatars?.other ??
+                                  selectedConv.other.avatarUrl) ||
+                                undefined
+                              }
+                              alt=""
+                            />
+                            <AvatarFallback className="bg-muted text-[10px] font-semibold">
+                              {otherInit}
+                            </AvatarFallback>
+                          </Avatar>
+                        )}
                         <div
                           className={cn(
-                            "relative max-w-[min(100%,32rem)] rounded-xl px-3 py-2",
+                            "relative max-w-[min(100%,30rem)] rounded-xl px-3 py-2",
                             m.fromMe ? BUBBLE_OUT : BUBBLE_IN
                           )}
                         >
@@ -799,8 +889,24 @@ export function MessagesClient({
                             )}
                           </div>
                         </div>
+                        {m.fromMe && (
+                          <Avatar className="size-8 shrink-0 ring-2 ring-primary/25">
+                            <AvatarImage
+                              src={
+                                (chatAvatars?.my ??
+                                  currentUserAvatarUrl) ||
+                                undefined
+                              }
+                              alt=""
+                            />
+                            <AvatarFallback className="bg-primary/15 text-[10px] font-semibold text-primary">
+                              {myInit}
+                            </AvatarFallback>
+                          </Avatar>
+                        )}
                       </div>
-                    ))}
+                    )
+                  })}
                   </div>
                 )}
               </div>
@@ -971,17 +1077,25 @@ export function MessagesClient({
                       className="rounded-lg border border-transparent px-3 py-3 text-left transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-60"
                       onClick={() => void startWithColleague(c.id)}
                     >
-                      <div className="flex items-center gap-2">
-                        {busy && (
-                          <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium text-foreground">
-                            {c.displayName}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {c.departman ?? "—"}
-                          </p>
+                      <div className="flex items-center gap-3">
+                        <Avatar className="size-10 shrink-0 ring-2 ring-border">
+                          <AvatarImage src={c.avatarUrl ?? undefined} alt="" />
+                          <AvatarFallback className="bg-muted text-xs font-semibold">
+                            {initialsFromDisplayName(c.displayName)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-foreground">
+                              {c.displayName}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              {c.departman ?? "—"}
+                            </p>
+                          </div>
+                          {busy && (
+                            <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+                          )}
                         </div>
                       </div>
                     </button>

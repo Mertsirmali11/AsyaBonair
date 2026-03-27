@@ -11,7 +11,7 @@ export type DmInboxConvSnippet = {
   id: number
   unreadCount: number
   updatedAt: string
-  other: { displayName: string }
+  other: { displayName: string; avatarUrl?: string | null }
 }
 
 type DmInboxContextValue = {

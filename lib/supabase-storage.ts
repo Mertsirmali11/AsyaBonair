@@ -9,6 +9,18 @@ export function getStorageBucket(): string {
   )
 }
 
+/**
+ * Profil fotoğrafları için bucket. Evrak bucket’ında “Allowed MIME types” sadece PDF vb. ise
+ * Supabase’te image/* izinli yeni bucket açıp SUPABASE_AVATAR_BUCKET ile buraya bağlayın.
+ */
+export function getAvatarStorageBucket(): string {
+  const raw =
+    process.env.SUPABASE_AVATAR_BUCKET ||
+    process.env.NEXT_PUBLIC_SUPABASE_AVATAR_BUCKET
+  const name = raw?.trim()
+  return name && name.length > 0 ? name : getStorageBucket()
+}
+
 let supabaseAdminInstance: SupabaseClient | null = null
 
 function getSupabaseAdmin(): SupabaseClient {
@@ -86,6 +98,39 @@ export async function deletePdfFromStorage(storagePath: string): Promise<boolean
   }
 }
 
+/** `calisan-avatars/...` yolları — yükleme hangi bucket’taysa silme de oradan */
+export async function deleteCalisanAvatarFromStorage(
+  storagePath: string
+): Promise<boolean> {
+  try {
+    const supabaseAdmin = getSupabaseAdmin()
+    const { error } = await supabaseAdmin.storage
+      .from(getAvatarStorageBucket())
+      .remove([storagePath])
+    if (error) return false
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Proxy route / tarayıcı için — private bucket’ta da çalışır */
+export async function downloadCalisanAvatarFromStorage(
+  storagePath: string
+): Promise<Buffer | null> {
+  try {
+    const supabaseAdmin = getSupabaseAdmin()
+    const { data, error } = await supabaseAdmin.storage
+      .from(getAvatarStorageBucket())
+      .download(storagePath)
+    if (error || !data) return null
+    const arrayBuffer = await data.arrayBuffer()
+    return Buffer.from(arrayBuffer)
+  } catch {
+    return null
+  }
+}
+
 const HAZARD_MAX_BYTES = 50 * 1024 * 1024
 
 export function classifyHazardFileKind(
@@ -98,6 +143,136 @@ export function classifyHazardFileKind(
 }
 
 const DM_ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024
+
+/** Çalışan profil fotoğrafı — kullanıcı isteği: en fazla 21 MB */
+export const CALISAN_AVATAR_MAX_BYTES = 21 * 1024 * 1024
+
+export function isAllowedCalisanAvatarMime(mime: string): boolean {
+  const m = (mime || "").toLowerCase()
+  return (
+    m === "image/jpeg" ||
+    m === "image/jpg" ||
+    m === "image/png" ||
+    m === "image/gif" ||
+    m === "image/webp"
+  )
+}
+
+/**
+ * Tarayıcı bazen `file.type` boş bırakır (özellikle Windows); uzantıdan tahmin eder.
+ */
+export function resolveCalisanAvatarMime(file: File): string | null {
+  const raw = (file.type || "").trim().toLowerCase()
+  if (raw && isAllowedCalisanAvatarMime(raw)) {
+    return raw === "image/jpg" ? "image/jpeg" : raw
+  }
+  const name = file.name.toLowerCase()
+  if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg"
+  if (name.endsWith(".png")) return "image/png"
+  if (name.endsWith(".gif")) return "image/gif"
+  if (name.endsWith(".webp")) return "image/webp"
+  return null
+}
+
+export type UploadCalisanAvatarResult =
+  | { ok: true; path: string; publicUrl: string }
+  | { ok: false; message: string }
+
+export async function uploadCalisanAvatarToStorage(
+  file: File,
+  calisanId: number
+): Promise<UploadCalisanAvatarResult> {
+  try {
+    if (file.size > CALISAN_AVATAR_MAX_BYTES) {
+      return {
+        ok: false,
+        message: `Dosya en fazla ${CALISAN_AVATAR_MAX_BYTES / (1024 * 1024)} MB olabilir.`,
+      }
+    }
+    const mime = resolveCalisanAvatarMime(file)
+    if (!mime) {
+      return {
+        ok: false,
+        message:
+          "Geçersiz görüntü türü. JPEG, PNG, GIF veya WebP seçin (tarayıcı türü algılamazsa .jpg/.png uzantılı dosya deneyin).",
+      }
+    }
+
+    const ext =
+      mime === "image/png"
+        ? "png"
+        : mime === "image/gif"
+          ? "gif"
+          : mime === "image/webp"
+            ? "webp"
+            : "jpg"
+    const uid =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}_${Math.random().toString(16).slice(2)}`
+    const storagePath = `calisan-avatars/${calisanId}/${uid}.${ext}`
+    const arrayBuffer = await file.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+    const supabaseAdmin = getSupabaseAdmin()
+    const bucket = getAvatarStorageBucket()
+
+    const doUpload = (contentType: string) =>
+      supabaseAdmin.storage.from(bucket).upload(storagePath, buffer, {
+        contentType,
+        upsert: false,
+      })
+
+    let { error } = await doUpload(mime)
+
+    if (
+      error &&
+      /mime type .+ is not supported/i.test(error.message || "")
+    ) {
+      const retry = await doUpload("application/octet-stream")
+      if (!retry.error) {
+        error = null
+      } else {
+        error = retry.error
+      }
+    }
+
+    if (error) {
+      const msg = error.message || String(error)
+      if (/bucket not found|not found/i.test(msg)) {
+        return {
+          ok: false,
+          message: `Supabase bucket bulunamadı: "${bucket}". Dashboard’da oluşturun; profil fotoğrafları için SUPABASE_AVATAR_BUCKET ile ayrı bucket da kullanabilirsiniz.`,
+        }
+      }
+      if (/mime type .+ is not supported/i.test(msg)) {
+        return {
+          ok: false,
+          message:
+            `Bucket "${bucket}" bu görüntü türünü kabul etmiyor (${msg}). Supabase → Storage → bucket → yapılandırmada "Allowed MIME types" alanına image/* ekleyin veya kısıtı kaldırın. Alternatif: image/* izinli yeni bucket açıp .env içinde SUPABASE_AVATAR_BUCKET=bucket_adı yazın.`,
+        }
+      }
+      return { ok: false, message: msg }
+    }
+    const { data: urlData } = supabaseAdmin.storage
+      .from(bucket)
+      .getPublicUrl(storagePath)
+    return {
+      ok: true,
+      path: storagePath,
+      publicUrl: urlData.publicUrl,
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (/environment variables are not set|Supabase environment/i.test(msg)) {
+      return {
+        ok: false,
+        message:
+          "Sunucu yapılandırması eksik: NEXT_PUBLIC_SUPABASE_URL ve SUPABASE_SERVICE_ROLE_KEY tanımlı olmalı.",
+      }
+    }
+    return { ok: false, message: msg || "Depolama hatası" }
+  }
+}
 
 /** Mesaj eki için izin verilen MIME türleri */
 export function isAllowedDmAttachmentMime(mime: string): boolean {

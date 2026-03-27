@@ -27,7 +27,11 @@ export default async function MessagesPage() {
           </div>
         }
       >
-        <MessagesClient currentCalisanId={currentCalisanId} />
+        <MessagesClient
+          currentCalisanId={currentCalisanId}
+          currentUserName={session.user?.name ?? null}
+          currentUserAvatarUrl={session.user?.image ?? null}
+        />
       </Suspense>
     </DashboardLayout>
   )

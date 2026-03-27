@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server"
+import { calisanAvatarPublicUrl } from "@/lib/calisan-avatar"
 import { prisma } from "@/lib/prisma-server"
+import { deleteCalisanAvatarFromStorage } from "@/lib/supabase-storage"
 import bcrypt from "bcryptjs"
 
 export async function GET(
@@ -19,7 +21,11 @@ export async function GET(
       )
     }
 
-    return NextResponse.json(calisan)
+    const { profilFotoStoragePath, password: _pw, ...safe } = calisan
+    return NextResponse.json({
+      ...safe,
+      profilFotoUrl: calisanAvatarPublicUrl(profilFotoStoragePath),
+    })
   } catch (error) {
     console.error("Error fetching employee:", error)
     return NextResponse.json(
@@ -82,7 +88,11 @@ export async function PUT(
       data: updateData,
     })
 
-    return NextResponse.json(calisan)
+    const { profilFotoStoragePath, password: _pw, ...safe } = calisan
+    return NextResponse.json({
+      ...safe,
+      profilFotoUrl: calisanAvatarPublicUrl(profilFotoStoragePath),
+    })
   } catch (error: any) {
     console.error("Error updating employee:", error)
 
@@ -106,8 +116,16 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params
+    const numericId = parseInt(id)
+    const existing = await prisma.calisan.findUnique({
+      where: { id: numericId },
+      select: { profilFotoStoragePath: true },
+    })
+    if (existing?.profilFotoStoragePath) {
+      await deleteCalisanAvatarFromStorage(existing.profilFotoStoragePath)
+    }
     await prisma.calisan.delete({
-      where: { id: parseInt(id) },
+      where: { id: numericId },
     })
 
     return NextResponse.json({ success: true })

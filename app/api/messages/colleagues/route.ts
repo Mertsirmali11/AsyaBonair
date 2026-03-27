@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
+import { calisanAvatarPublicUrl } from "@/lib/calisan-avatar"
 import { prisma } from "@/lib/prisma-server"
 
 export async function GET() {
@@ -26,6 +27,7 @@ export async function GET() {
       isim: true,
       soyisim: true,
       departman: true,
+      profilFotoStoragePath: true,
     },
     orderBy: [{ isim: "asc" }, { soyisim: "asc" }],
   })
@@ -37,6 +39,7 @@ export async function GET() {
       soyisim: c.soyisim,
       departman: c.departman,
       displayName: [c.isim, c.soyisim].filter(Boolean).join(" ") || `Employee #${c.id}`,
+      avatarUrl: calisanAvatarPublicUrl(c.profilFotoStoragePath),
     })),
   })
 }

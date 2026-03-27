@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
+import { calisanAvatarPublicUrl } from "@/lib/calisan-avatar"
 import { prisma } from "@/lib/prisma-server"
 import { dmParticipantPair, otherParticipantId } from "@/lib/dm"
 
@@ -48,7 +49,13 @@ export async function GET() {
     const otherIds = conversations.map((c) => otherParticipantId(c, calisanId))
     const others = await prisma.calisan.findMany({
       where: { id: { in: otherIds } },
-      select: { id: true, isim: true, soyisim: true, departman: true },
+      select: {
+        id: true,
+        isim: true,
+        soyisim: true,
+        departman: true,
+        profilFotoStoragePath: true,
+      },
     })
     const otherMap = new Map(others.map((o) => [o.id, o]))
 
@@ -88,6 +95,7 @@ export async function GET() {
           departman: o?.departman ?? null,
           displayName:
             [o?.isim, o?.soyisim].filter(Boolean).join(" ") || `Employee #${oid}`,
+          avatarUrl: calisanAvatarPublicUrl(o?.profilFotoStoragePath),
         },
         lastMessage: last
           ? {

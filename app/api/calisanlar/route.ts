@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { calisanAvatarPublicUrl } from "@/lib/calisan-avatar"
 import { prisma } from "@/lib/prisma-server"
 import bcrypt from "bcryptjs"
 
@@ -32,12 +33,20 @@ export async function GET() {
         ekstra1: true,
         ekstra2: true,
         ekstra3: true,
+        profilFotoStoragePath: true,
         createdAt: true,
         updatedAt: true,
       },
     })
 
-    return NextResponse.json(calisanlar)
+    const payload = calisanlar.map(
+      ({ profilFotoStoragePath, ...rest }) => ({
+        ...rest,
+        profilFotoUrl: calisanAvatarPublicUrl(profilFotoStoragePath),
+      })
+    )
+
+    return NextResponse.json(payload)
   } catch (error) {
     console.error("Error fetching employees:", error)
     return NextResponse.json(

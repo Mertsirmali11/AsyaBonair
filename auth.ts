@@ -1,6 +1,7 @@
 import NextAuth from "next-auth"
 import Credentials from "next-auth/providers/credentials"
 import bcrypt from "bcryptjs"
+import { calisanAvatarPublicUrl } from "@/lib/calisan-avatar"
 import { prisma } from "@/lib/prisma-server"
 import { authConfig } from "./auth.config"
 
@@ -36,6 +37,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           where: {
             email: credentials.email as string,
           },
+          select: {
+            id: true,
+            email: true,
+            password: true,
+            isim: true,
+            soyisim: true,
+            departman: true,
+            profilFotoStoragePath: true,
+          },
         })
 
         if (!calisan || !calisan.password) {
@@ -55,7 +65,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           id: String(calisan.id),
           email: calisan.email,
           name: `${calisan.isim || ""} ${calisan.soyisim || ""}`.trim() || null,
-          image: null,
+          image: calisanAvatarPublicUrl(calisan.profilFotoStoragePath),
           departman: calisan.departman,
         }
       },
@@ -77,6 +87,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (session.user) {
         session.user.id = (token as any).id as string
         session.user.departman = (token as any).departman
+        const uid = Number.parseInt((token as any).id as string, 10)
+        if (Number.isFinite(uid) && uid > 0) {
+          const row = await prisma.calisan.findUnique({
+            where: { id: uid },
+            select: { profilFotoStoragePath: true },
+          })
+          session.user.image =
+            calisanAvatarPublicUrl(row?.profilFotoStoragePath) ?? null
+        }
       }
       return session
     },
