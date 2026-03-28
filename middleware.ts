@@ -1,6 +1,13 @@
-import { auth } from "@/auth"
+import NextAuth from "next-auth"
 
-/** auth.ts ile aynı örnek — aksi halde Edge’teki JWT ile Node’daki session uyumsuz kalıp /login ↔ /dashboard döngüsü oluşabiliyor (Vercel). */
+import { authConfig } from "./auth.config"
+
+/**
+ * Edge’de çalışır — @/auth (Prisma/bcrypt) buraya import edilmemeli; Vercel’de MIDDLEWARE_INVOCATION_FAILED olur.
+ * Oturum: aynı AUTH_SECRET ile JWT doğrulanır; sunucu tarafı session auth.ts içinde.
+ */
+const { auth } = NextAuth(authConfig)
+
 export default auth
 
 export const config = {
