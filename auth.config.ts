@@ -7,11 +7,14 @@ export const authConfig: NextAuthConfig = {
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user
-      const isOnDashboard = nextUrl.pathname.startsWith("/dashboard")
-      const isOnAuthPage = nextUrl.pathname.startsWith("/login") || 
-                          nextUrl.pathname.startsWith("/register")
+      const path = nextUrl.pathname
+      const needsAuth =
+        path.startsWith("/dashboard") ||
+        path.startsWith("/messages")
+      const isOnAuthPage =
+        path.startsWith("/login") || path.startsWith("/register")
 
-      if (isOnDashboard) {
+      if (needsAuth) {
         if (isLoggedIn) return true
         return false
       }

@@ -1,8 +1,6 @@
-import NextAuth from "next-auth"
-import { authConfig } from "./auth.config"
+import { auth } from "@/auth"
 
-const { auth } = NextAuth(authConfig)
-
+/** auth.ts ile aynı örnek — aksi halde Edge’teki JWT ile Node’daki session uyumsuz kalıp /login ↔ /dashboard döngüsü oluşabiliyor (Vercel). */
 export default auth
 
 export const config = {

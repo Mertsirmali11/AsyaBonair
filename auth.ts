@@ -22,6 +22,7 @@ declare module "next-auth" {
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   ...authConfig,
+  trustHost: true,
   providers: [
     Credentials({
       credentials: {
@@ -80,6 +81,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (user) {
         ;(token as any).id = user.id
         ;(token as any).departman = user.departman
+        ;(token as any).image = user.image ?? null
       }
       return token
     },
@@ -87,14 +89,19 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (session.user) {
         session.user.id = (token as any).id as string
         session.user.departman = (token as any).departman
+        session.user.image = (token as any).image ?? null
         const uid = Number.parseInt((token as any).id as string, 10)
         if (Number.isFinite(uid) && uid > 0) {
-          const row = await prisma.calisan.findUnique({
-            where: { id: uid },
-            select: { profilFotoStoragePath: true },
-          })
-          session.user.image =
-            calisanAvatarPublicUrl(row?.profilFotoStoragePath) ?? null
+          try {
+            const row = await prisma.calisan.findUnique({
+              where: { id: uid },
+              select: { profilFotoStoragePath: true },
+            })
+            session.user.image =
+              calisanAvatarPublicUrl(row?.profilFotoStoragePath) ?? null
+          } catch {
+            /* Vercel / DB kesintisinde oturumu düşürme; JWT’deki görsel kalır */
+          }
         }
       }
       return session
