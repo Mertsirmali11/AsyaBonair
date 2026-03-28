@@ -73,28 +73,11 @@ export async function GET() {
             departman: true,
           },
         },
+        _count: { select: { attachments: true } },
       },
     })
 
-    const ids = reports.map((r) => r.id)
-    const attachmentGroups =
-      ids.length === 0
-        ? []
-        : await prisma.hazardAttachment.groupBy({
-            by: ["hazardReportId"],
-            where: { hazardReportId: { in: ids } },
-            _count: { _all: true },
-          })
-    const attachmentCountByReportId = new Map(
-      attachmentGroups.map((g) => [g.hazardReportId, g._count._all])
-    )
-
-    const reportsWithCount = reports.map((r) => ({
-      ...r,
-      _count: { attachments: attachmentCountByReportId.get(r.id) ?? 0 },
-    }))
-
-    return NextResponse.json(reportsWithCount)
+    return NextResponse.json(reports)
   } catch (error) {
     console.error("Error fetching hazard reports:", error)
     return NextResponse.json(

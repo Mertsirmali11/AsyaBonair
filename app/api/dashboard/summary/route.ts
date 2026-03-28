@@ -56,7 +56,13 @@ export async function GET() {
       prisma.announcement.findMany({
         orderBy: { createdAt: "desc" },
         take: ANNOUNCEMENTS_DASHBOARD_LIMIT,
-        include: {
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          createdAt: true,
+          updatedAt: true,
+          createdBy: true,
           creator: {
             select: { isim: true, soyisim: true, departman: true },
           },

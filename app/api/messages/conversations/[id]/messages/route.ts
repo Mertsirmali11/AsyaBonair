@@ -169,17 +169,12 @@ export async function GET(
     const rows = await prisma.dmMessage.findMany({
       where: { conversationId, id: { lt: beforeId } },
       orderBy: { id: "desc" },
-      take: limit,
+      take: limit + 1,
       select: messageSelect,
     })
-    const asc = [...rows].reverse()
-    const oldestId = asc[0]?.id
-    const hasOlder =
-      oldestId != null
-        ? (await prisma.dmMessage.count({
-            where: { conversationId, id: { lt: oldestId } },
-          })) > 0
-        : false
+    const hasOlder = rows.length > limit
+    const page = hasOlder ? rows.slice(0, limit) : rows
+    const asc = [...page].reverse()
     return NextResponse.json({
       mode: "older" as const,
       messages: asc.map((m) => mapMessage(m, calisanId, otherLastRead)),
@@ -192,17 +187,12 @@ export async function GET(
   const rows = await prisma.dmMessage.findMany({
     where: { conversationId },
     orderBy: { id: "desc" },
-    take: limit,
+    take: limit + 1,
     select: messageSelect,
   })
-  const asc = [...rows].reverse()
-  const oldestId = asc[0]?.id
-  const hasOlder =
-    oldestId != null
-      ? (await prisma.dmMessage.count({
-          where: { conversationId, id: { lt: oldestId } },
-        })) > 0
-      : false
+  const hasOlder = rows.length > limit
+  const page = hasOlder ? rows.slice(0, limit) : rows
+  const asc = [...page].reverse()
 
   return NextResponse.json({
     mode: "latest" as const,

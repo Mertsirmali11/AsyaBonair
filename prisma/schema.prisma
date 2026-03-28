@@ -102,6 +102,8 @@ model Calisan {
   dmMessagesSent DmMessage[]      @relation("DmMessageSender")
   dmReadStates   DmReadState[]
 
+  @@index([createdAt(sort: Desc)])
+  @@index([isim, soyisim])
   @@map("calisanlar")
 }
 
@@ -118,6 +120,7 @@ model DmConversation {
   @@unique([lowerUserId, higherUserId])
   @@index([lowerUserId])
   @@index([higherUserId])
+  @@index([updatedAt(sort: Desc)])
   @@map("dm_conversations")
 }
 
@@ -152,6 +155,7 @@ model DmReadState {
   calisan      Calisan        @relation(fields: [calisanId], references: [id], onDelete: Cascade)
 
   @@unique([conversationId, calisanId])
+  @@index([calisanId])
   @@map("dm_read_states")
 }
 
@@ -171,6 +175,8 @@ model HazardReport {
   reporter     Calisan?            @relation(fields: [reportedBy], references: [id], onDelete: Cascade)
   attachments  HazardAttachment[]
 
+  @@index([createdAt(sort: Desc)])
+  @@index([reportedBy])
   @@map("hazard_reports")
 }
 
@@ -207,6 +213,8 @@ model IncomingPaper {
 
   creator Calisan? @relation(fields: [createdBy], references: [id], onDelete: Cascade)
 
+  @@index([createdAt(sort: Desc)])
+  @@index([createdBy])
   @@map("incoming_papers")
 }
 
@@ -226,6 +234,8 @@ model OutgoingCorrespondence {
 
   creator Calisan? @relation(fields: [createdBy], references: [id], onDelete: Cascade)
 
+  @@index([createdAt(sort: Desc)])
+  @@index([createdBy])
   @@map("outgoing_correspondences")
 }
 
@@ -295,6 +305,7 @@ model Meeting {
   participants MeetingParticipant[]
   tasks        MeetingTask[]
 
+  @@index([plannedDate])
   @@map("meetings")
 }
 
@@ -307,6 +318,8 @@ model MeetingParticipant {
   calisan Calisan @relation(fields: [calisanId], references: [id], onDelete: Cascade)
 
   @@unique([meetingId, calisanId])
+  @@index([meetingId])
+  @@index([calisanId])
   @@map("meeting_participants")
 }
 
@@ -327,6 +340,9 @@ model MeetingTask {
   assignee Calisan? @relation("MeetingTaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   attachments TaskAttachment[]
 
+  @@index([meetingId])
+  @@index([assigneeId])
+  @@index([createdAt(sort: Desc)])
   @@map("meeting_tasks")
 }
 
@@ -342,6 +358,8 @@ model Announcement {
 
   creator Calisan? @relation(fields: [createdBy], references: [id])
 
+  @@index([createdAt(sort: Desc)])
+  @@index([createdBy])
   @@map("announcements")
 }
 
@@ -355,6 +373,7 @@ model TaskMessage {
   task   MeetingTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
   sender Calisan?    @relation(fields: [senderId], references: [id])
 
+  @@index([taskId])
   @@map("task_messages")
 }
 model TaskAttachment {
@@ -370,5 +389,6 @@ model TaskAttachment {
   task     MeetingTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
   uploader Calisan?    @relation(fields: [uploadedBy], references: [id], onDelete: SetNull)
 
+  @@index([taskId])
   @@map("task_attachments")
 }

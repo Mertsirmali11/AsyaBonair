@@ -3,6 +3,7 @@ import { auth } from "@/auth"
 import { calisanAvatarPublicUrl } from "@/lib/calisan-avatar"
 import { prisma } from "@/lib/prisma-server"
 import { dmParticipantPair, otherParticipantId } from "@/lib/dm"
+import { dmUnreadCountsByConversationIds } from "@/lib/dm-unread-batch"
 
 async function requireCalisanId() {
   const session = await auth()
@@ -39,10 +40,6 @@ export async function GET() {
             attachmentFileName: true,
           },
         },
-        readStates: {
-          where: { calisanId },
-          select: { lastReadMessageId: true },
-        },
       },
     })
 
@@ -59,20 +56,11 @@ export async function GET() {
     })
     const otherMap = new Map(others.map((o) => [o.id, o]))
 
-    const unreadCounts = await Promise.all(
-      conversations.map(async (c) => {
-        const myRead = c.readStates[0]?.lastReadMessageId ?? 0
-        const n = await prisma.dmMessage.count({
-          where: {
-            conversationId: c.id,
-            senderId: { not: calisanId },
-            id: { gt: myRead },
-          },
-        })
-        return { conversationId: c.id, unread: n }
-      })
+    const unreadMap = await dmUnreadCountsByConversationIds(
+      prisma,
+      calisanId,
+      conversations.map((c) => c.id)
     )
-    const unreadMap = new Map(unreadCounts.map((u) => [u.conversationId, u.unread]))
 
     const payload = conversations.map((c) => {
       const oid = otherParticipantId(c, calisanId)
