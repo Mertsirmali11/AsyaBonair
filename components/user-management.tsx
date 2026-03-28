@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useCallback, useRef } from "react"
+import { usePathname } from "next/navigation"
 import { IconArrowsSort, IconDotsVertical, IconPencil, IconPlus, IconSortAscending, IconSortDescending, IconTrash } from "@tabler/icons-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -104,6 +105,8 @@ const pilotColumns: ColumnDef[] = [
 const pilotRanks = ["Captain", "F/O"] as const
 
 const PROFILE_PHOTO_MAX_BYTES = 21 * 1024 * 1024
+const CALISAN_LIST_RETRY_MS = 400
+const CALISAN_LIST_RETRIES = 3
 
 const initialFormData = {
   isim: "",
@@ -139,9 +142,12 @@ interface UserManagementProps {
 }
 
 export function UserManagement({ departmentFilter, title = "User Management" }: UserManagementProps) {
+  const pathname = usePathname()
   const isPilotSettings = departmentFilter === "Pilot"
   const [calisanlar, setCalisanlar] = useState<Calisan[]>([])
   const [loading, setLoading] = useState(true)
+  const [listError, setListError] = useState<string | null>(null)
+  const hasLoadedOnceRef = useRef(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [formData, setFormData] = useState(initialFormData)
   const [submitting, setSubmitting] = useState(false)
@@ -158,23 +164,61 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
   const selectedDepartment = departmentFilter || formData.departman
   const shouldShowPilotRankField = selectedDepartment === "Pilot"
 
-  const fetchCalisanlar = async () => {
-    try {
-      const response = await fetch("/api/calisanlar")
-      if (response.ok) {
-        const data = await response.json()
-        setCalisanlar(data)
-      }
-    } catch (error) {
-      console.error("Error fetching employees:", error)
-    } finally {
-      setLoading(false)
+  const fetchCalisanlar = useCallback(async (mode: "initial" | "refresh" = "initial") => {
+    const silent = mode === "refresh" && hasLoadedOnceRef.current
+    if (!silent) {
+      setListError(null)
+      setLoading(true)
     }
-  }
+
+    let lastMsg = "Çalışan listesi yüklenemedi."
+    for (let attempt = 0; attempt < CALISAN_LIST_RETRIES; attempt++) {
+      try {
+        const response = await fetch("/api/calisanlar", { cache: "no-store" })
+        if (response.ok) {
+          const data = (await response.json()) as unknown
+          setCalisanlar(Array.isArray(data) ? (data as Calisan[]) : [])
+          setListError(null)
+          hasLoadedOnceRef.current = true
+          setLoading(false)
+          return
+        }
+        lastMsg =
+          response.status >= 500
+            ? "Sunucu geçici olarak yanıt vermedi. Bir süre sonra tekrar deneyin."
+            : "Liste alınamadı."
+        await new Promise((r) => setTimeout(r, CALISAN_LIST_RETRY_MS * (attempt + 1)))
+      } catch {
+        lastMsg = "Bağlantı kesildi veya zaman aşımı oluştu."
+        await new Promise((r) => setTimeout(r, CALISAN_LIST_RETRY_MS * (attempt + 1)))
+      }
+    }
+
+    setListError(lastMsg)
+    setLoading(false)
+  }, [])
 
   useEffect(() => {
-    fetchCalisanlar()
-  }, [])
+    void fetchCalisanlar("initial")
+  }, [fetchCalisanlar, pathname])
+
+  useEffect(() => {
+    const onShow = (e: PageTransitionEvent) => {
+      if (e.persisted) void fetchCalisanlar("refresh")
+    }
+    window.addEventListener("pageshow", onShow)
+    return () => window.removeEventListener("pageshow", onShow)
+  }, [fetchCalisanlar])
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return
+      if (!listError) return
+      void fetchCalisanlar("refresh")
+    }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => document.removeEventListener("visibilitychange", onVisible)
+  }, [fetchCalisanlar, listError])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
@@ -214,7 +258,7 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
       setSelectedCalisan((s) =>
         s ? { ...s, profilFotoUrl: data.profilFotoUrl ?? null } : null
       )
-      fetchCalisanlar()
+      void fetchCalisanlar("refresh")
     } catch {
       alert("Upload failed")
     } finally {
@@ -235,7 +279,7 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
         return
       }
       setSelectedCalisan((s) => (s ? { ...s, profilFotoUrl: null } : null))
-      fetchCalisanlar()
+      void fetchCalisanlar("refresh")
     } catch {
       alert("Could not remove photo")
     } finally {
@@ -281,7 +325,7 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
         setFormData(newFormData)
         setIsEditMode(false)
         setSelectedCalisan(null)
-        fetchCalisanlar()
+        void fetchCalisanlar("refresh")
       } else {
         const error = await response.json()
         alert(error.error || "An error occurred")
@@ -416,6 +460,23 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
 
   return (
     <div className="space-y-4">
+      {listError && (
+        <div
+          role="alert"
+          className="flex flex-col gap-3 rounded-lg border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-100 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <span>{listError}</span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="shrink-0 border-amber-600/40 bg-white/80 dark:bg-background"
+            onClick={() => void fetchCalisanlar("initial")}
+          >
+            Yeniden dene
+          </Button>
+        </div>
+      )}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-2xl font-bold tracking-tight">{title}</h2>
         <div className="flex shrink-0 justify-end sm:justify-end">
@@ -867,6 +928,15 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                     Loading...
                   </TableCell>
                 </TableRow>
+              ) : listError && calisanlar.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={activeColumns.length + 1}
+                    className="py-8 text-center text-sm text-muted-foreground"
+                  >
+                    Liste yüklenemedi. Üstteki uyarıdan yeniden deneyebilirsiniz.
+                  </TableCell>
+                </TableRow>
               ) : paginatedCalisanlar.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={activeColumns.length + 1} className="text-center py-8 text-muted-foreground">
@@ -1062,7 +1132,7 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                       method: "DELETE",
                     })
                     if (response.ok) {
-                      fetchCalisanlar()
+                      void fetchCalisanlar("refresh")
                       setActionDialogOpen(false)
                       setSelectedCalisan(null)
                     } else {

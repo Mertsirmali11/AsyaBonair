@@ -1,6 +1,7 @@
 "use client"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
+import { usePathname } from "next/navigation"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { Bell, Plus, Calendar, AlertTriangle, Cake, Trash2, ArrowRight } from "lucide-react"
 import { formatDateOnlyIstanbul, formatDateTimeIstanbul } from "@/lib/date-format"
@@ -53,7 +54,13 @@ interface Birthday {
   dogumTarihi: string | null
 }
 
+const SUMMARY_RETRIES = 3
+const SUMMARY_RETRY_MS = 400
+
 export function DashboardHome({ user }: { user: DashboardUser }) {
+  const pathname = usePathname()
+  const hasLoadedOnceRef = useRef(false)
+
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [todayMeetings, setTodayMeetings] = useState<Meeting[]>([])
   const [todayHazards, setTodayHazards] = useState<HazardReport[]>([])
@@ -63,20 +70,70 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
   const [content, setContent] = useState("")
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const canAnnounce = user.departman === "Quality" || user.departman === "Human Resources"
 
-  const fetchAll = async () => {
-    const res = await fetch("/api/dashboard/summary", { cache: "no-store" })
-    if (!res.ok) return
-    const data = await res.json()
-    setAnnouncements(data.announcements ?? [])
-    setTodayMeetings(data.todayMeetings ?? [])
-    setTodayHazards(data.todayHazards ?? [])
-    setBirthdays(data.birthdays ?? [])
-  }
+  const fetchAll = useCallback(async (mode: "initial" | "refresh" = "initial") => {
+    const silent = mode === "refresh" && hasLoadedOnceRef.current
 
-  useEffect(() => { fetchAll() }, [])
+    if (!silent) {
+      setLoadError(null)
+      setLoading(true)
+    }
+
+    let lastMsg = "Veriler yüklenemedi."
+    for (let attempt = 0; attempt < SUMMARY_RETRIES; attempt++) {
+      try {
+        const res = await fetch("/api/dashboard/summary", { cache: "no-store" })
+        if (res.ok) {
+          const data = await res.json()
+          setAnnouncements(data.announcements ?? [])
+          setTodayMeetings(data.todayMeetings ?? [])
+          setTodayHazards(data.todayHazards ?? [])
+          setBirthdays(data.birthdays ?? [])
+          setLoadError(null)
+          hasLoadedOnceRef.current = true
+          setLoading(false)
+          return
+        }
+        lastMsg =
+          res.status >= 500
+            ? "Sunucu geçici olarak yanıt vermedi. Bir süre sonra tekrar deneyin."
+            : "Özet verisi alınamadı."
+        await new Promise((r) => setTimeout(r, SUMMARY_RETRY_MS * (attempt + 1)))
+      } catch {
+        lastMsg = "Bağlantı kesildi veya zaman aşımı oluştu."
+        await new Promise((r) => setTimeout(r, SUMMARY_RETRY_MS * (attempt + 1)))
+      }
+    }
+
+    setLoadError(lastMsg)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    void fetchAll("initial")
+  }, [fetchAll, pathname])
+
+  useEffect(() => {
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) void fetchAll("refresh")
+    }
+    window.addEventListener("pageshow", onPageShow)
+    return () => window.removeEventListener("pageshow", onPageShow)
+  }, [fetchAll])
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return
+      if (!loadError) return
+      void fetchAll("refresh")
+    }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => document.removeEventListener("visibilitychange", onVisible)
+  }, [fetchAll, loadError])
 
   const handleAnnounce = async () => {
     if (!title || !content) return
@@ -89,7 +146,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
     setSaving(false)
     setOpen(false)
     setTitle(""); setContent("")
-    fetchAll()
+    void fetchAll("refresh")
   }
 
   const handleDeleteAnnouncement = async (id: number) => {
@@ -108,7 +165,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
         alert(err.error || "Could not delete announcement")
         return
       }
-      await fetchAll()
+      await fetchAll("refresh")
     } finally {
       setDeletingId(null)
     }
@@ -119,6 +176,26 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
   return (
     <DashboardLayout user={user}>
       <div className="flex flex-col gap-6 p-4 md:p-6">
+        {loadError && (
+          <div
+            role="alert"
+            className="flex flex-col gap-3 rounded-lg border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-100 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <span>{loadError}</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="shrink-0 border-amber-600/40 bg-white/80 dark:bg-background"
+              onClick={() => void fetchAll("initial")}
+            >
+              Yeniden dene
+            </Button>
+          </div>
+        )}
+        {loading && !loadError && (
+          <p className="text-muted-foreground text-sm">Özet yükleniyor…</p>
+        )}
         {todayMeetings.length > 0 && (
           <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950 shadow-sm dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -162,7 +239,11 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
             </div>
 
             <div className="flex flex-col gap-3 max-h-[600px] overflow-y-auto">
-              {announcements.length === 0 ? (
+              {loading && !loadError && announcements.length === 0 ? (
+                <div className="border rounded-lg p-6 text-center text-sm text-muted-foreground bg-white">
+                  Duyurular yükleniyor…
+                </div>
+              ) : !loading && !loadError && announcements.length === 0 ? (
                 <div className="border rounded-lg p-6 text-center text-gray-400 bg-white">
                   No announcements yet.
                 </div>
