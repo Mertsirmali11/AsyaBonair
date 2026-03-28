@@ -37,11 +37,11 @@ export async function POST(
   const form = await request.formData()
   const file = form.get("file")
   if (!file || !(file instanceof File)) {
-    return NextResponse.json({ error: "file gerekli" }, { status: 400 })
+    return NextResponse.json({ error: "File is required" }, { status: 400 })
   }
   if (file.size > CALISAN_AVATAR_MAX_BYTES) {
     return NextResponse.json(
-      { error: `Dosya en fazla ${CALISAN_AVATAR_MAX_BYTES / (1024 * 1024)} MB olabilir` },
+      { error: `File must be at most ${CALISAN_AVATAR_MAX_BYTES / (1024 * 1024)} MB` },
       { status: 400 }
     )
   }
@@ -50,7 +50,7 @@ export async function POST(
     return NextResponse.json(
       {
         error:
-          "Yalnızca JPEG, PNG, GIF veya WebP yükleyin. Tür algılanmazsa dosya adında .jpg / .png vb. olsun.",
+          "Only JPEG, PNG, GIF, or WebP are allowed. If the type is not detected, use a file name ending in .jpg, .png, etc.",
       },
       { status: 400 }
     )
@@ -61,7 +61,7 @@ export async function POST(
     select: { id: true, profilFotoStoragePath: true },
   })
   if (!existing) {
-    return NextResponse.json({ error: "Çalışan bulunamadı" }, { status: 404 })
+    return NextResponse.json({ error: "Employee not found" }, { status: 404 })
   }
 
   if (existing.profilFotoStoragePath) {
@@ -101,7 +101,7 @@ export async function DELETE(
     select: { id: true, profilFotoStoragePath: true },
   })
   if (!existing) {
-    return NextResponse.json({ error: "Çalışan bulunamadı" }, { status: 404 })
+    return NextResponse.json({ error: "Employee not found" }, { status: 404 })
   }
 
   if (existing.profilFotoStoragePath) {

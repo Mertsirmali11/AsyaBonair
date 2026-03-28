@@ -32,6 +32,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { DatePicker } from "@/components/ui/date-picker"
+import { ProfilePhotoCropDialog } from "@/components/profile-photo-crop-dialog"
 
 interface Calisan {
   id: number
@@ -158,6 +159,8 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
   const [isEditMode, setIsEditMode] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [avatarUploading, setAvatarUploading] = useState(false)
+  const [avatarCropOpen, setAvatarCropOpen] = useState(false)
+  const [avatarCropFile, setAvatarCropFile] = useState<File | null>(null)
   const [sortField, setSortField] = useState<SortField>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
   const activeColumns = isPilotSettings ? pilotColumns : defaultColumns
@@ -171,7 +174,7 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
       setLoading(true)
     }
 
-    let lastMsg = "Çalışan listesi yüklenemedi."
+    let lastMsg = "Could not load the employee list."
     for (let attempt = 0; attempt < CALISAN_LIST_RETRIES; attempt++) {
       try {
         const response = await fetch("/api/calisanlar", { cache: "no-store" })
@@ -185,11 +188,11 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
         }
         lastMsg =
           response.status >= 500
-            ? "Sunucu geçici olarak yanıt vermedi. Bir süre sonra tekrar deneyin."
-            : "Liste alınamadı."
+            ? "The server did not respond. Please try again shortly."
+            : "Could not fetch the list."
         await new Promise((r) => setTimeout(r, CALISAN_LIST_RETRY_MS * (attempt + 1)))
       } catch {
-        lastMsg = "Bağlantı kesildi veya zaman aşımı oluştu."
+        lastMsg = "Connection lost or request timed out."
         await new Promise((r) => setTimeout(r, CALISAN_LIST_RETRY_MS * (attempt + 1)))
       }
     }
@@ -225,20 +228,8 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
-  const handleProfilePhotoChange = async (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = e.target.files?.[0]
-    e.target.value = ""
-    if (!file || !selectedCalisan) return
-    if (file.size > PROFILE_PHOTO_MAX_BYTES) {
-      alert("Photo must be at most 21 MB.")
-      return
-    }
-    if (!file.type.startsWith("image/")) {
-      alert("Please choose an image file (JPEG, PNG, GIF, or WebP).")
-      return
-    }
+  const uploadProfilePhotoFile = async (file: File) => {
+    if (!selectedCalisan) return
     setAvatarUploading(true)
     try {
       const fd = new FormData()
@@ -259,11 +250,29 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
         s ? { ...s, profilFotoUrl: data.profilFotoUrl ?? null } : null
       )
       void fetchCalisanlar("refresh")
+      setAvatarCropOpen(false)
+      setAvatarCropFile(null)
     } catch {
       alert("Upload failed")
     } finally {
       setAvatarUploading(false)
     }
+  }
+
+  const handleProfilePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file || !selectedCalisan) return
+    if (file.size > PROFILE_PHOTO_MAX_BYTES) {
+      alert("Photo must be at most 21 MB.")
+      return
+    }
+    if (!file.type.startsWith("image/")) {
+      alert("Please choose an image file (JPEG, PNG, GIF, or WebP).")
+      return
+    }
+    setAvatarCropFile(file)
+    setAvatarCropOpen(true)
   }
 
   const removeProfilePhoto = async () => {
@@ -473,7 +482,7 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
             className="shrink-0 border-amber-600/40 bg-white/80 dark:bg-background"
             onClick={() => void fetchCalisanlar("initial")}
           >
-            Yeniden dene
+            Try again
           </Button>
         </div>
       )}
@@ -485,6 +494,8 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
           if (!open) {
             setIsEditMode(false)
             setSelectedCalisan(null)
+            setAvatarCropOpen(false)
+            setAvatarCropFile(null)
             const newFormData = departmentFilter 
               ? { ...initialFormData, departman: departmentFilter }
               : initialFormData
@@ -567,30 +578,37 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                       )}
                     </div>
                     {isEditMode && selectedCalisan && (
-                      <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4">
-                        <Label>Profile photo</Label>
-                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-                          <Avatar className="size-20 shrink-0 ring-2 ring-background">
-                            <AvatarImage
-                              src={selectedCalisan.profilFotoUrl ?? undefined}
-                              alt=""
-                            />
-                            <AvatarFallback className="bg-primary/10 text-lg font-semibold text-primary">
-                              {`${selectedCalisan.isim?.[0] ?? ""}${selectedCalisan.soyisim?.[0] ?? ""}`.toUpperCase() ||
-                                "?"}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="flex min-w-0 flex-1 flex-col gap-2">
+                      <div className="col-span-2 space-y-3 rounded-lg border border-border bg-muted/30 p-4 sm:p-5">
+                        <div>
+                          <Label>Profile photo</Label>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Square preview; drag to frame before upload. Max 21 MB — JPEG, PNG, GIF, or WebP.
+                          </p>
+                        </div>
+                        <div className="flex w-full flex-col gap-5 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
+                          <div className="flex shrink-0 flex-col items-center gap-2 sm:items-start">
+                            <span className="text-xs font-medium text-muted-foreground">
+                              Current
+                            </span>
+                            <Avatar className="size-32 shrink-0 ring-2 ring-border shadow-sm sm:size-36">
+                              <AvatarImage
+                                src={selectedCalisan.profilFotoUrl ?? undefined}
+                                alt=""
+                              />
+                              <AvatarFallback className="bg-primary/10 text-xl font-semibold text-primary">
+                                {`${selectedCalisan.isim?.[0] ?? ""}${selectedCalisan.soyisim?.[0] ?? ""}`.toUpperCase() ||
+                                  "?"}
+                              </AvatarFallback>
+                            </Avatar>
+                          </div>
+                          <div className="flex min-w-0 flex-1 flex-col justify-center gap-3">
                             <Input
                               type="file"
                               accept="image/jpeg,image/png,image/gif,image/webp"
                               disabled={avatarUploading}
-                              onChange={(ev) => void handleProfilePhotoChange(ev)}
-                              className="cursor-pointer text-sm file:mr-2"
+                              onChange={handleProfilePhotoChange}
+                              className="w-full cursor-pointer text-sm file:mr-2 file:rounded-md file:border-0 file:bg-primary/10 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-primary hover:file:bg-primary/15"
                             />
-                            <p className="text-xs text-muted-foreground">
-                              JPEG, PNG, GIF or WebP — max 21 MB. Saves immediately.
-                            </p>
                             {selectedCalisan.profilFotoUrl ? (
                               <Button
                                 type="button"
@@ -608,52 +626,36 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                       </div>
                     )}
                     {isPilotSettings ? (
-                      <div className="space-y-2">
-                        <Label htmlFor="ekstra3">Position *</Label>
-                        <Select
-                          value={formData.ekstra3}
-                          onValueChange={(value) => setFormData((prev) => ({ ...prev, ekstra3: value }))}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select position" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Captain">Captain</SelectItem>
-                            <SelectItem value="F/O">F/O</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ) : (
                       <>
                         <div className="space-y-2">
-                          <Label htmlFor="departman">Department</Label>
+                          <Label htmlFor="ekstra3">Position *</Label>
                           <Select
-                            value={formData.departman}
-                            onValueChange={(value) => setFormData((prev) => ({ ...prev, departman: value }))}
-                            disabled={!!departmentFilter}
+                            value={formData.ekstra3}
+                            onValueChange={(value) => setFormData((prev) => ({ ...prev, ekstra3: value }))}
                           >
                             <SelectTrigger>
-                              <SelectValue placeholder="Select department" />
+                              <SelectValue placeholder="Select position" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="Maintenance">Maintenance</SelectItem>
-                              <SelectItem value="Human Resources">Human Resources</SelectItem>
-                              <SelectItem value="Handling">Handling</SelectItem>
-                              <SelectItem value="Camo">Camo</SelectItem>
-                              <SelectItem value="Engineering">Engineering</SelectItem>
-                              <SelectItem value="Kitchen & Cleaning Staff">Kitchen & Cleaning Staff</SelectItem>
-                              <SelectItem value="Supply">Supply</SelectItem>
-                              <SelectItem value="Accounting">Accounting</SelectItem>
-                              <SelectItem value="Quality">Quality</SelectItem>
-                              <SelectItem value="Administrative Affairs">Administrative Affairs</SelectItem>
-                              <SelectItem value="IT">IT</SelectItem>
-                              <SelectItem value="Planning">Planning</SelectItem>
-                              <SelectItem value="Pilot">Pilot</SelectItem>
+                              <SelectItem value="Captain">Captain</SelectItem>
+                              <SelectItem value="F/O">F/O</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="telNo">Phone Number</Label>
+                          <Input
+                            id="telNo"
+                            name="telNo"
+                            value={formData.telNo}
+                            onChange={handleInputChange}
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      <>
                         {shouldShowPilotRankField && (
-                          <div className="space-y-2">
+                          <div className="col-span-2 space-y-2">
                             <Label htmlFor="ekstra3">Position *</Label>
                             <Select
                               value={formData.ekstra3}
@@ -688,17 +690,44 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                             placeholder="dd.mm.yyyy"
                           />
                         </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="telNo">Phone Number</Label>
+                          <Input
+                            id="telNo"
+                            name="telNo"
+                            value={formData.telNo}
+                            onChange={handleInputChange}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="departman">Department</Label>
+                          <Select
+                            value={formData.departman}
+                            onValueChange={(value) => setFormData((prev) => ({ ...prev, departman: value }))}
+                            disabled={!!departmentFilter}
+                          >
+                            <SelectTrigger id="departman">
+                              <SelectValue placeholder="Select department" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Maintenance">Maintenance</SelectItem>
+                              <SelectItem value="Human Resources">Human Resources</SelectItem>
+                              <SelectItem value="Handling">Handling</SelectItem>
+                              <SelectItem value="Camo">Camo</SelectItem>
+                              <SelectItem value="Engineering">Engineering</SelectItem>
+                              <SelectItem value="Kitchen & Cleaning Staff">Kitchen & Cleaning Staff</SelectItem>
+                              <SelectItem value="Supply">Supply</SelectItem>
+                              <SelectItem value="Accounting">Accounting</SelectItem>
+                              <SelectItem value="Quality">Quality</SelectItem>
+                              <SelectItem value="Administrative Affairs">Administrative Affairs</SelectItem>
+                              <SelectItem value="IT">IT</SelectItem>
+                              <SelectItem value="Planning">Planning</SelectItem>
+                              <SelectItem value="Pilot">Pilot</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </>
                     )}
-                    <div className="space-y-2">
-                      <Label htmlFor="telNo">Phone Number</Label>
-                      <Input
-                        id="telNo"
-                        name="telNo"
-                        value={formData.telNo}
-                        onChange={handleInputChange}
-                      />
-                    </div>
                   </div>
                   {!isPilotSettings && (
                     <div className="space-y-2">
@@ -934,7 +963,7 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                     colSpan={activeColumns.length + 1}
                     className="py-8 text-center text-sm text-muted-foreground"
                   >
-                    Liste yüklenemedi. Üstteki uyarıdan yeniden deneyebilirsiniz.
+                    The list could not be loaded. Use the alert above to try again.
                   </TableCell>
                 </TableRow>
               ) : paginatedCalisanlar.length === 0 ? (
@@ -1151,6 +1180,17 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
           </div>
         </DialogContent>
       </Dialog>
+
+      <ProfilePhotoCropDialog
+        open={avatarCropOpen}
+        onOpenChange={(o) => {
+          setAvatarCropOpen(o)
+          if (!o) setAvatarCropFile(null)
+        }}
+        file={avatarCropFile}
+        uploading={avatarUploading}
+        onConfirm={(cropped) => void uploadProfilePhotoFile(cropped)}
+      />
     </div>
   )
 }

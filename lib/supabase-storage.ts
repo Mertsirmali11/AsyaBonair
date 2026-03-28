@@ -186,7 +186,7 @@ export async function uploadCalisanAvatarToStorage(
     if (file.size > CALISAN_AVATAR_MAX_BYTES) {
       return {
         ok: false,
-        message: `Dosya en fazla ${CALISAN_AVATAR_MAX_BYTES / (1024 * 1024)} MB olabilir.`,
+        message: `File must be at most ${CALISAN_AVATAR_MAX_BYTES / (1024 * 1024)} MB.`,
       }
     }
     const mime = resolveCalisanAvatarMime(file)
@@ -194,7 +194,7 @@ export async function uploadCalisanAvatarToStorage(
       return {
         ok: false,
         message:
-          "Geçersiz görüntü türü. JPEG, PNG, GIF veya WebP seçin (tarayıcı türü algılamazsa .jpg/.png uzantılı dosya deneyin).",
+          "Invalid image type. Choose JPEG, PNG, GIF, or WebP (if the browser omits the type, try a .jpg or .png file name).",
       }
     }
 
@@ -241,14 +241,14 @@ export async function uploadCalisanAvatarToStorage(
       if (/bucket not found|not found/i.test(msg)) {
         return {
           ok: false,
-          message: `Supabase bucket bulunamadı: "${bucket}". Dashboard’da oluşturun; profil fotoğrafları için SUPABASE_AVATAR_BUCKET ile ayrı bucket da kullanabilirsiniz.`,
+          message: `Supabase bucket not found: "${bucket}". Create it in the dashboard; for profile photos you can set a dedicated bucket via SUPABASE_AVATAR_BUCKET.`,
         }
       }
       if (/mime type .+ is not supported/i.test(msg)) {
         return {
           ok: false,
           message:
-            `Bucket "${bucket}" bu görüntü türünü kabul etmiyor (${msg}). Supabase → Storage → bucket → yapılandırmada "Allowed MIME types" alanına image/* ekleyin veya kısıtı kaldırın. Alternatif: image/* izinli yeni bucket açıp .env içinde SUPABASE_AVATAR_BUCKET=bucket_adı yazın.`,
+            `Bucket "${bucket}" does not allow this image type (${msg}). In Supabase → Storage → your bucket settings, add image/* to "Allowed MIME types" or remove the restriction. Alternatively, create a new bucket that allows image/* and set SUPABASE_AVATAR_BUCKET in .env.`,
         }
       }
       return { ok: false, message: msg }
@@ -267,10 +267,10 @@ export async function uploadCalisanAvatarToStorage(
       return {
         ok: false,
         message:
-          "Sunucu yapılandırması eksik: NEXT_PUBLIC_SUPABASE_URL ve SUPABASE_SERVICE_ROLE_KEY tanımlı olmalı.",
+          "Server misconfiguration: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set.",
       }
     }
-    return { ok: false, message: msg || "Depolama hatası" }
+    return { ok: false, message: msg || "Storage error" }
   }
 }
 
