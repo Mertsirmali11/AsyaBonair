@@ -29,7 +29,10 @@ import {
 
 import { useDmInbox } from "@/components/dm-inbox-provider"
 import { cn } from "@/lib/utils"
-import { canAccessConfigurationsArea } from "@/lib/department-access"
+import {
+  canAccessConfigurationsArea,
+  canApproveWorkerRegistrations,
+} from "@/lib/department-access"
 import {
   Sidebar,
   SidebarContent,
@@ -72,7 +75,12 @@ const menuItems = [
   { title: "Addons", url: "/addons", icon: IconPuzzle },
 ]
 
-const configurationsSubItems = [
+const configurationsSubItems: {
+  title: string
+  url: string
+  approversOnly?: boolean
+}[] = [
+  { title: "New worker", url: "/configurations/new-worker", approversOnly: true },
   { title: "User Settings", url: "/configurations" },
   { title: "Pilot Settings", url: "/configurations/pilot-settings" },
   { title: "Aircraft Settings", url: "/configurations/aircraft-settings" },
@@ -108,6 +116,12 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
   )
 
   const hasConfigurationsAccess = canAccessConfigurationsArea(user.departman)
+  const canReviewRegistrations = canApproveWorkerRegistrations(user.departman)
+  const showConfigurationsNav = hasConfigurationsAccess || canReviewRegistrations
+  const visibleConfigurationSubItems = configurationsSubItems.filter((item) => {
+    if (item.approversOnly) return canReviewRegistrations
+    return hasConfigurationsAccess
+  })
 
   React.useEffect(() => {
     const storedConfigurations = window.localStorage.getItem(
@@ -225,7 +239,7 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
             </SidebarMenuButton>
           </SidebarMenuItem>
 
-          {hasConfigurationsAccess && (
+          {showConfigurationsNav && (
             <Collapsible
               open={configurationsOpen}
               onOpenChange={setConfigurationsOpen}
@@ -251,7 +265,7 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
                 </CollapsibleTrigger>
                 <CollapsibleContent>
                   <SidebarMenuSub>
-                    {configurationsSubItems.map((subItem) => {
+                    {visibleConfigurationSubItems.map((subItem) => {
                       const isSubActive = pathname === subItem.url
                       return (
                         <SidebarMenuSubItem key={subItem.title}>

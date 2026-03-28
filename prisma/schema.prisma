@@ -101,10 +101,61 @@ model Calisan {
   taskAttachmentsUploaded TaskAttachment[]
   dmMessagesSent DmMessage[]      @relation("DmMessageSender")
   dmReadStates   DmReadState[]
+  workerRegistrationsReviewed WorkerRegistrationRequest[] @relation("WorkerRegistrationReviewedBy")
 
   @@index([createdAt(sort: Desc)])
   @@index([isim, soyisim])
   @@map("calisanlar")
+}
+
+enum WorkerRegistrationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// Self-service registration; admins approve into `Calisan`.
+model WorkerRegistrationRequest {
+  id              Int                      @id @default(autoincrement())
+  status          WorkerRegistrationStatus @default(PENDING)
+  isim            String?                  @db.VarChar(100)
+  soyisim         String?                  @db.VarChar(100)
+  departman       String?                  @db.VarChar(100)
+  tcNo            String?                  @map("tc_no") @db.VarChar(20)
+  dogumTarihi     DateTime?                @map("dogum_tarihi") @db.Date
+  telNo           String?                  @map("tel_no") @db.VarChar(20)
+  adres           String?                  @db.Text
+  anneAdi         String?                  @map("anne_adi") @db.VarChar(100)
+  babaAdi         String?                  @map("baba_adi") @db.VarChar(100)
+  medeniDurum     String?                  @map("medeni_durum") @db.VarChar(50)
+  cocuk           Int                      @default(0)
+  kanGrubu        String?                  @map("kan_grubu") @db.VarChar(10)
+  email           String                   @db.VarChar(255)
+  egitimDurum     String?                  @map("egitim_durum") @db.VarChar(100)
+  acilIletisim    String?                  @map("acil_iletisim") @db.VarChar(100)
+  acilIletisimTel String?                  @map("acil_iletisim_tel") @db.VarChar(20)
+  sgkSicilNo      String?                  @map("sgk_sicil_no") @db.VarChar(50)
+  bankaAdi        String?                  @map("banka_adi") @db.VarChar(100)
+  iban            String?                  @db.VarChar(34)
+  iseGirisTarihi  DateTime?                @map("ise_giris_tarihi") @db.Date
+  istenCikisTarihi DateTime?               @map("isten_cikis_tarihi") @db.Date
+  password        String                   @db.VarChar(255)
+  ekstra1         String?                  @map("ekstra_1") @db.VarChar(255)
+  ekstra2         String?                  @map("ekstra_2") @db.VarChar(255)
+  ekstra3         String?                  @map("ekstra_3") @db.VarChar(255)
+  profilFotoStoragePath String?            @map("profil_foto_storage_path") @db.Text
+  reviewedAt            DateTime?          @map("reviewed_at")
+  reviewedByCalisanId   Int?               @map("reviewed_by_calisan_id")
+  rejectionReason       String?            @map("rejection_reason") @db.Text
+  approvedCalisanId     Int?               @map("approved_calisan_id")
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+
+  reviewedBy Calisan? @relation("WorkerRegistrationReviewedBy", fields: [reviewedByCalisanId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([email])
+  @@map("worker_registration_requests")
 }
 
 // Çalışanlar arası doğrudan mesajlaşma (1:1)

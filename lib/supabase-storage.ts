@@ -274,6 +274,124 @@ export async function uploadCalisanAvatarToStorage(
   }
 }
 
+function avatarExtFromMime(mime: string): string {
+  if (mime === "image/png") return "png"
+  if (mime === "image/gif") return "gif"
+  if (mime === "image/webp") return "webp"
+  return "jpg"
+}
+
+/** Pending self-service registration profile photo (`pending-worker-registrations/...`). */
+export async function uploadPendingWorkerPhotoToStorage(
+  file: File,
+  registrationId: number
+): Promise<UploadCalisanAvatarResult> {
+  try {
+    if (file.size > CALISAN_AVATAR_MAX_BYTES) {
+      return {
+        ok: false,
+        message: `File must be at most ${CALISAN_AVATAR_MAX_BYTES / (1024 * 1024)} MB.`,
+      }
+    }
+    const mime = resolveCalisanAvatarMime(file)
+    if (!mime) {
+      return {
+        ok: false,
+        message:
+          "Invalid image type. Choose JPEG, PNG, GIF, or WebP (if the browser omits the type, try a .jpg or .png file name).",
+      }
+    }
+    const ext = avatarExtFromMime(mime)
+    const uid =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}_${Math.random().toString(16).slice(2)}`
+    const storagePath = `pending-worker-registrations/${registrationId}/${uid}.${ext}`
+    const arrayBuffer = await file.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+    const supabaseAdmin = getSupabaseAdmin()
+    const bucket = getAvatarStorageBucket()
+
+    const doUpload = (contentType: string) =>
+      supabaseAdmin.storage.from(bucket).upload(storagePath, buffer, {
+        contentType,
+        upsert: false,
+      })
+
+    let { error } = await doUpload(mime)
+    if (
+      error &&
+      /mime type .+ is not supported/i.test(error.message || "")
+    ) {
+      const retry = await doUpload("application/octet-stream")
+      if (!retry.error) error = null
+      else error = retry.error
+    }
+
+    if (error) {
+      return { ok: false, message: error.message || String(error) }
+    }
+    const { data: urlData } = supabaseAdmin.storage
+      .from(bucket)
+      .getPublicUrl(storagePath)
+    return { ok: true, path: storagePath, publicUrl: urlData.publicUrl }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return { ok: false, message: msg || "Storage error" }
+  }
+}
+
+/** Copy approved registration photo into `calisan-avatars/{calisanId}/...`. */
+export async function uploadCalisanAvatarFromBuffer(
+  buffer: Buffer,
+  calisanId: number,
+  mime: string
+): Promise<UploadCalisanAvatarResult> {
+  try {
+    if (buffer.length > CALISAN_AVATAR_MAX_BYTES) {
+      return {
+        ok: false,
+        message: `File must be at most ${CALISAN_AVATAR_MAX_BYTES / (1024 * 1024)} MB.`,
+      }
+    }
+    const ext = avatarExtFromMime(mime)
+    const uid =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}_${Math.random().toString(16).slice(2)}`
+    const storagePath = `calisan-avatars/${calisanId}/${uid}.${ext}`
+    const supabaseAdmin = getSupabaseAdmin()
+    const bucket = getAvatarStorageBucket()
+
+    const doUpload = (contentType: string) =>
+      supabaseAdmin.storage.from(bucket).upload(storagePath, buffer, {
+        contentType,
+        upsert: false,
+      })
+
+    let { error } = await doUpload(mime)
+    if (
+      error &&
+      /mime type .+ is not supported/i.test(error.message || "")
+    ) {
+      const retry = await doUpload("application/octet-stream")
+      if (!retry.error) error = null
+      else error = retry.error
+    }
+
+    if (error) {
+      return { ok: false, message: error.message || String(error) }
+    }
+    const { data: urlData } = supabaseAdmin.storage
+      .from(bucket)
+      .getPublicUrl(storagePath)
+    return { ok: true, path: storagePath, publicUrl: urlData.publicUrl }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return { ok: false, message: msg || "Storage error" }
+  }
+}
+
 /** Mesaj eki için izin verilen MIME türleri */
 export function isAllowedDmAttachmentMime(mime: string): boolean {
   const m = mime.toLowerCase()

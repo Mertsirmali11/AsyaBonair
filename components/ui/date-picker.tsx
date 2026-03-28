@@ -19,6 +19,11 @@ interface DatePickerProps {
   onChange?: (value: string) => void
   placeholder?: string
   disabled?: boolean
+  /**
+   * Month and year dropdowns for faster navigation (e.g. date of birth).
+   * Year range defaults to last 100 years through the current calendar year.
+   */
+  birthDate?: boolean
 }
 
 export function DatePicker({
@@ -26,8 +31,10 @@ export function DatePicker({
   onChange,
   placeholder = "dd.mm.yyyy",
   disabled = false,
+  birthDate = false,
 }: DatePickerProps) {
   const [open, setOpen] = React.useState(false)
+  const currentYear = new Date().getFullYear()
 
   const parseDate = (dateStr: string | undefined): Date | undefined => {
     if (!dateStr) return undefined
@@ -70,6 +77,10 @@ export function DatePicker({
           onSelect={handleSelect}
           locale={enUS}
           initialFocus
+          captionLayout={birthDate ? "dropdown" : "label"}
+          fromYear={birthDate ? currentYear - 100 : undefined}
+          toYear={birthDate ? currentYear : undefined}
+          defaultMonth={selectedDate ?? new Date(currentYear - 30, 0, 1)}
         />
       </PopoverContent>
     </Popover>
