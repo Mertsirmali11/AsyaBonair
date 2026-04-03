@@ -1,16 +1,11 @@
 import { redirect } from "next/navigation"
-import { auth } from "@/auth"
-import { canAccessConfigurationsArea } from "@/lib/department-access"
-import { DashboardLayout } from "@/components/dashboard-layout"
-import { AircraftSettingsTable } from "@/components/aircraft-settings-table"
 
-export default async function AircraftSettingsPage() {
+import { auth } from "@/auth"
+import { DashboardLayout } from "@/components/dashboard-layout"
+
+export default async function ControlledDocumentsPage() {
   const session = await auth()
   if (!session) redirect("/login")
-
-  if (!canAccessConfigurationsArea(session.user?.departman)) {
-    redirect("/dashboard")
-  }
 
   const user = {
     name: session.user?.name || "User",
@@ -20,9 +15,12 @@ export default async function AircraftSettingsPage() {
   }
 
   return (
-    <DashboardLayout user={user}>
-      <div className="flex flex-col gap-6 p-6">
-        <AircraftSettingsTable />
+    <DashboardLayout user={user} headerTitle="Controlled Documents">
+      <div className="flex flex-1 flex-col gap-4 p-6">
+        <p className="text-muted-foreground text-sm">
+          Manage controlled documentation from this section. Use Aircraft Settings below for
+          aircraft certificates and manuals.
+        </p>
       </div>
     </DashboardLayout>
   )

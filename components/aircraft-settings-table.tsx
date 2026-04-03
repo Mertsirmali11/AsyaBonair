@@ -140,7 +140,7 @@ export function AircraftSettingsTable() {
                 <TableRow
                   key={a.id}
                   className="hover:bg-slate-50 border-b border-gray-300 cursor-pointer"
-                  onClick={() => router.push(`/configurations/aircraft-settings/${a.id}`)}
+                  onClick={() => router.push(`/documents/aircraft-settings/${a.id}`)}
                 >
                   <TableCell className="font-medium border-r border-gray-200">{a.register}</TableCell>
                   <TableCell className="border-r border-gray-200">{a.msn}</TableCell>
@@ -153,7 +153,7 @@ export function AircraftSettingsTable() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-36">
-                        <DropdownMenuItem onSelect={() => router.push(`/configurations/aircraft-settings/${a.id}`)}>
+                        <DropdownMenuItem onSelect={() => router.push(`/documents/aircraft-settings/${a.id}`)}>
                           View Documents
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />

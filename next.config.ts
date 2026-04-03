@@ -9,6 +9,21 @@ const nextConfig: NextConfig = {
       "date-fns",
     ],
   },
+  async redirects() {
+    return [
+      {
+        source: "/configurations/aircraft-settings",
+        destination: "/documents/aircraft-settings",
+        permanent: false,
+      },
+      {
+        source: "/configurations/aircraft-settings/:id",
+        destination: "/documents/aircraft-settings/:id",
+        permanent: false,
+      },
+    ];
+  },
+
   async rewrites() {
     return [
       {

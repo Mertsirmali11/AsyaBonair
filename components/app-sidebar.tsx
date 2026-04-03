@@ -66,7 +66,6 @@ const menuItems = [
   { title: "Safety Management", url: "/safety", icon: IconShieldCheck },
   { title: "Emergency Response", url: "/emergency", icon: IconUrgent },
   { title: "FRMS", url: "/frms", icon: IconFileDescription },
-  { title: "Controlled Documents", url: "/documents", icon: IconFileDescription },
   { title: "Tasks & Actions", url: "/tasks", icon: IconChecklist },
   { title: "Meetings", url: "/meetings", icon: IconCalendarEvent },
   { title: "Performance Reports", url: "/reports", icon: IconChartBar },
@@ -83,8 +82,16 @@ const configurationsSubItems: {
   { title: "New worker", url: "/configurations/new-worker", approversOnly: true },
   { title: "User Settings", url: "/configurations" },
   { title: "Pilot Settings", url: "/configurations/pilot-settings" },
-  { title: "Aircraft Settings", url: "/configurations/aircraft-settings" },
   { title: "Announcements", url: "/configurations/announcements" },
+]
+
+const controlledDocumentsSubItems: {
+  title: string
+  url: string
+  configurationsOnly?: boolean
+}[] = [
+  { title: "Documents", url: "/documents" },
+  { title: "Aircraft Settings", url: "/documents/aircraft-settings", configurationsOnly: true },
 ]
 
 const correspondencesSubItems = [
@@ -111,6 +118,9 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
   const [configurationsOpen, setConfigurationsOpen] = React.useState(
     pathname?.startsWith("/configurations") || false
   )
+  const [controlledDocumentsOpen, setControlledDocumentsOpen] = React.useState(
+    pathname?.startsWith("/documents") || false
+  )
   const [correspondencesOpen, setCorrespondencesOpen] = React.useState(
     pathname?.startsWith("/correspondences") || false
   )
@@ -121,6 +131,10 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
   const visibleConfigurationSubItems = configurationsSubItems.filter((item) => {
     if (item.approversOnly) return canReviewRegistrations
     return hasConfigurationsAccess
+  })
+  const visibleControlledDocumentsSubItems = controlledDocumentsSubItems.filter((item) => {
+    if (item.configurationsOnly) return hasConfigurationsAccess
+    return true
   })
 
   React.useEffect(() => {
@@ -137,6 +151,13 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
     if (storedCorrespondences !== null) {
       setCorrespondencesOpen(storedCorrespondences === "true")
     }
+
+    const storedControlledDocuments = window.localStorage.getItem(
+      "bonair.sidebar.controlledDocumentsOpen"
+    )
+    if (storedControlledDocuments !== null) {
+      setControlledDocumentsOpen(storedControlledDocuments === "true")
+    }
   }, [])
 
   React.useEffect(() => {
@@ -145,6 +166,9 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
     }
     if (pathname?.startsWith("/correspondences")) {
       setCorrespondencesOpen(true)
+    }
+    if (pathname?.startsWith("/documents")) {
+      setControlledDocumentsOpen(true)
     }
   }, [pathname])
 
@@ -163,6 +187,13 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
   }, [correspondencesOpen])
 
   React.useEffect(() => {
+    window.localStorage.setItem(
+      "bonair.sidebar.controlledDocumentsOpen",
+      controlledDocumentsOpen ? "true" : "false"
+    )
+  }, [controlledDocumentsOpen])
+
+  React.useEffect(() => {
     const el = sidebarContentRef.current
     if (!el) return
 
@@ -179,6 +210,20 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
     el.addEventListener("scroll", onScroll, { passive: true })
     return () => el.removeEventListener("scroll", onScroll)
   }, [])
+
+  const controlledDocumentsMenuSplitIndex = menuItems.findIndex(
+    (i) => i.url === "/tasks"
+  )
+  const menuItemsBeforeControlledDocs = menuItems.slice(
+    0,
+    controlledDocumentsMenuSplitIndex
+  )
+  const menuItemsAfterControlledDocs = menuItems.slice(controlledDocumentsMenuSplitIndex)
+
+  const isControlledDocumentsSubActive = (subUrl: string) => {
+    if (subUrl === "/documents") return pathname === "/documents"
+    return pathname === subUrl || !!pathname?.startsWith(`${subUrl}/`)
+  }
 
   return (
     <Sidebar
@@ -203,7 +248,78 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
 
       <SidebarContent ref={sidebarContentRef} className="px-2 py-2">
         <SidebarMenu>
-          {menuItems.map((item) => {
+          {menuItemsBeforeControlledDocs.map((item) => {
+            const isActive = pathname === item.url || pathname?.startsWith(item.url + "/")
+            return (
+              <SidebarMenuItem key={item.title}>
+                <SidebarMenuButton
+                  asChild
+                  className={cn(
+                    "h-10 px-3 rounded-lg transition-colors",
+                    isActive && "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                  )}
+                >
+                  <Link href={item.url}>
+                    <item.icon className="size-5" />
+                    <span>{item.title}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )
+          })}
+
+          <Collapsible
+            open={controlledDocumentsOpen}
+            onOpenChange={setControlledDocumentsOpen}
+            className="group/collapsible"
+          >
+            <SidebarMenuItem>
+              <CollapsibleTrigger asChild>
+                <SidebarMenuButton
+                  className={cn(
+                    "h-10 px-3 rounded-lg transition-colors w-full justify-between",
+                    pathname?.startsWith("/documents") &&
+                      "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <IconFileDescription className="size-5" />
+                    <span>Controlled Documents</span>
+                  </div>
+                  <IconChevronDown
+                    className={cn(
+                      "size-4 transition-transform duration-200",
+                      controlledDocumentsOpen && "rotate-180"
+                    )}
+                  />
+                </SidebarMenuButton>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <SidebarMenuSub>
+                  {visibleControlledDocumentsSubItems.map((subItem) => {
+                    const isSubActive = isControlledDocumentsSubActive(subItem.url)
+                    return (
+                      <SidebarMenuSubItem key={subItem.title}>
+                        <SidebarMenuSubButton
+                          asChild
+                          className={cn(
+                            "h-9 pl-9",
+                            isSubActive && "bg-sidebar-accent/50 font-medium"
+                          )}
+                        >
+                          <Link href={subItem.url}>
+                            <span>{subItem.title}</span>
+                          </Link>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                    )
+                  })}
+                </SidebarMenuSub>
+              </CollapsibleContent>
+            </SidebarMenuItem>
+          </Collapsible>
+
+          {menuItemsAfterControlledDocs.map((item) => {
             const isActive = pathname === item.url || pathname?.startsWith(item.url + "/")
             return (
               <SidebarMenuItem key={item.title}>

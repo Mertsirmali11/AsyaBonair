@@ -31,10 +31,10 @@ export function AircraftDetailClient({
           <CardDescription>
             Registration and MSN. Full document management is available under{" "}
             <Link
-              href={`/configurations/aircraft-settings/${aircraft.id}`}
+              href={`/documents/aircraft-settings/${aircraft.id}`}
               className="font-medium text-primary underline-offset-4 hover:underline"
             >
-              Configurations → Aircraft Settings
+              Controlled Documents → Aircraft Settings
             </Link>
             .
           </CardDescription>
@@ -63,7 +63,7 @@ export function AircraftDetailClient({
             <Link href="/meetings">Back to meetings</Link>
           </Button>
           <Button asChild>
-            <Link href={`/configurations/aircraft-settings/${aircraft.id}`}>
+            <Link href={`/documents/aircraft-settings/${aircraft.id}`}>
               Open aircraft documents
             </Link>
           </Button>

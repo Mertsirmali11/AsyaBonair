@@ -1,4 +1,5 @@
 import { redirect, notFound } from "next/navigation"
+
 import { auth } from "@/auth"
 import { canAccessConfigurationsArea } from "@/lib/department-access"
 import { prisma } from "@/lib/prisma-server"
@@ -7,7 +8,7 @@ import { AircraftDetailClient } from "./aircraft-detail-client"
 
 export default async function AircraftDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  
+
   const session = await auth()
   if (!session) redirect("/login")
 
@@ -27,8 +28,11 @@ export default async function AircraftDetailPage({ params }: { params: Promise<{
     select: { id: true },
   })
 
+  const numericId = Number.parseInt(id, 10)
+  if (Number.isNaN(numericId)) notFound()
+
   const aircraft = await prisma.ucaklar.findUnique({
-    where: { id: parseInt(id) },
+    where: { id: numericId },
   })
 
   if (!aircraft) notFound()
