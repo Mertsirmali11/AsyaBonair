@@ -37,9 +37,55 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(prismaJson(meetings))
 }
 
+type ExternalPayload =
+  | string
+  | { email?: string; firstName?: string; lastName?: string }
+
+function normalizeExternalParticipants(raw: unknown): {
+  json: string | null
+  emails: string[]
+} {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return { json: null, emails: [] }
+  }
+  const stored: { email: string; firstName: string; lastName: string }[] = []
+  const emails: string[] = []
+  const seen = new Set<string>()
+
+  for (const item of raw as ExternalPayload[]) {
+    if (typeof item === "string") {
+      const email = item.trim()
+      if (!email.includes("@") || seen.has(email.toLowerCase())) continue
+      seen.add(email.toLowerCase())
+      stored.push({ email, firstName: "", lastName: "" })
+      emails.push(email)
+      continue
+    }
+    if (item && typeof item === "object") {
+      const email = String(item.email ?? "").trim()
+      if (!email.includes("@") || seen.has(email.toLowerCase())) continue
+      seen.add(email.toLowerCase())
+      stored.push({
+        email,
+        firstName: String(item.firstName ?? "").trim(),
+        lastName: String(item.lastName ?? "").trim(),
+      })
+      emails.push(email)
+    }
+  }
+
+  return {
+    json: stored.length > 0 ? JSON.stringify(stored) : null,
+    emails,
+  }
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json()
   const { title, plannedDate, meetingTypeId, participantIds, externalEmails, isOnline, agenda } = body
+
+  const { json: externalJson, emails: externalEmailList } =
+    normalizeExternalParticipants(externalEmails)
 
   const nextNo = await nextBonMeMeetingNumber(prisma)
   if (nextNo > 999) {
@@ -60,7 +106,7 @@ export async function POST(req: NextRequest) {
       agenda,
       meetingType: meetingTypeId ? { connect: { id: BigInt(meetingTypeId) } } : undefined,
       status: "Planned",
-      externalParticipants: externalEmails ? JSON.stringify(externalEmails) : null,
+      externalParticipants: externalJson,
       participants: {
         create: (participantIds ?? []).map((id: number) => ({ calisanId: id })),
       },
@@ -77,7 +123,7 @@ export async function POST(req: NextRequest) {
     .map(p => p.calisan.email)
     .filter(Boolean) as string[]
 
-  const allEmails = [...internalEmails, ...(externalEmails ?? [])]
+  const allEmails = [...internalEmails, ...externalEmailList]
 
   if (allEmails.length > 0) {
     try {

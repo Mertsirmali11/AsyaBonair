@@ -2,7 +2,15 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
 import { auth } from "@/auth"
 import { canAccessConfigurationsArea } from "@/lib/department-access"
-import { uploadPdfToStorage } from "@/lib/supabase-storage"
+import {
+  assignUniquePdfStorageNames,
+  OUTGOING_PDF_MAX_TOTAL_BYTES,
+  type OutgoingStoredAttachment,
+} from "@/lib/outgoing-correspondence-attachments"
+import { setOutgoingPdfAttachmentsJsonb } from "@/lib/persist-correspondence-pdf-jsonb"
+import { deletePdfFromStorage, uploadPdfToStorage } from "@/lib/supabase-storage"
+
+export const dynamic = "force-dynamic"
 
 export async function GET() {
   try {
@@ -67,7 +75,10 @@ export async function POST(request: Request) {
     const dateStr = formData.get("date") as string
     const content = formData.get("content") as string
     const createdBy = formData.get("createdBy") as string
-    const pdfFile = formData.get("pdf") as File | null
+    const paperNoManual = String(formData.get("paperNo") ?? "").trim()
+    const pdfFiles = formData
+      .getAll("pdf")
+      .filter((f): f is File => f instanceof File && f.size > 0)
 
     if (!to || !subject || !dateStr) {
       return NextResponse.json(
@@ -84,63 +95,99 @@ export async function POST(request: Request) {
       )
     }
 
-    const lastCorrespondence = await prisma.outgoingCorrespondence.findFirst({
-      orderBy: { id: "desc" },
-      select: { paperNo: true },
-    })
-
     let paperNo: string
-    if (lastCorrespondence && lastCorrespondence.paperNo) {
-      const match = lastCorrespondence.paperNo.match(/BON-OC-(\d+)/)
-      if (match) {
-        const lastNumber = parseInt(match[1])
-        const nextNumber = lastNumber + 1
-        paperNo = `BON-OC-${String(nextNumber).padStart(3, "0")}`
+    if (paperNoManual) {
+      if (paperNoManual.length > 50) {
+        return NextResponse.json(
+          { error: "Correspondence number must be at most 50 characters" },
+          { status: 400 }
+        )
+      }
+      const clash = await prisma.outgoingCorrespondence.findUnique({
+        where: { paperNo: paperNoManual },
+      })
+      if (clash) {
+        return NextResponse.json(
+          { error: "This correspondence number is already in use" },
+          { status: 400 }
+        )
+      }
+      paperNo = paperNoManual
+    } else {
+      const lastCorrespondence = await prisma.outgoingCorrespondence.findFirst({
+        orderBy: { id: "desc" },
+        select: { paperNo: true },
+      })
+
+      if (lastCorrespondence && lastCorrespondence.paperNo) {
+        const match = lastCorrespondence.paperNo.match(/BON-OC-(\d+)/)
+        if (match) {
+          const lastNumber = parseInt(match[1], 10)
+          const nextNumber = lastNumber + 1
+          paperNo = `BON-OC-${String(nextNumber).padStart(3, "0")}`
+        } else {
+          paperNo = "BON-OC-001"
+        }
       } else {
         paperNo = "BON-OC-001"
       }
-    } else {
-      paperNo = "BON-OC-001"
     }
 
     let pdfPath: string | null = null
     let pdfFileName: string | null = null
+    let pdfAttachments: OutgoingStoredAttachment[] | null = null
 
-    if (pdfFile && pdfFile.size > 0) {
-      const maxSize = 50 * 1024 * 1024
-      if (pdfFile.size > maxSize) {
+    if (pdfFiles.length > 0) {
+      const totalBytes = pdfFiles.reduce((s, f) => s + f.size, 0)
+      if (totalBytes > OUTGOING_PDF_MAX_TOTAL_BYTES) {
         return NextResponse.json(
-          { error: "File size exceeds 50MB limit" },
+          { error: "Total attachment size must not exceed 50MB" },
           { status: 400 }
         )
       }
-
-      if (pdfFile.type !== "application/pdf") {
-        return NextResponse.json(
-          { error: "Only PDF files are allowed" },
-          { status: 400 }
-        )
-      }
-
-      try {
-        const uploadResult = await uploadPdfToStorage(pdfFile, `outgoing/${paperNo}`)
-
-        if (!uploadResult) {
+      for (const f of pdfFiles) {
+        if (f.type !== "application/pdf") {
           return NextResponse.json(
-            { error: "Failed to upload file to storage" },
-            { status: 500 }
+            { error: "Only PDF files are allowed" },
+            { status: 400 }
           )
         }
+      }
 
-        pdfPath = uploadResult.path
-        pdfFileName = uploadResult.fileName
-      } catch (fileError: any) {
+      const storageNames = assignUniquePdfStorageNames(pdfFiles)
+      const uploaded: OutgoingStoredAttachment[] = []
+      const folderPrefix = `outgoing/${paperNo}`
+
+      try {
+        for (let i = 0; i < pdfFiles.length; i++) {
+          const uploadResult = await uploadPdfToStorage(pdfFiles[i], folderPrefix, {
+            storageFileName: storageNames[i],
+          })
+          if (!uploadResult.ok) {
+            for (const a of uploaded) {
+              await deletePdfFromStorage(a.path)
+            }
+            return NextResponse.json(
+              {
+                error: `Dosya yüklenemedi (${pdfFiles[i].name}): ${uploadResult.message}`,
+              },
+              { status: 500 }
+            )
+          }
+          uploaded.push({ path: uploadResult.path, fileName: uploadResult.fileName })
+        }
+      } catch (fileError: unknown) {
         console.error("File upload error:", fileError)
+        const msg = fileError instanceof Error ? fileError.message : "Unknown error"
         return NextResponse.json(
-          { error: `File upload failed: ${fileError.message}` },
+          { error: `File upload failed: ${msg}` },
           { status: 500 }
         )
       }
+
+      pdfAttachments = uploaded
+      pdfPath = uploaded[0]?.path ?? null
+      pdfFileName = uploaded[0]?.fileName ?? null
     }
 
     const correspondence = await prisma.outgoingCorrespondence.create({
@@ -167,33 +214,62 @@ export async function POST(request: Request) {
       },
     })
 
-    return NextResponse.json(correspondence, { status: 201 })
-  } catch (error: any) {
-    console.error("Error creating outgoing correspondence:", error)
-    console.error("Error details:", {
-      message: error.message,
-      code: error.code,
-      name: error.name,
-      stack: error.stack,
+    if (pdfAttachments?.length) {
+      await setOutgoingPdfAttachmentsJsonb(correspondence.id, pdfAttachments)
+    }
+
+    const full = await prisma.outgoingCorrespondence.findUnique({
+      where: { id: correspondence.id },
+      include: {
+        creator: {
+          select: {
+            id: true,
+            isim: true,
+            soyisim: true,
+            email: true,
+            departman: true,
+          },
+        },
+      },
     })
 
-    if (error.code === "P2003") {
+    return NextResponse.json(full ?? correspondence, { status: 201 })
+  } catch (error: unknown) {
+    console.error("Error creating outgoing correspondence:", error)
+    const err = error as { message?: string; code?: string; name?: string; stack?: string }
+    console.error("Error details:", {
+      message: err.message,
+      code: err.code,
+      name: err.name,
+      stack: err.stack,
+    })
+
+    if (err.code === "P2003") {
       return NextResponse.json(
         { error: "Invalid creator ID" },
         { status: 400 }
       )
     }
 
-    if (error.code === "P2002") {
+    if (err.code === "P2002") {
       return NextResponse.json(
         { error: "Paper number already exists" },
         { status: 400 }
       )
     }
 
-    const errorMessage = process.env.NODE_ENV === "development"
-      ? error.message || "Could not create outgoing correspondence"
-      : "Could not create outgoing correspondence"
+    let errorMessage =
+      process.env.NODE_ENV === "development"
+        ? err.message || "Could not create outgoing correspondence"
+        : "Could not create outgoing correspondence"
+
+    if (
+      typeof err.message === "string" &&
+      err.message.includes("Unknown argument `pdfAttachments`")
+    ) {
+      errorMessage =
+        "Veritabanı istemcisi güncel değil. Projede `pnpm exec prisma generate` çalıştırıp geliştirme sunucusunu yeniden başlatın (pnpm dev)."
+    }
 
     return NextResponse.json(
       { error: errorMessage },

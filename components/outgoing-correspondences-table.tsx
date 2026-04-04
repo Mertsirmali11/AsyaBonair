@@ -4,13 +4,13 @@ import * as React from "react"
 import { useState, useEffect, useMemo } from "react"
 import {
   IconArrowsSort,
-  IconFileTypePdf,
   IconPencil,
   IconPlus,
   IconSortAscending,
   IconSortDescending,
   IconTrash,
 } from "@tabler/icons-react"
+import { CorrespondenceAttachmentsCell } from "@/components/correspondence-attachments-cell"
 import { OutgoingCorrespondenceDialog } from "@/components/outgoing-correspondence-dialog"
 import { Button } from "@/components/ui/button"
 import {
@@ -38,6 +38,10 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  getOutgoingAttachmentsFromRow,
+  outgoingAttachmentProxyUrl,
+} from "@/lib/outgoing-correspondence-attachments"
 
 interface OutgoingCorrespondence {
   id: number
@@ -48,6 +52,7 @@ interface OutgoingCorrespondence {
   content: string | null
   pdfPath: string | null
   pdfFileName: string | null
+  pdfAttachments?: unknown
   createdBy: number | null
   createdAt: string
   creator: {
@@ -70,11 +75,25 @@ interface ColumnDef {
 }
 
 const columns: ColumnDef[] = [
+  {
+    key: "paperNo",
+    label: "Correspondence no",
+    sortKey: "paperNo",
+    getValue: (c) => c.paperNo || "-",
+  },
   { key: "to", label: "To", sortKey: "to", getValue: (c) => c.to || "-" },
   { key: "subject", label: "Subject", sortKey: "subject", getValue: (c) => c.subject || "-" },
   { key: "date", label: "Date", sortKey: "date", getValue: (c) => c.date || "" },
   { key: "content", label: "Content", sortKey: null, getValue: (c) => c.content || "-" },
-  { key: "attachment", label: "Attachment", sortKey: null, getValue: (c) => c.pdfFileName || "-" },
+  {
+    key: "attachment",
+    label: "Attachment",
+    sortKey: null,
+    getValue: (c) =>
+      getOutgoingAttachmentsFromRow(c)
+        .map((a) => a.fileName)
+        .join(", ") || "-",
+  },
   { key: "uploadedBy", label: "Uploaded By", sortKey: null, getValue: (c) => c.creator ? `${c.creator.isim || ""} ${c.creator.soyisim || ""}`.trim() || c.creator.email : "-" },
 ]
 
@@ -96,7 +115,9 @@ export function OutgoingCorrespondencesTable({ userId }: { userId: string }) {
 
   const fetchCorrespondences = async () => {
     try {
-      const response = await fetch("/api/outgoing-correspondences")
+      const response = await fetch("/api/outgoing-correspondences", {
+        cache: "no-store",
+      })
       if (response.ok) {
         const data = await response.json()
         setCorrespondences(data)
@@ -161,11 +182,12 @@ export function OutgoingCorrespondencesTable({ userId }: { userId: string }) {
       const lowerSearch = searchTerm.toLowerCase()
       data = data.filter((correspondence) => {
         const searchableFields = [
+          correspondence.paperNo,
           correspondence.to,
           correspondence.subject,
           formatDate(correspondence.date),
           correspondence.content,
-          correspondence.pdfFileName,
+          ...getOutgoingAttachmentsFromRow(correspondence).map((a) => a.fileName),
           correspondence.creator ? `${correspondence.creator.isim || ""} ${correspondence.creator.soyisim || ""}` : "",
         ]
         return searchableFields.some((field) => field?.toLowerCase().includes(lowerSearch))
@@ -207,14 +229,6 @@ export function OutgoingCorrespondencesTable({ userId }: { userId: string }) {
   useEffect(() => {
     setCurrentPage(1)
   }, [searchTerm])
-
-  const getPdfUrl = (correspondence: OutgoingCorrespondence) => {
-    if (!correspondence.pdfPath) return null
-    const parts = correspondence.pdfPath.split("/")
-    const paperNo = parts[1]
-    const fileName = parts[2]
-    return `/api/outgoing-correspondences/files/${paperNo}/${fileName}`
-  }
 
   const openCreate = () => {
     setFormMode("create")
@@ -310,9 +324,12 @@ export function OutgoingCorrespondencesTable({ userId }: { userId: string }) {
                 </TableRow>
               ) : (
                 paginatedCorrespondences.map((correspondence) => {
-                  const pdfUrl = getPdfUrl(correspondence)
+                  const attachments = getOutgoingAttachmentsFromRow(correspondence)
                   return (
                     <TableRow key={correspondence.id} className="hover:bg-slate-50 border-b border-gray-300">
+                      <TableCell className="whitespace-nowrap border-r border-gray-200 font-mono text-sm">
+                        {correspondence.paperNo || "—"}
+                      </TableCell>
                       <TableCell className="whitespace-nowrap border-r border-gray-200">
                         {correspondence.to || "-"}
                       </TableCell>
@@ -325,20 +342,11 @@ export function OutgoingCorrespondencesTable({ userId }: { userId: string }) {
                       <TableCell className="max-w-xs truncate border-r border-gray-200">
                         {correspondence.content || "-"}
                       </TableCell>
-                      <TableCell className="border-r border-gray-200">
-                        {pdfUrl ? (
-                          <a
-                            href={pdfUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 hover:underline"
-                          >
-                            <IconFileTypePdf className="h-4 w-4" />
-                            PDF
-                          </a>
-                        ) : (
-                          "-"
-                        )}
+                      <TableCell className="border-r border-gray-200 align-middle">
+                        <CorrespondenceAttachmentsCell
+                          attachments={attachments}
+                          getHref={outgoingAttachmentProxyUrl}
+                        />
                       </TableCell>
                       <TableCell className="border-r border-gray-200">
                         {correspondence.creator 

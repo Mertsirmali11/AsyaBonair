@@ -4,6 +4,14 @@ import { auth } from "@/auth"
 import { canAccessHazardReport } from "@/lib/hazard-access"
 import { downloadPdfFromStorage } from "@/lib/supabase-storage"
 
+/** ASCII `filename=` + RFC 5987 `filename*=` so non-Latin names do not break Node header validation. */
+function inlineContentDisposition(fileName: string): string {
+  const safe = (fileName || "download").replace(/[\r\n"]/g, "_")
+  const ascii =
+    safe.replace(/[^\x20-\x7E]/g, "_").replace(/[/\\?%*:|"<>]/g, "_") || "download"
+  return `inline; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(safe)}`
+}
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ attachmentId: string }> }
@@ -51,12 +59,11 @@ export async function GET(
     }
 
     const contentType = attachment.mimeType || "application/octet-stream"
-    const safeName = attachment.fileName.replace(/[\r\n"]/g, "_")
 
     return new NextResponse(new Uint8Array(buffer), {
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition": `inline; filename="${safeName}"`,
+        "Content-Disposition": inlineContentDisposition(attachment.fileName),
         "Cache-Control": "private, max-age=3600",
       },
     })

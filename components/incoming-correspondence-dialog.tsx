@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { IconFileTypePdf, IconX } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
 import { DatePicker } from "@/components/ui/date-picker"
 import {
@@ -15,6 +16,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { dbDateToDdMmYyyy } from "@/lib/correspondence-date"
+import {
+  getIncomingAttachmentsFromRow,
+  INCOMING_PDF_MAX_TOTAL_BYTES,
+  incomingAttachmentProxyUrl,
+} from "@/lib/incoming-correspondence-attachments"
 
 export type IncomingCorrespondenceRow = {
   id: number
@@ -24,6 +30,7 @@ export type IncomingCorrespondenceRow = {
   content: string | null
   pdfPath: string | null
   pdfFileName: string | null
+  pdfAttachments?: unknown
 }
 
 type Mode = "create" | "edit"
@@ -35,6 +42,19 @@ type Props = {
   mode: Mode
   record: IncomingCorrespondenceRow | null
   onSaved: () => void
+}
+
+function validatePdfFiles(files: File[]): string | null {
+  const total = files.reduce((s, f) => s + f.size, 0)
+  if (total > INCOMING_PDF_MAX_TOTAL_BYTES) {
+    return "Total attachment size must not exceed 50MB"
+  }
+  for (const f of files) {
+    if (f.type !== "application/pdf") {
+      return "Only PDF files are allowed"
+    }
+  }
+  return null
 }
 
 export function IncomingCorrespondenceDialog({
@@ -52,14 +72,14 @@ export function IncomingCorrespondenceDialog({
   const [subject, setSubject] = React.useState("")
   const [date, setDate] = React.useState("")
   const [content, setContent] = React.useState("")
-  const [pdfFile, setPdfFile] = React.useState<File | null>(null)
+  const [pdfFiles, setPdfFiles] = React.useState<File[]>([])
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     if (!open) return
     setError(null)
-    setPdfFile(null)
+    setPdfFiles([])
     if (mode === "edit" && record) {
       setFrom(record.from ?? "")
       setSubject(record.subject ?? "")
@@ -75,25 +95,29 @@ export function IncomingCorrespondenceDialog({
     if (el) el.value = ""
   }, [open, mode, record, fileInputId])
 
+  const existingAttachments = React.useMemo(() => {
+    if (!record) return []
+    return getIncomingAttachmentsFromRow(record)
+  }, [record])
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      const maxSize = 50 * 1024 * 1024
-      if (file.size > maxSize) {
-        setError("File size exceeds 50MB limit")
-        setPdfFile(null)
-        e.target.value = ""
-        return
-      }
-      if (file.type !== "application/pdf") {
-        setError("Only PDF files are allowed")
-        setPdfFile(null)
-        e.target.value = ""
-        return
-      }
-      setError(null)
-      setPdfFile(file)
+    const incoming = Array.from(e.target.files ?? [])
+    e.target.value = ""
+    if (incoming.length === 0) return
+
+    const combined = [...pdfFiles, ...incoming]
+    const err = validatePdfFiles(combined)
+    if (err) {
+      setError(err)
+      return
     }
+    setError(null)
+    setPdfFiles(combined)
+  }
+
+  const removePdfAt = (index: number) => {
+    setPdfFiles((prev) => prev.filter((_, i) => i !== index))
+    setError(null)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -117,7 +141,9 @@ export function IncomingCorrespondenceDialog({
       formData.append("date", isoDate)
       formData.append("content", content)
       formData.append("createdBy", userId)
-      if (pdfFile) formData.append("pdf", pdfFile)
+      for (const f of pdfFiles) {
+        formData.append("pdf", f)
+      }
 
       const url =
         mode === "create"
@@ -144,22 +170,27 @@ export function IncomingCorrespondenceDialog({
     }
   }
 
+  const pendingBytes = pdfFiles.reduce((s, f) => s + f.size, 0)
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto sm:max-w-xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[min(92vh,880px)] w-[calc(100vw-1.5rem)] max-w-3xl flex-col gap-0 overflow-hidden p-6 sm:max-w-3xl">
+        <DialogHeader className="shrink-0 space-y-2 pr-10 text-left">
           <DialogTitle>
             {mode === "create" ? "New incoming correspondence" : "Edit incoming correspondence"}
           </DialogTitle>
           <DialogDescription>
             {mode === "create"
-              ? "Add sender, subject, date, and optional PDF (max 50MB)."
-              : "Update fields. Upload a new PDF to replace the existing attachment."}
+              ? "Add sender, subject, date, and optional PDFs (total max 50MB)."
+              : "Update fields. Choosing new PDFs replaces all current attachments (total max 50MB)."}
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col gap-0">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden py-2 pr-1">
           {error && (
-            <div className="rounded-md bg-destructive/15 p-3 text-sm text-destructive">{error}</div>
+            <div className="rounded-md bg-destructive/15 p-3 text-sm break-words text-destructive">
+              {error}
+            </div>
           )}
 
           <div className="space-y-2">
@@ -186,7 +217,10 @@ export function IncomingCorrespondenceDialog({
 
           <div className="space-y-2">
             <Label>Date</Label>
-            <DatePicker value={date} onChange={setDate} placeholder="Select date" />
+            <DatePicker value={date} onChange={setDate} placeholder="dd.mm.yyyy" />
+            <p className="text-muted-foreground text-xs">
+              Type the date or use the calendar button (day.month.year).
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -201,33 +235,78 @@ export function IncomingCorrespondenceDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor={fileInputId}>PDF attachment (max 50MB)</Label>
-            {mode === "edit" && record?.pdfFileName && !pdfFile && (
-              <p className="text-muted-foreground text-xs">
-                Current file: {record.pdfFileName}
-              </p>
+            <Label htmlFor={fileInputId}>PDF attachments (total max 50MB)</Label>
+            {mode === "edit" && existingAttachments.length > 0 && pdfFiles.length === 0 && (
+              <ul className="text-muted-foreground space-y-1 text-xs">
+                {existingAttachments.map((a) => {
+                  const href = incomingAttachmentProxyUrl(a.path)
+                  return (
+                    <li key={a.path} className="flex items-center gap-1">
+                      <IconFileTypePdf className="size-3.5 shrink-0" />
+                      {href ? (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline"
+                        >
+                          {a.fileName}
+                        </a>
+                      ) : (
+                        <span>{a.fileName}</span>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
             )}
             <div className="flex flex-wrap items-center gap-2">
               <label
                 htmlFor={fileInputId}
                 className="border-input bg-background hover:bg-accent hover:text-accent-foreground inline-flex cursor-pointer items-center justify-center rounded-md border px-4 py-2 text-sm font-medium"
               >
-                Choose file
+                Choose files
               </label>
               <Input
                 id={fileInputId}
                 type="file"
                 accept="application/pdf"
+                multiple
                 onChange={handleFileChange}
                 className="hidden"
               />
-              <span className="text-muted-foreground text-sm">
-                {pdfFile ? pdfFile.name : "No file chosen"}
-              </span>
             </div>
+            {pdfFiles.length > 0 && (
+              <ul className="space-y-2">
+                {pdfFiles.map((f, i) => (
+                  <li
+                    key={`${f.name}-${f.size}-${i}`}
+                    className="bg-muted/50 flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
+                  >
+                    <span className="min-w-0 truncate">{f.name}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 shrink-0"
+                      onClick={() => removePdfAt(i)}
+                      aria-label={`Remove ${f.name}`}
+                    >
+                      <IconX className="size-4" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="text-muted-foreground text-xs">
+              {pdfFiles.length === 0
+                ? "You can select multiple PDFs; combined size must not exceed 50MB."
+                : `Selected: ${(pendingBytes / (1024 * 1024)).toFixed(2)} MB / 50 MB`}
+            </p>
+          </div>
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="bg-background mt-2 shrink-0 gap-2 border-t pt-4 sm:gap-0">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>

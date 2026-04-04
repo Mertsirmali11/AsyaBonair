@@ -14,6 +14,9 @@ function CollapsibleTrigger({
   return (
     <CollapsiblePrimitive.CollapsibleTrigger
       data-slot="collapsible-trigger"
+      // Radix aria-controls IDs can differ between SSR and first paint (React 19 + Turbopack);
+      // attribute-only mismatch, behavior stays correct.
+      suppressHydrationWarning
       {...props}
     />
   )
@@ -25,6 +28,7 @@ function CollapsibleContent({
   return (
     <CollapsiblePrimitive.CollapsibleContent
       data-slot="collapsible-content"
+      suppressHydrationWarning
       {...props}
     />
   )

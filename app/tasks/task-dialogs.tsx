@@ -319,11 +319,13 @@ export function TaskManageDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={cn(
-          "flex max-h-[94vh] w-[98vw] max-w-7xl flex-col gap-0 overflow-hidden border-0 p-0",
-          "sm:max-h-[92vh]"
+          // Tam sayfa: Dialog varsayılanındaki sm:max-w-lg ve ortalamayı geçersiz kıl
+          "!fixed !inset-0 !left-0 !top-0 z-50 flex !h-[100dvh] !max-h-[100dvh] !w-full !max-w-none !translate-x-0 !translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 p-0 shadow-xl",
+          "sm:!max-w-none lg:!max-w-none",
+          "data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100"
         )}
       >
-        <DialogHeader className="border-b bg-background px-5 py-3 text-left sm:px-6">
+        <DialogHeader className="shrink-0 border-b bg-background px-5 py-3 text-left sm:px-6">
           <DialogTitle className="pr-10 text-base font-semibold sm:text-lg">
             {loading ? "Loading…" : detail?.title ?? "Task management"}
           </DialogTitle>
@@ -340,7 +342,7 @@ export function TaskManageDialog({
           )}
         </DialogHeader>
 
-        <div className="min-h-0 flex-1 overflow-y-auto bg-slate-100/80">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-slate-100/80">
           {loadError && (
             <p className="text-destructive px-6 py-4 text-sm">{loadError}</p>
           )}
@@ -599,7 +601,7 @@ export function TaskManageDialog({
                   </div>
                 </section>
 
-                <section className="flex min-h-[420px] flex-1 flex-col overflow-hidden rounded-lg border bg-white shadow-sm lg:min-h-[520px]">
+                <section className="flex min-h-[min(520px,50vh)] flex-1 flex-col overflow-hidden rounded-lg border bg-white shadow-sm lg:min-h-[min(640px,55vh)]">
                   <div className="bg-blue-600 px-4 py-2.5 text-white">
                     <h2 className="text-sm font-semibold">Communication panel</h2>
                     <p className="text-xs text-blue-100">Real-time discussion</p>
