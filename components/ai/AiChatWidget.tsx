@@ -43,11 +43,17 @@ export default function AiChatWidget() {
           messages: [...messages, userMessage],
         }),
       });
-      const data = await res.json();
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: data.content || "Bir hata oluştu." },
-      ]);
+      const data = (await res.json()) as {
+        content?: string;
+        error?: string;
+      };
+      const reply =
+        res.ok && typeof data.content === "string"
+          ? data.content
+          : typeof data.error === "string"
+            ? data.error
+            : `Bir hata oluştu (${res.status}).`;
+      setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
     } catch {
       setMessages((prev) => [
         ...prev,
