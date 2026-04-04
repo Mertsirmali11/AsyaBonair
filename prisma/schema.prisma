@@ -292,11 +292,13 @@ model OutgoingCorrespondence {
 
 // Uçaklar Tablosu
 model Ucaklar {
-  id        Int                 @id @default(autoincrement())
-  register  String              @db.VarChar(100)
-  msn       String              @db.VarChar(100)
-  documents AircraftDocument[]
+  id         Int                 @id @default(autoincrement())
+  register   String              @db.VarChar(100)
+  msn        String              @db.VarChar(100)
+  isArchived Boolean             @default(false) @map("is_archived")
+  documents  AircraftDocument[]
 
+  @@index([isArchived])
   @@map("ucaklar")
 }
 

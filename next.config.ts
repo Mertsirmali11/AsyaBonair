@@ -17,6 +17,11 @@ const nextConfig: NextConfig = {
         permanent: false,
       },
       {
+        source: "/configurations/aircraft-settings/archived",
+        destination: "/documents/aircraft-settings/archived",
+        permanent: false,
+      },
+      {
         source: "/configurations/aircraft-settings/:id",
         destination: "/documents/aircraft-settings/:id",
         permanent: false,

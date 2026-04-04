@@ -39,7 +39,7 @@ export default async function AircraftDetailPage({ params }: { params: Promise<{
 
   return (
     <DashboardLayout user={user} headerTitle={`${aircraft.register} — Documents`}>
-      <AircraftDetailClient aircraft={aircraft as any} currentUserId={calisan?.id ?? 0} />
+      <AircraftDetailClient aircraft={aircraft} currentUserId={calisan?.id ?? 0} />
     </DashboardLayout>
   )
 }
