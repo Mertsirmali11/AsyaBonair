@@ -13,6 +13,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  ALLOWED_DOCUMENTS_ERROR_EN,
+  DOCUMENT_ACCEPT_HTML,
+  isAllowedCorrespondenceDocumentFile,
+} from "@/lib/allowed-document-uploads"
 
 interface OutgoingCorrespondenceFormProps {
   userId: string
@@ -38,8 +43,8 @@ export function OutgoingCorrespondenceForm({ userId }: OutgoingCorrespondenceFor
         e.target.value = ""
         return
       }
-      if (file.type !== "application/pdf") {
-        setError("Only PDF files are allowed")
+      if (!isAllowedCorrespondenceDocumentFile(file)) {
+        setError(ALLOWED_DOCUMENTS_ERROR_EN)
         setPdfFile(null)
         e.target.value = ""
         return
@@ -194,7 +199,7 @@ export function OutgoingCorrespondenceForm({ userId }: OutgoingCorrespondenceFor
                 <Input
                   id="pdf-file"
                   type="file"
-                  accept="application/pdf"
+                  accept={DOCUMENT_ACCEPT_HTML}
                   onChange={handleFileChange}
                   className="hidden"
                 />

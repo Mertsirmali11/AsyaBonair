@@ -17,7 +17,7 @@ export async function persistHazardFilesFromUploads(
       failed++
       continue
     }
-    const kind = classifyHazardFileKind(file.type)
+    const kind = classifyHazardFileKind(file)
     if (!kind) {
       failed++
       continue

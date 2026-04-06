@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { DatePickerLimited } from "@/components/ui/date-picker-limited"
+import { DOCUMENT_ACCEPT_HTML } from "@/lib/allowed-document-uploads"
 import {
   Card,
   CardContent,
@@ -213,14 +214,15 @@ export function ReportHazardForm({ userId }: ReportHazardFormProps) {
                   Attachments (optional)
                 </Label>
                 <p className="text-sm text-muted-foreground">
-                  Upload photos, videos, or PDFs. Maximum 50 MB per file.
+                  Upload photos, videos, or documents (PDF, Word, Excel, PowerPoint).
+                  Maximum 50 MB per file.
                 </p>
                 <input
                   id="hazard-files"
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept="image/*,video/*,.pdf,application/pdf"
+                  accept={`image/*,video/*,${DOCUMENT_ACCEPT_HTML}`}
                   onChange={(e) => {
                     const list = e.target.files
                     setFiles(list ? Array.from(list) : [])

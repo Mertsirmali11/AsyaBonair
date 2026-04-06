@@ -1,63 +1,70 @@
 import { NextRequest, NextResponse } from "next/server"
-import { userFacingAnthropicError } from "@/lib/anthropic-user-errors"
+import { auth } from "@/auth"
+import { groqChatCompletion } from "@/lib/groq-chat"
+import { userFacingGroqError } from "@/lib/groq-user-errors"
+import { truncateForGroqAnalyze } from "@/lib/groq-truncate"
 
 export async function POST(req: NextRequest) {
   try {
-    const key = process.env.ANTHROPIC_API_KEY?.trim()
-    if (!key) {
-      return NextResponse.json(
-        { error: "ANTHROPIC_API_KEY tanımlı değil." },
-        { status: 503 }
-      )
+    const session = await auth()
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: "Oturum gerekli." }, { status: 401 })
     }
 
     const { text, analysisType } = await req.json()
+    const raw = typeof text === "string" ? text : ""
+    const { text: body, truncated: inputTruncated } = truncateForGroqAnalyze(raw)
 
     const prompts: Record<string, string> = {
-      summary: `Aşağıdaki dokümanı havacılık operasyonları perspektifinden özetle. Önemli bulgular, aksiyon gerektiren maddeler ve risk noktalarını vurgula:\n\n${text}`,
-      anomaly: `Aşağıdaki veriyi analiz et. Anomali, sapma veya güvenlik riski oluşturabilecek durumları tespit et ve önem sırasına göre listele:\n\n${text}`,
-      report: `Aşağıdaki bilgileri kullanarak resmi bir havacılık uyum raporu oluştur. SHGM standartlarına uygun, profesyonel Türkçe dil kullan:\n\n${text}`,
+      summary: `Aşağıdaki dokümanı havacılık operasyonları perspektifinden özetle. Önemli bulgular, aksiyon gerektiren maddeler ve risk noktalarını vurgula:\n\n${body}`,
+      anomaly: `Aşağıdaki veriyi analiz et. Anomali, sapma veya güvenlik riski oluşturabilecek durumları tespit et ve önem sırasına göre listele:\n\n${body}`,
+      report: `Aşağıdaki bilgileri kullanarak resmi bir havacılık uyum raporu oluştur. SHGM standartlarına uygun, profesyonel Türkçe dil kullan:\n\n${body}`,
+      regulation_impact: `Aşağıdaki metinde genelde iki tür içerik bulunur: (1) yeni veya güncellenmiş regülasyon / genelge / talimat özeti, (2) şirketin mevcut manuel veya prosedür metinleri (--- ve "DOKÜMAN:" / "PDF:" satırlarıyla ayrılmış bloklar).
+
+Görev: Bu düzenlemenin Bonair Havacılık operasyonları için etkisini değerlendirmek.
+
+Yanıtını Türkçe ve şu başlıklar altında ver:
+
+1) **Regülasyon özeti** — Ne değişiyor, ne zaman/yürürlük beklentisi (metinde varsa).
+2) **Operasyonel kapsam** — Hangi faaliyetlerimizi (uçuş operasyonları, eğitim, bakım, SMS, FDM, compliance vb.) doğrudan veya dolaylı etkiler?
+3) **Etki kararı** — Operasyonumuza etkili mi? Cevap: **Evet / Hayır / Kısmen** ve kısa gerekçe.
+4) **Mevcut şirket metinleriyle karşılaştırma** — Aşağıdaki şirket dokümanları ışığında uyum, çelişki veya boşluk (gap) var mı?
+5) **Alınması gereken aksiyonlar** — Numaralı liste: önerilen iş, öncelik (yüksek/orta/düşük), önerilen sorumlu birim tipi (Operasyon, Kalite, Eğitim vb.).
+6) **Operasyonel uygunluk** — Uygulanabilirlik ve pratik risk notu (teknik olarak hayata geçirilebilirlik).
+
+Metin:
+${body}`,
     }
 
-    const model =
-      process.env.ANTHROPIC_MODEL?.trim() || "claude-sonnet-4-20250514"
+    const systemDefault = `Sen Bonair Havacılık'ın uzman AI asistanısın. Türk sivil havacılık mevzuatı (SHGM, SHY, SHT), SMS ve FDM konularında uzmansın. Yanıtlarını Türkçe ver.`
+    const systemRegulation = `${systemDefault} Regülasyon etki analizinde kesin hukuki danışmanlık vermezsin; çalışma taslağı ve kontrol listesi niteliğinde yanıt verirsin. Metinde olmayan madde numarası uydurmazsın.`
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 2048,
-        system: `Sen Bonair Havacılık'ın uzman AI asistanısın. Türk sivil havacılık mevzuatı (SHGM, SHY, SHT), SMS ve FDM konularında uzmansın. Yanıtlarını Türkçe ver.`,
-        messages: [
-          { role: "user", content: prompts[analysisType] || prompts.summary },
-        ],
-      }),
+    const userContent = prompts[analysisType] || prompts.summary
+    const system =
+      analysisType === "regulation_impact" ? systemRegulation : systemDefault
+
+    const result = await groqChatCompletion({
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: userContent },
+      ],
+      maxTokens: analysisType === "regulation_impact" ? 2048 : 1536,
     })
 
-    const data = (await response.json()) as {
-      content?: Array<{ text?: string }>
-      error?: { message?: string }
-    }
-
-    if (!response.ok) {
-      const detail = data.error?.message || "AI servisi hatası."
+    if (!result.ok) {
+      if (result.status === 503) {
+        return NextResponse.json({ error: result.detail }, { status: 503 })
+      }
       return NextResponse.json(
-        { error: userFacingAnthropicError(detail) },
+        { error: userFacingGroqError(result.detail) },
         { status: 502 }
       )
     }
 
-    const textOut = data.content?.[0]?.text
-    if (!textOut) {
-      return NextResponse.json({ error: "Yanıt okunamadı." }, { status: 502 })
-    }
-
-    return NextResponse.json({ content: textOut })
+    return NextResponse.json({
+      content: result.text,
+      ...(inputTruncated ? { inputTruncated: true } : {}),
+    })
   } catch {
     return NextResponse.json({ error: "Analiz yapılamadı." }, { status: 500 })
   }

@@ -1,6 +1,11 @@
 import { createClient } from "@supabase/supabase-js"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import {
+  isAllowedCorrespondenceDocumentFile,
+  resolveDocumentMimeForUpload,
+} from "@/lib/allowed-document-uploads"
+
 export function getAircraftManualsBucket(): string {
   return (
     process.env.SUPABASE_AIRCRAFT_MANUALS_BUCKET ||
@@ -39,7 +44,7 @@ export async function uploadAircraftManualPdf(
 ): Promise<{ path: string; fileName: string } | null> {
   try {
     if (file.size > MAX_PDF_BYTES) return null
-    if (file.type !== "application/pdf") return null
+    if (!isAllowedCorrespondenceDocumentFile(file)) return null
 
     const reg = sanitizeRegisterSegment(register)
     const safe =
@@ -52,10 +57,21 @@ export async function uploadAircraftManualPdf(
     const buffer = Buffer.from(await file.arrayBuffer())
     const supabase = getSupabaseAdmin()
     const bucket = getAircraftManualsBucket()
-    const { error } = await supabase.storage.from(bucket).upload(storagePath, buffer, {
-      contentType: "application/pdf",
-      upsert: false,
-    })
+    const mime = resolveDocumentMimeForUpload(file)
+    const doUpload = (contentType: string) =>
+      supabase.storage.from(bucket).upload(storagePath, buffer, {
+        contentType,
+        upsert: false,
+      })
+    let { error } = await doUpload(mime)
+    if (
+      error &&
+      /mime type .+ is not supported/i.test(error.message || "")
+    ) {
+      const retry = await doUpload("application/octet-stream")
+      if (!retry.error) error = null
+      else error = retry.error
+    }
     if (error) throw error
     return { path: storagePath, fileName: file.name }
   } catch {

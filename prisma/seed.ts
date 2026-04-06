@@ -39,6 +39,7 @@ async function clearAllData() {
     await tx.meetingParticipant.deleteMany()
     await tx.meeting.deleteMany()
     await tx.hazardReport.deleteMany()
+    await tx.companyManual.deleteMany()
     await tx.announcement.deleteMany()
     await tx.incomingPaper.deleteMany()
     await tx.outgoingCorrespondence.deleteMany()

@@ -74,7 +74,10 @@ export function DatePicker({
       captionLayout={birthDate ? "dropdown" : "label"}
       fromYear={birthDate ? currentYear - 100 : undefined}
       toYear={birthDate ? currentYear : undefined}
-      defaultMonth={selectedDate ?? new Date(currentYear - 30, 0, 1)}
+      defaultMonth={
+        selectedDate ??
+        (birthDate ? new Date(currentYear - 30, 0, 1) : new Date())
+      }
     />
   )
 

@@ -21,6 +21,7 @@ import {
 import {
   FileText, Upload, Archive, ArchiveRestore, Trash2, ExternalLink, Plus, ChevronDown,
 } from "lucide-react"
+import { DOCUMENT_ACCEPT_HTML } from "@/lib/allowed-document-uploads"
 import { cn } from "@/lib/utils"
 
 const CERTIFICATE_TYPES = [
@@ -334,8 +335,14 @@ export function AircraftDetailClient({
               <Input type="date" value={validUntil} onChange={e => setValidUntil(e.target.value)} className="mt-1" />
             </div>
             <div>
-              <Label>File (PDF, max 50MB) <span className="text-red-500">*</span></Label>
-              <Input type="file" accept=".pdf" className="mt-1"
+              <Label>
+                File (PDF, Word, Excel, PowerPoint — max 50MB){" "}
+                <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                type="file"
+                accept={DOCUMENT_ACCEPT_HTML}
+                className="mt-1"
                 onChange={e => setFile(e.target.files?.[0] ?? null)} />
               {file && (
                 <p className="text-xs text-gray-500 mt-1">

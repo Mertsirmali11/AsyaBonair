@@ -1,6 +1,11 @@
 import { createClient } from "@supabase/supabase-js"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import {
+  isAllowedCorrespondenceDocumentFile,
+  resolveDocumentMimeForUpload,
+} from "@/lib/allowed-document-uploads"
+
 export function getStorageBucket(): string {
   return (
     process.env.SUPABASE_STORAGE_BUCKET ||
@@ -56,12 +61,22 @@ export async function uploadPdfToStorage(
     const buffer = Buffer.from(arrayBuffer)
     const supabaseAdmin = getSupabaseAdmin()
     const upsert = options?.upsert ?? true
-    const { error } = await supabaseAdmin.storage
-      .from(getStorageBucket())
-      .upload(storagePath, buffer, {
-        contentType: "application/pdf",
+    const mime = resolveDocumentMimeForUpload(file)
+    const doUpload = (contentType: string) =>
+      supabaseAdmin.storage.from(getStorageBucket()).upload(storagePath, buffer, {
+        contentType,
         upsert,
       })
+
+    let { error } = await doUpload(mime)
+    if (
+      error &&
+      /mime type .+ is not supported/i.test(error.message || "")
+    ) {
+      const retry = await doUpload("application/octet-stream")
+      if (!retry.error) error = null
+      else error = retry.error
+    }
     if (error) {
       const msg =
         typeof error.message === "string" && error.message.length > 0
@@ -151,11 +166,14 @@ export async function downloadCalisanAvatarFromStorage(
 const HAZARD_MAX_BYTES = 50 * 1024 * 1024
 
 export function classifyHazardFileKind(
-  mime: string
-): "image" | "video" | "pdf" | null {
+  file: File
+): "image" | "video" | "pdf" | "document" | null {
+  const mime = (file.type || "").toLowerCase()
+  const name = file.name.toLowerCase()
   if (mime.startsWith("image/")) return "image"
   if (mime.startsWith("video/")) return "video"
-  if (mime === "application/pdf") return "pdf"
+  if (mime === "application/pdf" || name.endsWith(".pdf")) return "pdf"
+  if (isAllowedCorrespondenceDocumentFile(file)) return "document"
   return null
 }
 
@@ -479,7 +497,7 @@ export async function uploadHazardFileToStorage(
 ): Promise<{ path: string; fileName: string; publicUrl: string } | null> {
   try {
     if (file.size > HAZARD_MAX_BYTES) return null
-    const kind = classifyHazardFileKind(file.type)
+    const kind = classifyHazardFileKind(file)
     if (!kind) return null
 
     const safe =
@@ -491,10 +509,14 @@ export async function uploadHazardFileToStorage(
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
     const supabaseAdmin = getSupabaseAdmin()
+    const contentType =
+      kind === "pdf" || kind === "document"
+        ? resolveDocumentMimeForUpload(file)
+        : file.type?.trim() || "application/octet-stream"
     const { error } = await supabaseAdmin.storage
       .from(getStorageBucket())
       .upload(storagePath, buffer, {
-        contentType: file.type || "application/octet-stream",
+        contentType,
         upsert: false,
       })
     if (error) throw error

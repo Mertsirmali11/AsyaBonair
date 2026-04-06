@@ -688,6 +688,7 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                             value={formData.dogumTarihi}
                             onChange={(value) => setFormData((prev) => ({ ...prev, dogumTarihi: value }))}
                             placeholder="dd.mm.yyyy"
+                            birthDate
                           />
                         </div>
                         <div className="space-y-2">

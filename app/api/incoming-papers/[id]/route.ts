@@ -10,6 +10,10 @@ import {
   type IncomingStoredAttachment,
 } from "@/lib/incoming-correspondence-attachments"
 import {
+  ALLOWED_DOCUMENTS_ERROR_EN,
+  isAllowedCorrespondenceDocumentFile,
+} from "@/lib/allowed-document-uploads"
+import {
   deletePdfFromStorage,
   uploadPdfToStorage,
 } from "@/lib/supabase-storage"
@@ -80,11 +84,8 @@ export async function PATCH(
       )
     }
     for (const f of pdfFiles) {
-      if (f.type !== "application/pdf") {
-        return NextResponse.json(
-          { error: "Only PDF files are allowed" },
-          { status: 400 }
-        )
+      if (!isAllowedCorrespondenceDocumentFile(f)) {
+        return NextResponse.json({ error: ALLOWED_DOCUMENTS_ERROR_EN }, { status: 400 })
       }
     }
 

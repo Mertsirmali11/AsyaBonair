@@ -3,6 +3,10 @@ import { prisma } from "@/lib/prisma-server"
 import { auth } from "@/auth"
 import { canAccessConfigurationsArea } from "@/lib/department-access"
 import {
+  ALLOWED_DOCUMENTS_ERROR_EN,
+  isAllowedCorrespondenceDocumentFile,
+} from "@/lib/allowed-document-uploads"
+import {
   assignUniquePdfStorageNames,
   OUTGOING_PDF_MAX_TOTAL_BYTES,
   type OutgoingStoredAttachment,
@@ -146,11 +150,8 @@ export async function POST(request: Request) {
         )
       }
       for (const f of pdfFiles) {
-        if (f.type !== "application/pdf") {
-          return NextResponse.json(
-            { error: "Only PDF files are allowed" },
-            { status: 400 }
-          )
+        if (!isAllowedCorrespondenceDocumentFile(f)) {
+          return NextResponse.json({ error: ALLOWED_DOCUMENTS_ERROR_EN }, { status: 400 })
         }
       }
 

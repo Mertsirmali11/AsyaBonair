@@ -82,6 +82,7 @@ const configurationsSubItems: {
   { title: "User Settings", url: "/configurations" },
   { title: "Pilot Settings", url: "/configurations/pilot-settings" },
   { title: "Announcements", url: "/configurations/announcements" },
+  { title: "AI manuals", url: "/configurations/manuals" },
 ]
 
 const controlledDocumentsSubItems: {

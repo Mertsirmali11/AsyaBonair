@@ -1,7 +1,17 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { MessageCircle, X, Send, Loader2, Bot, User, Minimize2 } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import Link from "next/link";
+import {
+  MessageCircle,
+  X,
+  Send,
+  Loader2,
+  Bot,
+  User,
+  Minimize2,
+  RefreshCw,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -11,22 +21,79 @@ interface Message {
   content: string;
 }
 
+type ManualOption = { id: number; title: string };
+
 export default function AiChatWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      content: "Merhaba! Ben Bonair AI Asistanı. Uçuş operasyonları, SHGM mevzuatı, SMS veya FDM konularında size yardımcı olabilirim.",
+      content:
+        "Merhaba! Ben Bonair AI Asistanı. Yukarıdan yüklediğiniz şirket manuelinden birini seçin; sorularınız mümkün olduğunca yalnızca o metne dayalı yanıtlanır (soru-cevap). Manuel seçmezseniz genel havacılık konusunda yardımcı olurum — kesin mevzuat için resmi kaynağa bakın. Yeni regülasyonun operasyona etkisini değerlendirmek için: menüden AI Report Creator → «Regülasyon etkisi».",
     },
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [manuals, setManuals] = useState<ManualOption[]>([]);
+  const [manualId, setManualId] = useState<number | "">("");
+  const [manualsLoading, setManualsLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  const loadManuals = useCallback(async () => {
+    setManualsLoading(true);
+    try {
+      const res = await fetch("/api/manuals", {
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+      if (!res.ok) return;
+      const data = (await res.json().catch(() => ({}))) as {
+        manuals?: ManualOption[];
+      };
+      if (Array.isArray(data.manuals)) {
+        setManuals(data.manuals);
+      }
+    } catch {
+      /* sessiz */
+    } finally {
+      setManualsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadManuals();
+  }, [loadManuals]);
+
+  /** Sohbet açılınca ve sekme tekrar görününce liste güncellenir (yeni yüklenen manueller için). */
+  useEffect(() => {
+    if (isOpen && !isMinimized) {
+      void loadManuals();
+    }
+  }, [isOpen, isMinimized, loadManuals]);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible" && isOpen && !isMinimized) {
+        void loadManuals();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [isOpen, isMinimized, loadManuals]);
+
+  useEffect(() => {
+    if (
+      manualId !== "" &&
+      !manuals.some((m) => m.id === manualId)
+    ) {
+      setManualId("");
+    }
+  }, [manuals, manualId]);
 
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return;
@@ -40,8 +107,10 @@ export default function AiChatWidget() {
       const res = await fetch("/api/ai/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({
           messages: [...messages, userMessage],
+          ...(manualId !== "" ? { manualId } : {}),
         }),
       });
       const data = (await res.json()) as {
@@ -143,24 +212,83 @@ export default function AiChatWidget() {
             <div ref={bottomRef} />
           </div>
 
-          <div className="flex items-end gap-2 border-t border-border p-3">
-            <Textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Soru sorun... (Enter ile gönderin)"
-              className="max-h-[100px] min-h-[40px] resize-none text-sm"
-              rows={1}
-            />
-            <Button
-              type="button"
-              onClick={sendMessage}
-              disabled={isLoading || !input.trim()}
-              size="icon"
-              className="shrink-0"
-            >
-              <Send size={16} />
-            </Button>
+          {/* Input */}
+          <div className="border-t border-gray-100 p-3 flex flex-col gap-2">
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between gap-2">
+                <label
+                  htmlFor="bonair-ai-manual"
+                  className="text-[11px] text-gray-500 flex-1"
+                >
+                  Kayıtlı manuel ({manuals.length}) — sorular buna göre
+                </label>
+                <button
+                  type="button"
+                  onClick={() => void loadManuals()}
+                  disabled={isLoading || manualsLoading}
+                  className="flex items-center gap-1 rounded-md p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-800 disabled:opacity-50"
+                  title="Listeyi yenile"
+                >
+                  <RefreshCw
+                    size={14}
+                    className={manualsLoading ? "animate-spin" : ""}
+                  />
+                </button>
+              </div>
+              <select
+                id="bonair-ai-manual"
+                value={manualId === "" ? "" : String(manualId)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setManualId(v === "" ? "" : Number.parseInt(v, 10));
+                }}
+                disabled={isLoading}
+                className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-900"
+              >
+                <option value="">Seçilmedi — genel sohbet</option>
+                {manuals.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.title}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[10px] text-gray-600 leading-snug border-t border-gray-100 pt-1.5 mt-0.5">
+                Bu menüde yalnızca{" "}
+                <Link
+                  href="/configurations/manuals"
+                  className="text-sky-700 underline font-medium"
+                >
+                  Configurations → AI manuals
+                </Link>{" "}
+                sayfasına kaydedilen PDF’ler listelenir. AI Report Creator’daki
+                geçici PDF yüklemeleri burada görünmez — kalıcı eklemek için
+                yukarıdaki sayfadan yükleyin veya yenile (↻) ile listeyi
+                güncelleyin.
+              </p>
+              {manualId !== "" && (
+                <p className="text-[10px] text-sky-800 leading-snug">
+                  Sorularınız bu manuelin metnine öncelik vererek yanıtlanır.
+                </p>
+              )}
+            </div>
+            <div className="flex gap-2 items-end">
+              <Textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Örn. Compliance Monitoring manueline göre bu süreç nasıl izlenir?"
+                className="resize-none text-sm min-h-[40px] max-h-[100px]"
+                rows={1}
+              />
+              <Button
+                onClick={sendMessage}
+                disabled={isLoading || !input.trim()}
+                size="icon"
+                className="bg-black hover:bg-gray-800 text-white flex-shrink-0"
+              >
+                <Send size={16} />
+              </Button>
+            </div>
           </div>
         </div>
       )}

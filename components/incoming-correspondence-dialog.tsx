@@ -15,7 +15,12 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { dbDateToDdMmYyyy } from "@/lib/correspondence-date"
+import { dbDateToDdMmYyyy, todayLocalDdMmYyyy } from "@/lib/correspondence-date"
+import {
+  ALLOWED_DOCUMENTS_ERROR_EN,
+  DOCUMENT_ACCEPT_HTML,
+  isAllowedCorrespondenceDocumentFile,
+} from "@/lib/allowed-document-uploads"
 import {
   getIncomingAttachmentsFromRow,
   INCOMING_PDF_MAX_TOTAL_BYTES,
@@ -44,14 +49,14 @@ type Props = {
   onSaved: () => void
 }
 
-function validatePdfFiles(files: File[]): string | null {
+function validateAttachmentFiles(files: File[]): string | null {
   const total = files.reduce((s, f) => s + f.size, 0)
   if (total > INCOMING_PDF_MAX_TOTAL_BYTES) {
     return "Total attachment size must not exceed 50MB"
   }
   for (const f of files) {
-    if (f.type !== "application/pdf") {
-      return "Only PDF files are allowed"
+    if (!isAllowedCorrespondenceDocumentFile(f)) {
+      return ALLOWED_DOCUMENTS_ERROR_EN
     }
   }
   return null
@@ -88,7 +93,7 @@ export function IncomingCorrespondenceDialog({
     } else {
       setFrom("")
       setSubject("")
-      setDate("")
+      setDate(todayLocalDdMmYyyy())
       setContent("")
     }
     const el = document.getElementById(fileInputId) as HTMLInputElement | null
@@ -106,7 +111,7 @@ export function IncomingCorrespondenceDialog({
     if (incoming.length === 0) return
 
     const combined = [...pdfFiles, ...incoming]
-    const err = validatePdfFiles(combined)
+    const err = validateAttachmentFiles(combined)
     if (err) {
       setError(err)
       return
@@ -181,8 +186,8 @@ export function IncomingCorrespondenceDialog({
           </DialogTitle>
           <DialogDescription>
             {mode === "create"
-              ? "Add sender, subject, date, and optional PDFs (total max 50MB)."
-              : "Update fields. Choosing new PDFs replaces all current attachments (total max 50MB)."}
+              ? "Add sender, subject, date, and optional documents — PDF, Word, Excel, PowerPoint (total max 50MB)."
+              : "Update fields. Choosing new files replaces all current attachments (total max 50MB)."}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col gap-0">
@@ -235,7 +240,7 @@ export function IncomingCorrespondenceDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor={fileInputId}>PDF attachments (total max 50MB)</Label>
+            <Label htmlFor={fileInputId}>Attachments — PDF, Word, Excel, PowerPoint (total max 50MB)</Label>
             {mode === "edit" && existingAttachments.length > 0 && pdfFiles.length === 0 && (
               <ul className="text-muted-foreground space-y-1 text-xs">
                 {existingAttachments.map((a) => {
@@ -270,7 +275,7 @@ export function IncomingCorrespondenceDialog({
               <Input
                 id={fileInputId}
                 type="file"
-                accept="application/pdf"
+                accept={DOCUMENT_ACCEPT_HTML}
                 multiple
                 onChange={handleFileChange}
                 className="hidden"
@@ -300,7 +305,7 @@ export function IncomingCorrespondenceDialog({
             )}
             <p className="text-muted-foreground text-xs">
               {pdfFiles.length === 0
-                ? "You can select multiple PDFs; combined size must not exceed 50MB."
+                ? "You can select multiple documents; combined size must not exceed 50MB."
                 : `Selected: ${(pendingBytes / (1024 * 1024)).toFixed(2)} MB / 50 MB`}
             </p>
           </div>

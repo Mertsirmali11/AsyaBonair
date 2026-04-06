@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
 import { auth } from "@/auth"
 import { assertCanManageAnnouncements } from "@/lib/announcements-access"
+import { getAppPublicUrl } from "@/lib/app-public-url"
 import { Resend } from "resend"
 
 const ANNOUNCEMENTS_ADMIN_LIST_MAX = 2000
@@ -34,9 +35,15 @@ async function sendAnnouncementEmails(
 ): Promise<{ sent: number; failed: number; errors: string[] }> {
   const from = getFromAddress()
   const subject = `New announcement: ${title}`
+  const base = getAppPublicUrl()
+  const portalLink = base ? `${base}/dashboard` : ""
+  const ackBlock = portalLink
+    ? `<p><strong>Okudum, anladım:</strong> Lütfen Bonair portalında <strong>Dashboard</strong> bölümündeki duyuruyu okuyup <strong>«Okudum, anladım»</strong> ile onaylayınız.</p><p><a href="${escapeHtml(portalLink)}">${escapeHtml(portalLink)}</a></p>`
+    : `<p><strong>Okudum, anladım:</strong> Lütfen Bonair portalında <strong>Dashboard</strong> bölümündeki duyuruyu okuyup <strong>«Okudum, anladım»</strong> ile onaylayınız.</p>`
   const html = `
         <h2>${escapeHtml(title)}</h2>
         <p>${escapeHtml(content).replace(/\n/g, "<br />")}</p>
+        ${ackBlock}
         <hr />
         <small>Sent by the Bonair SMS portal.</small>
       `
@@ -82,7 +89,25 @@ export async function GET() {
       creator: { select: { isim: true, soyisim: true, departman: true } },
     },
   })
-  return NextResponse.json(announcements)
+  const totalStaff = await prisma.calisan.count()
+  const ids = announcements.map((a) => a.id)
+  const ackGroups =
+    ids.length === 0
+      ? []
+      : await prisma.announcementAcknowledgment.groupBy({
+          by: ["announcementId"],
+          where: { announcementId: { in: ids } },
+          _count: { _all: true },
+        })
+  const countMap = new Map(
+    ackGroups.map((g) => [g.announcementId, g._count._all])
+  )
+  const enriched = announcements.map((a) => ({
+    ...a,
+    acknowledgedCount: countMap.get(a.id) ?? 0,
+    totalStaff,
+  }))
+  return NextResponse.json(enriched)
 }
 
 export async function POST(req: NextRequest) {
@@ -146,8 +171,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const totalStaff = await prisma.calisan.count()
+
   return NextResponse.json({
     ...announcement,
+    acknowledgedCount: 0,
+    totalStaff,
     _emailDelivery: emailDelivery,
   })
 }

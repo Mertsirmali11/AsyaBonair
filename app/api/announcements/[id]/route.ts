@@ -43,7 +43,15 @@ export async function PATCH(
         creator: { select: { isim: true, soyisim: true, departman: true } },
       },
     })
-    return NextResponse.json(updated)
+    const totalStaff = await prisma.calisan.count()
+    const ackCount = await prisma.announcementAcknowledgment.count({
+      where: { announcementId: numericId },
+    })
+    return NextResponse.json({
+      ...updated,
+      acknowledgedCount: ackCount,
+      totalStaff,
+    })
   } catch (e: unknown) {
     const code = (e as { code?: string })?.code
     if (code === "P2025") {

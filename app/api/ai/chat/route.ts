@@ -1,14 +1,41 @@
 import { NextRequest, NextResponse } from "next/server"
-import { userFacingAnthropicError } from "@/lib/anthropic-user-errors"
+import { prisma } from "@/lib/prisma-server"
+import { groqChatCompletion, type GroqChatMessage } from "@/lib/groq-chat"
+import { userFacingGroqError } from "@/lib/groq-user-errors"
+import { GROQ_MANUAL_CONTEXT_MAX_CHARS } from "@/lib/groq-truncate"
+
+const MANUAL_CONTEXT_MAX_CHARS = GROQ_MANUAL_CONTEXT_MAX_CHARS
+
+const BASE_SYSTEM = `Sen Bonair Havacılık'ın yapay zeka asistanısın. Türk sivil havacılık mevzuatı (SHGM, SHY, SHT), uçuş operasyonları, SMS (Safety Management System) ve FDM (Flight Data Monitoring) konularında uzmansın. Kullanıcılara her zaman Türkçe yanıt verirsin. Bilmediğin veya doğrulayamadığın mevzuat maddelerini uydurmak yerine kullanıcıya resmi kaynağı kontrol etmesini söylersin.`
+
+function buildSystemWithOptionalManual(
+  manual: { title: string; contentText: string } | null
+): string {
+  if (!manual) return BASE_SYSTEM
+  const body = manual.contentText.slice(0, MANUAL_CONTEXT_MAX_CHARS)
+  return `${BASE_SYSTEM}
+
+---
+KULLANICI AŞAĞIDAKİ ŞİRKET MANUELİNİ SEÇTİ — ÖNCELİK BU METİNDİR.
+Manuel başlığı: ${manual.title}
+
+Kurallar:
+- Soruyu mümkün olduğunca yalnızca bu manuelin metnine dayanarak yanıtla.
+- Metinde geçmeyen veya emin olmadığın bir şeyi uydurma; "Bu manuelde yer almıyor" veya "İlgili bölüm bulunamadı" de.
+- Mümkünse manuelden kısa alıntı veya bölüm/madde ifadesiyle destekle.
+- Genel bilgi ekleme; sadece manueldeki ifadeyi açıklamak gerekiyorsa kısa bağlam ver.
+
+--- MANUEL METNİ ---
+${body}`
+}
 
 type ChatMsg = { role: string; content: string }
 
 /**
- * Anthropic Messages API: konuşma kullanıcı mesajı ile başlamalı.
  * İstemci ilk karşılama metnini assistant olarak gönderdiği için baştaki assistant
  * mesajlarını atıyoruz (karşılama zaten system prompt’ta özetleniyor).
  */
-function sanitizeAnthropicMessages(messages: ChatMsg[]): ChatMsg[] {
+function sanitizeChatMessages(messages: ChatMsg[]): ChatMsg[] {
   const filtered = messages.filter(
     (m) => m.role === "user" || m.role === "assistant"
   )
@@ -19,31 +46,14 @@ function sanitizeAnthropicMessages(messages: ChatMsg[]): ChatMsg[] {
   return filtered.slice(start)
 }
 
-function extractAnthropicText(data: { content?: Array<{ type?: string; text?: string }> }): string | null {
-  const block = data.content?.[0]
-  if (!block) return null
-  if (block.type === "text" && typeof block.text === "string") return block.text
-  if (typeof (block as { text?: string }).text === "string")
-    return (block as { text: string }).text
-  return null
-}
-
 export async function POST(req: NextRequest) {
   try {
-    const key = process.env.ANTHROPIC_API_KEY?.trim()
-    if (!key) {
-      return NextResponse.json(
-        {
-          error:
-            "ANTHROPIC_API_KEY tanımlı değil. .env.local dosyasına ekleyip sunucuyu yeniden başlatın.",
-        },
-        { status: 503 }
-      )
+    const body = await req.json() as {
+      messages?: ChatMsg[]
+      manualId?: number | string | null
     }
-
-    const body = await req.json()
     const raw: ChatMsg[] = Array.isArray(body.messages) ? body.messages : []
-    const messages = sanitizeAnthropicMessages(raw)
+    const messages = sanitizeChatMessages(raw)
 
     if (messages.length === 0) {
       return NextResponse.json(
@@ -52,52 +62,50 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const model =
-      process.env.ANTHROPIC_MODEL?.trim() || "claude-sonnet-4-20250514"
-
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 1024,
-        system: `Sen Bonair Havacılık'ın yapay zeka asistanısın. Türk sivil havacılık mevzuatı (SHGM, SHY, SHT), uçuş operasyonları, SMS (Safety Management System) ve FDM (Flight Data Monitoring) konularında uzmansın. Kullanıcılara her zaman Türkçe yanıt verirsin. Bilmediğin veya doğrulayamadığın mevzuat maddelerini uydurmak yerine kullanıcıya resmi kaynağı kontrol etmesini söylersin.`,
-        messages: messages.map((m) => ({
-          role: m.role as "user" | "assistant",
-          content: m.content,
-        })),
-      }),
-    })
-
-    const data = (await response.json()) as {
-      content?: Array<{ type?: string; text?: string }>
-      error?: { message?: string; type?: string }
+    let manual: { title: string; contentText: string } | null = null
+    const mid = body.manualId
+    if (mid != null && mid !== "") {
+      const id =
+        typeof mid === "number"
+          ? mid
+          : Number.parseInt(String(mid), 10)
+      if (!Number.isNaN(id)) {
+        const row = await prisma.companyManual.findUnique({
+          where: { id },
+          select: { title: true, contentText: true },
+        })
+        if (!row) {
+          return NextResponse.json({ error: "Manuel bulunamadı." }, { status: 404 })
+        }
+        manual = row
+      }
     }
 
-    if (!response.ok) {
-      const detail =
-        data.error?.message ||
-        (typeof data === "object" ? JSON.stringify(data).slice(0, 200) : "")
-      console.error("[api/ai/chat] Anthropic error:", response.status, detail)
-      const friendly = detail
-        ? userFacingAnthropicError(detail)
-        : "AI servisi yanıt veremedi. Model adı ve API anahtarını kontrol edin."
+    const system = buildSystemWithOptionalManual(manual)
+
+    const groqMessages: GroqChatMessage[] = [
+      { role: "system", content: system },
+      ...messages.map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      })),
+    ]
+
+    const result = await groqChatCompletion({
+      messages: groqMessages,
+      maxTokens: manual ? 4096 : 1024,
+    })
+
+    if (!result.ok) {
+      if (result.status === 503) {
+        return NextResponse.json({ error: result.detail }, { status: 503 })
+      }
+      console.error("[api/ai/chat] Groq error:", result.status, result.detail)
+      const friendly = userFacingGroqError(result.detail)
       return NextResponse.json({ error: friendly }, { status: 502 })
     }
 
-    const text = extractAnthropicText(data)
-    if (!text) {
-      return NextResponse.json(
-        { error: "Yanıt metni okunamadı." },
-        { status: 502 }
-      )
-    }
-
-    return NextResponse.json({ content: text })
+    return NextResponse.json({ content: result.text })
   } catch (e) {
     console.error("[api/ai/chat]", e)
     return NextResponse.json({ error: "Bağlantı hatası." }, { status: 500 })

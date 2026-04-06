@@ -1,10 +1,27 @@
 "use client"
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Bell, Plus, Calendar, AlertTriangle, Cake, Trash2, ArrowRight } from "lucide-react"
+import {
+  Bell,
+  Plus,
+  Calendar,
+  AlertTriangle,
+  Cake,
+  Trash2,
+  ArrowRight,
+  ClipboardList,
+} from "lucide-react"
 import { formatDateOnlyIstanbul, formatDateTimeIstanbul } from "@/lib/date-format"
 import { Button } from "@/components/ui/button"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
@@ -25,6 +42,7 @@ interface Announcement {
   content: string
   createdAt: string
   creator: { isim: string | null; soyisim: string | null; departman: string | null } | null
+  acknowledgedByMe?: boolean
 }
 
 interface Meeting {
@@ -53,6 +71,15 @@ interface Birthday {
   dogumTarihi: string | null
 }
 
+interface DashboardTask {
+  id: number
+  title: string
+  dueDate: string | null
+  status: string
+  meeting: { id: number; meetingNo: string; title: string }
+  assignee: { isim: string | null; soyisim: string | null } | null
+}
+
 const SUMMARY_RETRIES = 3
 const SUMMARY_RETRY_MS = 400
 
@@ -64,11 +91,16 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
   const [todayMeetings, setTodayMeetings] = useState<Meeting[]>([])
   const [todayHazards, setTodayHazards] = useState<HazardReport[]>([])
   const [birthdays, setBirthdays] = useState<Birthday[]>([])
+  const [tasksDueToday, setTasksDueToday] = useState<DashboardTask[]>([])
+  const [tasksDueNext30Days, setTasksDueNext30Days] = useState<DashboardTask[]>(
+    []
+  )
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState("")
   const [content, setContent] = useState("")
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [ackingId, setAckingId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -92,6 +124,8 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
           setTodayMeetings(data.todayMeetings ?? [])
           setTodayHazards(data.todayHazards ?? [])
           setBirthdays(data.birthdays ?? [])
+          setTasksDueToday(data.tasksDueToday ?? [])
+          setTasksDueNext30Days(data.tasksDueNext30Days ?? [])
           setLoadError(null)
           hasLoadedOnceRef.current = true
           setLoading(false)
@@ -148,6 +182,25 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
     void fetchAll("refresh")
   }
 
+  const handleAckAnnouncement = async (id: number) => {
+    setAckingId(id)
+    try {
+      const res = await fetch(`/api/announcements/${id}/ack`, { method: "POST" })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        alert(err.error || "Onay kaydedilemedi.")
+        return
+      }
+      setAnnouncements((prev) =>
+        prev.map((a) =>
+          a.id === id ? { ...a, acknowledgedByMe: true } : a
+        )
+      )
+    } finally {
+      setAckingId(null)
+    }
+  }
+
   const handleDeleteAnnouncement = async (id: number) => {
     if (
       !confirm(
@@ -171,6 +224,16 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
   }
 
   const canOpenMeetingsPage = user.departman === "Quality"
+
+  const meetingTasksTableRows = useMemo(() => {
+    const today = tasksDueToday.map((t) => ({ ...t, bucket: "today" as const }))
+    const soon = tasksDueNext30Days.map((t) => ({ ...t, bucket: "soon" as const }))
+    return [...today, ...soon].sort((a, b) => {
+      const ta = a.dueDate ? new Date(a.dueDate).getTime() : 0
+      const tb = b.dueDate ? new Date(b.dueDate).getTime() : 0
+      return ta - tb
+    })
+  }, [tasksDueToday, tasksDueNext30Days])
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
@@ -259,8 +322,26 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                       — {a.creator.isim} {a.creator.soyisim} ({a.creator.departman})
                     </p>
                   )}
-                  {canAnnounce && (
-                    <div className="mt-3 flex justify-end border-t border-border pt-3">
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {a.acknowledgedByMe ? (
+                        <span className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">
+                          Okudum, anladım (onaylandı)
+                        </span>
+                      ) : (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="default"
+                          className="h-8"
+                          disabled={ackingId === a.id}
+                          onClick={() => void handleAckAnnouncement(a.id)}
+                        >
+                          {ackingId === a.id ? "Kaydediliyor…" : "Okudum, anladım"}
+                        </Button>
+                      )}
+                    </div>
+                    {canAnnounce && (
                       <Button
                         type="button"
                         variant="ghost"
@@ -272,14 +353,104 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                         <Trash2 className="size-3.5" />
                         {deletingId === a.id ? "Deleting…" : "Delete"}
                       </Button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
           </div>
 
           <div className="flex flex-col gap-4">
+
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2">
+                  <ClipboardList size={18} className="text-indigo-600" />
+                  <h2 className="text-lg font-bold">Task and actions</h2>
+                </div>
+                {canOpenMeetingsPage ? (
+                  <Link
+                    href="/meetings"
+                    className="text-xs font-semibold text-indigo-700 underline-offset-4 hover:underline"
+                  >
+                    Meetings &amp; tasks
+                  </Link>
+                ) : null}
+              </div>
+              <p className="text-xs text-muted-foreground mb-3">
+                Open action items: due <strong>today</strong> or within the{" "}
+                <strong>next 30 days</strong> (İstanbul calendar). Completed tasks
+                are hidden.
+              </p>
+              <div className="border rounded-lg bg-white overflow-hidden max-h-[min(420px,55vh)] overflow-y-auto">
+                {meetingTasksTableRows.length === 0 ? (
+                  <div className="p-6 text-center text-sm text-muted-foreground">
+                    No open tasks in this window.
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="hover:bg-transparent">
+                        <TableHead className="w-[100px]">Window</TableHead>
+                        <TableHead className="min-w-[140px]">Task</TableHead>
+                        <TableHead className="min-w-[120px] hidden sm:table-cell">
+                          Meeting
+                        </TableHead>
+                        <TableHead className="hidden md:table-cell">
+                          Assignee
+                        </TableHead>
+                        <TableHead>Due (IST)</TableHead>
+                        <TableHead className="w-[90px]">Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {meetingTasksTableRows.map((t) => (
+                        <TableRow key={t.id}>
+                          <TableCell className="align-top">
+                            <span
+                              className={
+                                t.bucket === "today"
+                                  ? "inline-flex rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-900"
+                                  : "inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-900"
+                              }
+                            >
+                              {t.bucket === "today" ? "Today" : "30 days"}
+                            </span>
+                          </TableCell>
+                          <TableCell className="align-top max-w-[200px] whitespace-normal">
+                            <Link
+                              href={`/meetings/${t.meeting.id}`}
+                              className="font-medium text-indigo-800 hover:underline"
+                            >
+                              {t.title}
+                            </Link>
+                          </TableCell>
+                          <TableCell className="align-top text-muted-foreground text-xs whitespace-normal hidden sm:table-cell max-w-[180px]">
+                            {t.meeting.meetingNo}
+                            <span className="text-gray-400"> · </span>
+                            {t.meeting.title}
+                          </TableCell>
+                          <TableCell className="align-top text-xs hidden md:table-cell">
+                            {t.assignee
+                              ? `${t.assignee.isim ?? ""} ${t.assignee.soyisim ?? ""}`.trim() ||
+                                "—"
+                              : "—"}
+                          </TableCell>
+                          <TableCell className="align-top text-xs">
+                            {t.dueDate
+                              ? formatDateOnlyIstanbul(t.dueDate)
+                              : "—"}
+                          </TableCell>
+                          <TableCell className="align-top text-xs">
+                            {t.status}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
+            </div>
 
             <div>
               <div className="flex items-center gap-2 mb-3">

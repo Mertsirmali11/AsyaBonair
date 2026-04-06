@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
 import { canAccessConfigurationsArea } from "@/lib/department-access"
+import { contentTypeFromFileName } from "@/lib/allowed-document-uploads"
 import { downloadAircraftManualFile } from "@/lib/aircraft-manuals-storage"
 
 export async function GET(
@@ -43,7 +44,7 @@ export async function GET(
 
     return new NextResponse(new Uint8Array(buffer), {
       headers: {
-        "Content-Type": "application/pdf",
+        "Content-Type": contentTypeFromFileName(doc.fileName),
         "Content-Disposition": `inline; filename="${safeName}"`,
         "Cache-Control": "private, max-age=3600",
       },

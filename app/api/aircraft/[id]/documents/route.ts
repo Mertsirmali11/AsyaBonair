@@ -101,7 +101,7 @@ export async function POST(
     const uploadedByStr = formData.get("uploadedBy") as string | null
 
     if (!(file instanceof File) || file.size === 0) {
-      return NextResponse.json({ error: "PDF file is required" }, { status: 400 })
+      return NextResponse.json({ error: "A document file is required" }, { status: 400 })
     }
     if (category !== "certificate" && category !== "manual") {
       return NextResponse.json({ error: "Invalid category" }, { status: 400 })
@@ -117,7 +117,10 @@ export async function POST(
     )
     if (!upload) {
       return NextResponse.json(
-        { error: "Upload failed (PDF only, max 50MB)" },
+        {
+          error:
+            "Upload failed (PDF, Word, Excel, or PowerPoint only; max 50MB)",
+        },
         { status: 400 }
       )
     }

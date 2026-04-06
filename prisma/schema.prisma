@@ -102,6 +102,8 @@ model Calisan {
   dmMessagesSent DmMessage[]      @relation("DmMessageSender")
   dmReadStates   DmReadState[]
   workerRegistrationsReviewed WorkerRegistrationRequest[] @relation("WorkerRegistrationReviewedBy")
+  announcementAcknowledgments AnnouncementAcknowledgment[]
+  companyManuals CompanyManual[]
 
   @@index([createdAt(sort: Desc)])
   @@index([isim, soyisim])
@@ -414,10 +416,43 @@ model Announcement {
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
   creator Calisan? @relation(fields: [createdBy], references: [id])
+  acknowledgments AnnouncementAcknowledgment[]
 
   @@index([createdAt(sort: Desc)])
   @@index([createdBy])
   @@map("announcements")
+}
+
+/// Çalışanın duyuruyu “okudum, anladım” ile onayladığı kayıt
+model AnnouncementAcknowledgment {
+  id             Int      @id @default(autoincrement())
+  announcementId Int      @map("announcement_id")
+  calisanId      Int      @map("calisan_id")
+  acknowledgedAt DateTime @default(now()) @map("acknowledged_at")
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  calisan      Calisan      @relation(fields: [calisanId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, calisanId])
+  @@index([calisanId])
+  @@index([announcementId])
+  @@map("announcement_acknowledgments")
+}
+
+/// AI sohbette referans için yüklenen şirket manueli (PDF’ten çıkarılmış metin)
+model CompanyManual {
+  id          Int      @id @default(autoincrement())
+  title       String   @db.VarChar(300)
+  slug        String   @unique @db.VarChar(160)
+  contentText String   @map("content_text") @db.Text
+  createdBy   Int?     @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  creator Calisan? @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([title])
+  @@map("company_manuals")
 }
 
 model TaskMessage {

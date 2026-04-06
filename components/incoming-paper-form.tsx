@@ -13,6 +13,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  ALLOWED_DOCUMENTS_ERROR_EN,
+  DOCUMENT_ACCEPT_HTML,
+  isAllowedCorrespondenceDocumentFile,
+} from "@/lib/allowed-document-uploads"
 
 interface IncomingPaperFormProps {
   userId: string
@@ -38,8 +43,8 @@ export function IncomingPaperForm({ userId }: IncomingPaperFormProps) {
         e.target.value = ""
         return
       }
-      if (file.type !== "application/pdf") {
-        setError("Only PDF files are allowed")
+      if (!isAllowedCorrespondenceDocumentFile(file)) {
+        setError(ALLOWED_DOCUMENTS_ERROR_EN)
         setPdfFile(null)
         e.target.value = ""
         return
@@ -180,7 +185,7 @@ export function IncomingPaperForm({ userId }: IncomingPaperFormProps) {
 
             <div className="space-y-2">
               <Label htmlFor="pdf-file" className="text-sm font-medium">
-                PDF Attachment (Max 50MB)
+                Attachment — PDF, Word, Excel, PowerPoint (max 50MB)
               </Label>
               <div className="flex items-center gap-2">
                 <label
@@ -192,7 +197,7 @@ export function IncomingPaperForm({ userId }: IncomingPaperFormProps) {
                 <Input
                   id="pdf-file"
                   type="file"
-                  accept="application/pdf"
+                  accept={DOCUMENT_ACCEPT_HTML}
                   onChange={handleFileChange}
                   className="hidden"
                 />

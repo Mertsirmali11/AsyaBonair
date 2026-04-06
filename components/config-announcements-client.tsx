@@ -1,7 +1,13 @@
 "use client"
 
 import * as React from "react"
-import { IconPencil, IconPlus, IconSearch, IconTrash } from "@tabler/icons-react"
+import {
+  IconMailForward,
+  IconPencil,
+  IconPlus,
+  IconSearch,
+  IconTrash,
+} from "@tabler/icons-react"
 
 import { formatDateTimeIstanbul } from "@/lib/date-format"
 import { Button } from "@/components/ui/button"
@@ -32,6 +38,28 @@ export type ConfigAnnouncement = {
   content: string
   createdAt: string
   creator: Creator
+  acknowledgedCount?: number
+  totalStaff?: number
+}
+
+type AckStatsPayload = {
+  totalStaff: number
+  acknowledgedCount: number
+  notAcknowledged: Array<{
+    id: number
+    isim: string | null
+    soyisim: string | null
+    departman: string | null
+    email: string
+  }>
+  acknowledged: Array<{
+    calisanId: number
+    isim: string | null
+    soyisim: string | null
+    departman: string | null
+    email: string
+    acknowledgedAt: string
+  }>
 }
 
 export function ConfigAnnouncementsClient() {
@@ -52,6 +80,10 @@ export function ConfigAnnouncementsClient() {
 
   const [deleteTarget, setDeleteTarget] = React.useState<ConfigAnnouncement | null>(null)
   const [deleting, setDeleting] = React.useState(false)
+
+  const [ackStats, setAckStats] = React.useState<AckStatsPayload | null>(null)
+  const [ackStatsLoading, setAckStatsLoading] = React.useState(false)
+  const [emailReportSending, setEmailReportSending] = React.useState(false)
 
   const [banner, setBanner] = React.useState<{
     type: "ok" | "err"
@@ -94,6 +126,7 @@ export function ConfigAnnouncementsClient() {
     setDetailEditing(false)
     setEditTitle(a.title)
     setEditContent(a.content)
+    setAckStats(null)
   }
 
   const closeDetail = () => {
@@ -101,6 +134,57 @@ export function ConfigAnnouncementsClient() {
     setDetailEditing(false)
     setEditTitle("")
     setEditContent("")
+    setAckStats(null)
+  }
+
+  const detailAnnouncementId = readItem?.id
+
+  React.useEffect(() => {
+    if (detailAnnouncementId == null) return
+    let cancelled = false
+    setAckStatsLoading(true)
+    void fetch(`/api/announcements/${detailAnnouncementId}/ack-stats`, {
+      cache: "no-store",
+    })
+      .then(async (res) => {
+        const data = (await res.json().catch(() => null)) as AckStatsPayload | null
+        if (!cancelled && res.ok && data && typeof data.totalStaff === "number") {
+          setAckStats(data)
+        } else if (!cancelled) {
+          setAckStats(null)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setAckStatsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [detailAnnouncementId])
+
+  const sendAckReportEmail = async () => {
+    if (!readItem) return
+    setEmailReportSending(true)
+    try {
+      const res = await fetch(`/api/announcements/${readItem.id}/email-ack-report`, {
+        method: "POST",
+      })
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) {
+        throw new Error(data.error || "E-posta gönderilemedi.")
+      }
+      setBanner({
+        type: "ok",
+        text: "Rapor e-posta adresinize gönderildi (gelen kutusu / spam).",
+      })
+    } catch (e) {
+      setBanner({
+        type: "err",
+        text: e instanceof Error ? e.message : "E-posta gönderilemedi.",
+      })
+    } finally {
+      setEmailReportSending(false)
+    }
   }
 
   const filtered = React.useMemo(() => {
@@ -136,8 +220,12 @@ export function ConfigAnnouncementsClient() {
         throw new Error(err.error || "Could not save changes")
       }
       const updated = (await res.json()) as ConfigAnnouncement
-      setItems((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
-      setReadItem(updated)
+      setItems((prev) =>
+        prev.map((x) => (x.id === updated.id ? { ...x, ...updated } : x))
+      )
+      setReadItem((prev) =>
+        prev && prev.id === updated.id ? { ...prev, ...updated } : prev
+      )
       setEditTitle(updated.title)
       setEditContent(updated.content)
       setDetailEditing(false)
@@ -180,6 +268,8 @@ export function ConfigAnnouncementsClient() {
           content: created.content,
           createdAt: created.createdAt,
           creator: created.creator ?? null,
+          acknowledgedCount: created.acknowledgedCount ?? 0,
+          totalStaff: created.totalStaff,
         },
         ...prev,
       ])
@@ -229,7 +319,8 @@ export function ConfigAnnouncementsClient() {
           <h2 className="text-2xl font-bold tracking-tight">Announcements</h2>
           <p className="text-muted-foreground text-sm">
             Create, view, edit, and delete announcements. New posts email all staff when Resend is
-            configured. Same permissions as the dashboard (Quality / Human Resources).
+            configured. Staff confirm on the dashboard with «Okudum, anladım»; here you see counts and
+            who is pending. Same permissions as the dashboard (Quality / Human Resources).
           </p>
         </div>
         <Button
@@ -296,6 +387,12 @@ export function ConfigAnnouncementsClient() {
                           <p className="text-muted-foreground line-clamp-2 text-sm whitespace-pre-wrap">
                             {a.content}
                           </p>
+                          {typeof a.acknowledgedCount === "number" &&
+                            typeof a.totalStaff === "number" && (
+                              <p className="text-xs font-medium text-sky-800 dark:text-sky-200">
+                                Onay: {a.acknowledgedCount} / {a.totalStaff} çalışan
+                              </p>
+                            )}
                           <p className="text-muted-foreground text-xs">
                             {formatDateTimeIstanbul(a.createdAt)}
                             {a.creator && (
@@ -392,7 +489,68 @@ export function ConfigAnnouncementsClient() {
               </div>
             </div>
           ) : (
-            <div className="text-sm whitespace-pre-wrap">{readItem?.content}</div>
+            <div className="space-y-4">
+              {readItem && (
+                <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+                  <p className="font-medium">Okuma / onay durumu</p>
+                  {ackStatsLoading && (
+                    <p className="text-muted-foreground mt-1 text-xs">Yükleniyor…</p>
+                  )}
+                  {!ackStatsLoading && ackStats && (
+                    <>
+                      <p className="mt-1 text-xs">
+                        <strong>{ackStats.acknowledgedCount}</strong> /{" "}
+                        <strong>{ackStats.totalStaff}</strong> çalışan «Okudum, anladım» dedi.
+                        {" · "}
+                        <span className="text-amber-800 dark:text-amber-200">
+                          {ackStats.notAcknowledged.length} kişi henüz onaylamadı
+                        </span>
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="mt-2 gap-1.5"
+                        disabled={emailReportSending}
+                        onClick={() => void sendAckReportEmail()}
+                      >
+                        <IconMailForward className="size-4" />
+                        {emailReportSending
+                          ? "Gönderiliyor…"
+                          : "Detaylı raporu e-postama gönder"}
+                      </Button>
+                      {ackStats.notAcknowledged.length > 0 && (
+                        <div className="mt-3 max-h-36 overflow-y-auto rounded border bg-background p-2 text-xs">
+                          <p className="mb-1 font-medium text-destructive">
+                            Henüz onaylamayanlar
+                          </p>
+                          <ul className="list-inside list-disc space-y-0.5">
+                            {ackStats.notAcknowledged.slice(0, 80).map((c) => (
+                              <li key={c.id}>
+                                {c.isim} {c.soyisim}
+                                {c.departman ? ` · ${c.departman}` : ""} — {c.email}
+                              </li>
+                            ))}
+                          </ul>
+                          {ackStats.notAcknowledged.length > 80 && (
+                            <p className="text-muted-foreground mt-1">
+                              … ve {ackStats.notAcknowledged.length - 80} kişi (tam liste
+                              e-postada)
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {!ackStatsLoading && !ackStats && (
+                    <p className="text-muted-foreground mt-1 text-xs">
+                      İstatistik yüklenemedi.
+                    </p>
+                  )}
+                </div>
+              )}
+              <div className="text-sm whitespace-pre-wrap">{readItem?.content}</div>
+            </div>
           )}
 
           <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">

@@ -40,16 +40,6 @@ export function getOutgoingAttachmentsFromRow(row: {
   return []
 }
 
-function sanitizeFileStem(name: string): string {
-  const base = name.includes(".") ? name.slice(0, name.lastIndexOf(".")) : name
-  return (
-    base
-      .replace(/[^a-zA-Z0-9._-]/g, "_")
-      .replace(/\.\./g, "_")
-      .replace(/\s+/g, "_") || "document"
-  )
-}
-
 /** Build app URL for GET /api/outgoing-correspondences/files/... */
 export function outgoingAttachmentProxyUrl(storagePath: string): string | null {
   const parts = storagePath.split("/").filter(Boolean)
@@ -59,21 +49,6 @@ export function outgoingAttachmentProxyUrl(storagePath: string): string | null {
   return `/api/outgoing-correspondences/files/${paperNo}/${encodeURIComponent(fileName)}`
 }
 
-export function assignUniquePdfStorageNames(files: File[]): string[] {
-  const used = new Set<string>()
-  const result: string[] = []
-  for (const file of files) {
-    const lower = file.name.toLowerCase()
-    const ext = lower.endsWith(".pdf") ? ".pdf" : ".pdf"
-    const stem = sanitizeFileStem(file.name)
-    let candidate = `${stem}${ext}`
-    let n = 0
-    while (used.has(candidate)) {
-      n += 1
-      candidate = `${stem}_${n}.pdf`
-    }
-    used.add(candidate)
-    result.push(candidate)
-  }
-  return result
-}
+export {
+  assignUniqueDocumentStorageNames as assignUniquePdfStorageNames,
+} from "@/lib/allowed-document-uploads"

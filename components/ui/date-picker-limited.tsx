@@ -77,6 +77,7 @@ export function DatePickerLimited({
           locale={enUS}
           initialFocus
           disabled={isDateDisabled}
+          defaultMonth={selectedDate ?? new Date()}
         />
       </PopoverContent>
     </Popover>

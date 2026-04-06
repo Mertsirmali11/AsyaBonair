@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { canAccessConfigurationsArea } from "@/lib/department-access"
+import { contentTypeFromFileName } from "@/lib/allowed-document-uploads"
 import { downloadPdfFromStorage } from "@/lib/supabase-storage"
 
 export async function GET(
@@ -38,7 +39,7 @@ export async function GET(
 
     return new NextResponse(new Uint8Array(fileBuffer), {
       headers: {
-        "Content-Type": "application/pdf",
+        "Content-Type": contentTypeFromFileName(fileName),
         "Content-Disposition": `inline; filename="${fileName}"`,
         "Cache-Control": "public, max-age=3600",
       },
