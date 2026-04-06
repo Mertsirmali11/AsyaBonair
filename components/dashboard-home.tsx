@@ -2,7 +2,6 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { DashboardLayout } from "@/components/dashboard-layout"
 import { Bell, Plus, Calendar, AlertTriangle, Cake, Trash2, ArrowRight } from "lucide-react"
 import { formatDateOnlyIstanbul, formatDateTimeIstanbul } from "@/lib/date-format"
 import { Button } from "@/components/ui/button"
@@ -174,8 +173,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
   const canOpenMeetingsPage = user.departman === "Quality"
 
   return (
-    <DashboardLayout user={user}>
-      <div className="flex flex-col gap-6 p-4 md:p-6">
+    <div className="flex flex-col gap-6 p-4 md:p-6">
         {loadError && (
           <div
             role="alert"
@@ -356,7 +354,6 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
 
           </div>
         </div>
-      </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md">
@@ -382,6 +379,6 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
           </div>
         </DialogContent>
       </Dialog>
-    </DashboardLayout>
+    </div>
   )
 }

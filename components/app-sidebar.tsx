@@ -63,7 +63,6 @@ const menuItems = [
   { title: "Report Hazard", url: "/report-hazard", icon: IconAlertTriangle },
   { title: "Hazard Inbox", url: "/hazard-inbox", icon: IconInbox },
   { title: "Compliance Monitoring", url: "/compliance", icon: IconClipboardCheck },
-  { title: "Safety Management", url: "/safety", icon: IconShieldCheck },
   { title: "Emergency Response", url: "/emergency", icon: IconUrgent },
   { title: "FRMS", url: "/frms", icon: IconFileDescription },
   { title: "Tasks & Actions", url: "/tasks", icon: IconChecklist },
@@ -99,6 +98,8 @@ const correspondencesSubItems = [
   { title: "Outgoing Correspondences", url: "/correspondences/outgoing" },
 ]
 
+const safetyManagementSubItems = [{ title: "Task Board", url: "/safety/risk-board" }]
+
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   user: User
 }
@@ -123,6 +124,9 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
   )
   const [correspondencesOpen, setCorrespondencesOpen] = React.useState(
     pathname?.startsWith("/correspondences") || false
+  )
+  const [safetyManagementOpen, setSafetyManagementOpen] = React.useState(
+    pathname?.startsWith("/safety") || false
   )
 
   const hasConfigurationsAccess = canAccessConfigurationsArea(user.departman)
@@ -158,6 +162,11 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
     if (storedControlledDocuments !== null) {
       setControlledDocumentsOpen(storedControlledDocuments === "true")
     }
+
+    const storedSafety = window.localStorage.getItem("bonair.sidebar.safetyManagementOpen")
+    if (storedSafety !== null) {
+      setSafetyManagementOpen(storedSafety === "true")
+    }
   }, [])
 
   React.useEffect(() => {
@@ -169,6 +178,9 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
     }
     if (pathname?.startsWith("/documents")) {
       setControlledDocumentsOpen(true)
+    }
+    if (pathname?.startsWith("/safety")) {
+      setSafetyManagementOpen(true)
     }
   }, [pathname])
 
@@ -192,6 +204,13 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
       controlledDocumentsOpen ? "true" : "false"
     )
   }, [controlledDocumentsOpen])
+
+  React.useEffect(() => {
+    window.localStorage.setItem(
+      "bonair.sidebar.safetyManagementOpen",
+      safetyManagementOpen ? "true" : "false"
+    )
+  }, [safetyManagementOpen])
 
   React.useEffect(() => {
     const el = sidebarContentRef.current
@@ -251,20 +270,80 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
           {menuItemsBeforeControlledDocs.map((item) => {
             const isActive = pathname === item.url || pathname?.startsWith(item.url + "/")
             return (
-              <SidebarMenuItem key={item.title}>
-                <SidebarMenuButton
-                  asChild
-                  className={cn(
-                    "h-10 px-3 rounded-lg transition-colors",
-                    isActive && "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                  )}
-                >
-                  <Link href={item.url}>
-                    <item.icon className="size-5" />
-                    <span>{item.title}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              <React.Fragment key={item.title}>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    className={cn(
+                      "h-10 px-3 rounded-lg transition-colors",
+                      isActive && "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                    )}
+                  >
+                    <Link href={item.url}>
+                      <item.icon className="size-5" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+
+                {item.title === "Compliance Monitoring" && (
+                  <Collapsible
+                    open={safetyManagementOpen}
+                    onOpenChange={setSafetyManagementOpen}
+                    className="group/collapsible"
+                  >
+                    <SidebarMenuItem>
+                      <CollapsibleTrigger asChild>
+                        <SidebarMenuButton
+                          className={cn(
+                            "h-10 px-3 rounded-lg transition-colors w-full justify-between",
+                            pathname?.startsWith("/safety") &&
+                              "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                          )}
+                        >
+                          <div className="flex items-center gap-2">
+                            <IconShieldCheck className="size-5" />
+                            <span>Safety Management</span>
+                          </div>
+                          <IconChevronDown
+                            className={cn(
+                              "size-4 transition-transform duration-200",
+                              safetyManagementOpen && "rotate-180"
+                            )}
+                          />
+                        </SidebarMenuButton>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <SidebarMenuSub>
+                          {safetyManagementSubItems.map((subItem) => {
+                            const isSubActive =
+                              subItem.url === "/safety/risk-board"
+                                ? pathname === "/safety/risk-board" ||
+                                  pathname?.startsWith("/safety/task-board")
+                                : pathname === subItem.url ||
+                                  !!pathname?.startsWith(`${subItem.url}/`)
+                            return (
+                              <SidebarMenuSubItem key={subItem.title}>
+                                <SidebarMenuSubButton
+                                  asChild
+                                  className={cn(
+                                    "h-9 pl-9",
+                                    isSubActive && "bg-sidebar-accent/50 font-medium"
+                                  )}
+                                >
+                                  <Link href={subItem.url}>
+                                    <span>{subItem.title}</span>
+                                  </Link>
+                                </SidebarMenuSubButton>
+                              </SidebarMenuSubItem>
+                            )
+                          })}
+                        </SidebarMenuSub>
+                      </CollapsibleContent>
+                    </SidebarMenuItem>
+                  </Collapsible>
+                )}
+              </React.Fragment>
             )
           })}
 

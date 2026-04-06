@@ -1,4 +1,7 @@
+"use client"
+
 import { Separator } from "@/components/ui/separator"
+import { useWorkspacePageTitle } from "@/components/workspace-page-title"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { DmHeaderInbox } from "@/components/dm-header-inbox"
@@ -11,6 +14,7 @@ interface SiteHeaderProps {
     avatar?: string | null
     departman?: string | null
   }
+  /** Bağlam dışında veya geçici override için */
   title?: string
 }
 
@@ -23,7 +27,9 @@ function getInitials(name?: string | null): string {
   return name[0].toUpperCase()
 }
 
-export function SiteHeader({ user, title = "Documents" }: SiteHeaderProps) {
+export function SiteHeader({ user, title: titleProp }: SiteHeaderProps) {
+  const titleFromContext = useWorkspacePageTitle()
+  const title = titleProp ?? titleFromContext
   const initials = getInitials(user?.name)
 
   return (
