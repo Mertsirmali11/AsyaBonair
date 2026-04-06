@@ -210,7 +210,7 @@ export function AircraftSettingsTable({ variant = "active" }: AircraftSettingsTa
                   <TableCell className="font-medium border-r border-gray-200">{a.register}</TableCell>
                   <TableCell className="border-r border-gray-200">{a.msn}</TableCell>
                   <TableCell className="flex items-center justify-between">
-                    <span className="text-blue-600 text-sm hover:underline">View Documents →</span>
+                    <span className="text-sm text-primary hover:underline">View Documents →</span>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild onClick={e => e.stopPropagation()}>
                         <Button variant="ghost" size="sm" className="h-8 w-8 p-0">

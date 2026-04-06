@@ -14,20 +14,22 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
 import { CheckCircle2, Clock, Circle, MoreVertical } from "lucide-react"
-import { TaskManageDialog, TaskQuickViewDialog, type TaskRow } from "./task-dialogs"
+import {
+  TaskManageDialog,
+  TaskQuickViewDialog,
+  type TaskRow,
+} from "@/app/tasks/task-dialogs"
 
-interface Task extends TaskRow {
-  createdAt?: string
-}
+type MeetingTaskRow = TaskRow & { createdAt?: string }
 
-async function fetchTasksFromApi(): Promise<Task[]> {
+async function fetchTasksFromApi(): Promise<MeetingTaskRow[]> {
   const res = await fetch("/api/tasks")
   const text = await res.text()
   if (!text) return []
   try {
     const data = JSON.parse(text) as unknown
     if (!res.ok || !Array.isArray(data)) return []
-    return data as Task[]
+    return data as MeetingTaskRow[]
   } catch {
     return []
   }
@@ -36,13 +38,13 @@ async function fetchTasksFromApi(): Promise<Task[]> {
 const statusIcon = (s: string) => {
   if (s === "Completed") return <CheckCircle2 size={14} className="text-green-600" />
   if (s === "In Progress") return <Clock size={14} className="text-yellow-600" />
-  return <Circle size={14} className="text-gray-400" />
+  return <Circle size={14} className="text-muted-foreground" />
 }
 
 export function TasksClient() {
-  const [tasks, setTasks] = useState<Task[]>([])
+  const [tasks, setTasks] = useState<MeetingTaskRow[]>([])
   const [filter, setFilter] = useState("All")
-  const [quickViewTask, setQuickViewTask] = useState<Task | null>(null)
+  const [quickViewTask, setQuickViewTask] = useState<MeetingTaskRow | null>(null)
   const [manageTaskId, setManageTaskId] = useState<number | null>(null)
   const [manageOpen, setManageOpen] = useState(false)
 
@@ -101,10 +103,10 @@ export function TasksClient() {
         </Select>
       </div>
 
-      <div className="rounded-lg border bg-white overflow-hidden">
+      <div className="overflow-hidden rounded-lg border bg-card">
         <Table>
           <TableHeader>
-            <TableRow className="bg-gray-50">
+            <TableRow className="bg-muted/50 hover:bg-muted/50">
               <TableHead className="w-12 px-2 text-center">
                 <span className="sr-only">Actions</span>
               </TableHead>
@@ -119,7 +121,7 @@ export function TasksClient() {
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-gray-400 py-10">
+                <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
                   No tasks found.
                 </TableCell>
               </TableRow>
@@ -157,7 +159,7 @@ export function TasksClient() {
                 </TableCell>
                 <TableCell>{statusIcon(task.status)}</TableCell>
                 <TableCell className="font-medium max-w-xs truncate">{task.title}</TableCell>
-                <TableCell className="text-xs text-gray-500">
+                <TableCell className="text-xs text-muted-foreground">
                   <span className="font-mono">{task.meeting.meetingNo}</span>
                   <br />{task.meeting.title}
                 </TableCell>
@@ -192,7 +194,7 @@ export function TasksClient() {
       <TaskQuickViewDialog
         task={quickViewTask}
         open={quickViewTask !== null}
-        onOpenChange={(open) => {
+        onOpenChange={(open: boolean) => {
           if (!open) setQuickViewTask(null)
         }}
       />
@@ -200,7 +202,7 @@ export function TasksClient() {
       <TaskManageDialog
         taskId={manageTaskId}
         open={manageOpen}
-        onOpenChange={(open) => {
+        onOpenChange={(open: boolean) => {
           setManageOpen(open)
           if (!open) setManageTaskId(null)
         }}

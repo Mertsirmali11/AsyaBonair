@@ -184,7 +184,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
               type="button"
               size="sm"
               variant="outline"
-              className="shrink-0 border-amber-600/40 bg-white/80 dark:bg-background"
+              className="shrink-0 border-amber-600/40 bg-card/90 dark:bg-background"
               onClick={() => void fetchAll("initial")}
             >
               Yeniden dene
@@ -226,7 +226,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Bell size={18} className="text-blue-600" />
+                <Bell size={18} className="text-primary" />
                 <h2 className="text-lg font-bold">Announcements</h2>
               </div>
               {canAnnounce && (
@@ -238,29 +238,29 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
 
             <div className="flex flex-col gap-3 max-h-[600px] overflow-y-auto">
               {loading && !loadError && announcements.length === 0 ? (
-                <div className="border rounded-lg p-6 text-center text-sm text-muted-foreground bg-white">
+                <div className="rounded-lg border bg-card p-6 text-center text-sm text-muted-foreground">
                   Duyurular yükleniyor…
                 </div>
               ) : !loading && !loadError && announcements.length === 0 ? (
-                <div className="border rounded-lg p-6 text-center text-gray-400 bg-white">
+                <div className="rounded-lg border bg-card p-6 text-center text-muted-foreground">
                   No announcements yet.
                 </div>
               ) : announcements.map(a => (
-                <div key={a.id} className="border rounded-lg p-4 bg-white">
+                <div key={a.id} className="rounded-lg border bg-card p-4">
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="font-semibold text-sm">{a.title}</h3>
-                    <span className="text-xs text-gray-400 shrink-0">
+                    <span className="shrink-0 text-xs text-muted-foreground">
                       {formatDateOnlyIstanbul(a.createdAt)}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-600 mt-1 whitespace-pre-wrap">{a.content}</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{a.content}</p>
                   {a.creator && (
-                    <p className="text-xs text-gray-400 mt-2">
+                    <p className="mt-2 text-xs text-muted-foreground">
                       — {a.creator.isim} {a.creator.soyisim} ({a.creator.departman})
                     </p>
                   )}
                   {canAnnounce && (
-                    <div className="mt-3 flex justify-end border-t border-gray-100 pt-3">
+                    <div className="mt-3 flex justify-end border-t border-border pt-3">
                       <Button
                         type="button"
                         variant="ghost"
@@ -288,19 +288,19 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
               </div>
               <div className="flex flex-col gap-2">
                 {todayMeetings.length === 0 ? (
-                  <div className="border rounded-lg p-4 text-center text-gray-400 bg-white text-sm">
+                  <div className="rounded-lg border bg-card p-4 text-center text-sm text-muted-foreground">
                     No meetings scheduled for today.
                   </div>
                 ) : todayMeetings.map(m => (
-                  <div key={m.id} className="border rounded-lg p-3 bg-white flex items-center justify-between">
+                  <div key={m.id} className="flex items-center justify-between rounded-lg border bg-card p-3">
                     <div>
-                      <p className="font-medium text-sm">{m.title}</p>
-                      <p className="text-xs text-gray-500">{m.meetingType?.name ?? "—"} · {m.meetingNo}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">
+                      <p className="text-sm font-medium">{m.title}</p>
+                      <p className="text-xs text-muted-foreground">{m.meetingType?.name ?? "—"} · {m.meetingNo}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
                         {formatDateOnlyIstanbul(m.plannedDate)} (İstanbul)
                       </p>
                     </div>
-                    <span className={`text-xs px-2 py-0.5 rounded font-semibold ${m.status === "Completed" ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"}`}>
+                    <span className={`rounded px-2 py-0.5 text-xs font-semibold ${m.status === "Completed" ? "bg-green-100 text-green-800 dark:bg-green-950/50 dark:text-green-300" : "bg-secondary text-secondary-foreground"}`}>
                       {m.status}
                     </span>
                   </div>
@@ -315,14 +315,14 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
               </div>
               <div className="flex flex-col gap-2">
                 {todayHazards.length === 0 ? (
-                  <div className="border rounded-lg p-4 text-center text-gray-400 bg-white text-sm">
+                  <div className="rounded-lg border bg-card p-4 text-center text-sm text-muted-foreground">
                     No hazard reports for today.
                   </div>
                 ) : todayHazards.map(h => (
-                  <div key={h.id} className="border rounded-lg p-3 bg-white">
-                    <p className="font-medium text-sm">{h.title ?? "Untitled"}</p>
-                    <p className="text-xs text-gray-500">{h.reportNo} · {h.sourceType}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">
+                  <div key={h.id} className="rounded-lg border bg-card p-3">
+                    <p className="text-sm font-medium">{h.title ?? "Untitled"}</p>
+                    <p className="text-xs text-muted-foreground">{h.reportNo} · {h.sourceType}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
                       Reported {formatDateTimeIstanbul(h.createdAt)} (Istanbul)
                     </p>
                   </div>
@@ -337,15 +337,15 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
               </div>
               <div className="flex flex-col gap-2">
                 {birthdays.length === 0 ? (
-                  <div className="border rounded-lg p-4 text-center text-gray-400 bg-white text-sm">
+                  <div className="rounded-lg border bg-card p-4 text-center text-sm text-muted-foreground">
                     No birthdays today.
                   </div>
                 ) : birthdays.map(b => (
-                  <div key={b.id} className="border rounded-lg p-3 bg-pink-50 flex items-center gap-3">
+                  <div key={b.id} className="flex items-center gap-3 rounded-lg border border-pink-200/60 bg-pink-50/80 p-3 dark:border-pink-900/40 dark:bg-pink-950/25">
                     <span className="text-2xl">🎂</span>
                     <div>
                       <p className="font-medium text-sm">{b.isim} {b.soyisim}</p>
-                      <p className="text-xs text-gray-500">{b.departman}</p>
+                      <p className="text-xs text-muted-foreground">{b.departman}</p>
                     </div>
                   </div>
                 ))}
@@ -372,7 +372,6 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
             <Button
               onClick={handleAnnounce}
               disabled={saving || !title || !content}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
             >
               {saving ? "Sending..." : "Publish and email staff"}
             </Button>

@@ -14,9 +14,9 @@ const analysisOptions = [
     icon: FileText,
     title: "Doküman Özeti",
     description: "Metni havacılık perspektifinden özetle",
-    border: "border-blue-300 hover:border-blue-500",
-    active: "border-blue-500 bg-blue-50",
-    iconColor: "text-blue-600",
+    border: "border-primary/30 hover:border-primary/60",
+    active: "border-primary bg-primary/5",
+    iconColor: "text-primary",
   },
   {
     type: "anomaly" as AnalysisType,
@@ -76,10 +76,10 @@ export default function AiReportsPage() {
   };
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6 p-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">AI Report Creator</h1>
-        <p className="text-gray-500 mt-1">
+        <h1 className="text-2xl font-bold text-foreground">AI Report Creator</h1>
+        <p className="mt-1 text-muted-foreground">
           Havacılık dokümanlarınızı analiz edin, anomali tespiti yapın veya otomatik rapor oluşturun.
         </p>
       </div>
@@ -92,20 +92,20 @@ export default function AiReportsPage() {
             <button
               key={opt.type}
               onClick={() => setSelectedType(opt.type)}
-              className={`p-4 border-2 rounded-xl text-left transition-all ${
-                isActive ? opt.active : "border-gray-200 " + opt.border
+              className={`rounded-xl border-2 p-4 text-left transition-colors ${
+                isActive ? opt.active : `border-border bg-card ${opt.border}`
               }`}
             >
               <Icon className={`mb-2 ${opt.iconColor}`} size={24} />
-              <p className="font-semibold text-gray-800">{opt.title}</p>
-              <p className="text-xs text-gray-500 mt-1">{opt.description}</p>
+              <p className="font-semibold text-foreground">{opt.title}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{opt.description}</p>
             </button>
           );
         })}
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-700">Analiz Edilecek Metin</label>
+        <label className="text-sm font-medium text-foreground">Analiz Edilecek Metin</label>
         <Textarea
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
@@ -117,7 +117,6 @@ export default function AiReportsPage() {
       <Button
         onClick={handleAnalyze}
         disabled={isLoading || !inputText.trim()}
-        className="bg-black hover:bg-gray-800 text-white"
       >
         {isLoading ? (
           <><Loader2 size={16} className="mr-2 animate-spin" />Analiz ediliyor...</>
@@ -127,15 +126,15 @@ export default function AiReportsPage() {
       </Button>
 
       {result && (
-        <div className="border border-gray-200 rounded-xl p-5 bg-gray-50 space-y-3">
+        <div className="space-y-3 rounded-xl border border-border bg-muted/40 p-5">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold text-gray-700">AI Analiz Sonucu</p>
+            <p className="text-sm font-semibold text-foreground">AI Analiz Sonucu</p>
             <Button variant="ghost" size="sm" onClick={handleCopy}>
               {copied ? <Check size={14} className="mr-1" /> : <Copy size={14} className="mr-1" />}
               {copied ? "Kopyalandı" : "Kopyala"}
             </Button>
           </div>
-          <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{result}</div>
+          <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{result}</div>
         </div>
       )}
     </div>

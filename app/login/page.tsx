@@ -46,11 +46,11 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-gray-100 p-6">
+    <div className="flex min-h-svh items-center justify-center bg-muted/40 p-6">
       <div className="w-full max-w-md">
-        <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-lg">
+        <div className="rounded-xl border border-border bg-card p-8 shadow-sm">
           <div className="mb-8 flex justify-center">
-            <div className="rounded-lg border border-gray-200 px-12 py-4">
+            <div className="rounded-lg border border-border bg-background px-12 py-4">
               <Image
                 src="/logo.png"
                 alt="Bonair Logo"
@@ -64,13 +64,13 @@ export default function LoginPage() {
 
           <form onSubmit={onSubmit} className="space-y-5">
             {error && (
-              <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
                 {error}
               </div>
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-sm font-medium text-gray-700">
+              <Label htmlFor="email" className="text-sm font-medium">
                 Email
               </Label>
               <Input
@@ -80,12 +80,12 @@ export default function LoginPage() {
                 placeholder="example@email.com"
                 required
                 disabled={isLoading}
-                className="h-11 border-gray-300 focus:border-gray-400 focus:ring-gray-400"
+                className="h-11"
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-sm font-medium text-gray-700">
+              <Label htmlFor="password" className="text-sm font-medium">
                 Password
               </Label>
               <Input
@@ -95,41 +95,37 @@ export default function LoginPage() {
                 placeholder="••••••••"
                 required
                 disabled={isLoading}
-                className="h-11 border-gray-300 focus:border-gray-400 focus:ring-gray-400"
+                className="h-11"
               />
             </div>
 
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Checkbox id="remember" className="border-gray-400" />
-                <Label 
-                  htmlFor="remember" 
-                  className="text-sm font-normal text-gray-600 cursor-pointer"
+                <Checkbox id="remember" />
+                <Label
+                  htmlFor="remember"
+                  className="cursor-pointer text-sm font-normal text-muted-foreground"
                 >
                   Remember me
                 </Label>
               </div>
               <a
                 href="#"
-                className="text-sm text-gray-600 underline underline-offset-4 hover:text-gray-900"
+                className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
               >
                 Forgot password
               </a>
             </div>
 
-            <Button 
-              type="submit" 
-              className="w-full h-11 bg-slate-700 hover:bg-slate-800 text-white font-medium"
-              disabled={isLoading}
-            >
+            <Button type="submit" className="h-11 w-full font-medium" disabled={isLoading}>
               {isLoading ? "Logging in..." : "Login"}
             </Button>
 
-            <div className="text-center text-sm text-gray-600">
+            <div className="text-center text-sm text-muted-foreground">
               Don&apos;t have an account?{" "}
-              <a 
-                href="/register" 
-                className="font-medium text-gray-900 hover:underline"
+              <a
+                href="/register"
+                className="font-medium text-foreground hover:underline"
               >
                 Sign up
               </a>

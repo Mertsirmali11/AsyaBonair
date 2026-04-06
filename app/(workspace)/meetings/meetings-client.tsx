@@ -66,9 +66,9 @@ function formatExternalParticipantLabel(item: unknown): string {
 }
 
 const statusColor = (status: string) => {
-  if (status === "Completed") return "bg-green-100 text-green-700"
-  if (status === "Cancelled") return "bg-red-100 text-red-700"
-  return "bg-blue-100 text-blue-700"
+  if (status === "Completed") return "bg-green-100 text-green-800 dark:bg-green-950/50 dark:text-green-300"
+  if (status === "Cancelled") return "bg-destructive/15 text-destructive"
+  return "bg-secondary text-secondary-foreground"
 }
 
 export function MeetingsClient({
@@ -130,37 +130,9 @@ export function MeetingsClient({
 
   useEffect(() => {
     const ac = new AbortController()
-    void fetch(`/api/meetings?year=${year}`, { signal: ac.signal })
-      .then(async (res) => {
-        const text = await res.text()
-        if (ac.signal.aborted) return
-        if (!text) {
-          setMeetings([])
-          setPage(1)
-          return
-        }
-        try {
-          const data = JSON.parse(text) as unknown
-          if (!res.ok || !Array.isArray(data)) {
-            setMeetings([])
-            setPage(1)
-            return
-          }
-          setMeetings(data as Meeting[])
-          setPage(1)
-        } catch {
-          setMeetings([])
-          setPage(1)
-        }
-      })
-      .catch(() => {
-        if (!ac.signal.aborted) {
-          setMeetings([])
-          setPage(1)
-        }
-      })
+    void fetchMeetings(ac.signal)
     return () => ac.abort()
-  }, [year])
+  }, [fetchMeetings])
 
   const paginated = meetings.slice((page - 1) * pageSize, page * pageSize)
   const totalPages = Math.ceil(meetings.length / pageSize) || 1
@@ -212,7 +184,7 @@ export function MeetingsClient({
     setSaving(false)
     setOpen(false)
     resetForm()
-    fetchMeetings()
+    void fetchMeetings()
   }
 
   return (
@@ -235,10 +207,10 @@ export function MeetingsClient({
         </Select>
       </div>
 
-      <div className="rounded-lg border bg-white overflow-hidden">
+      <div className="overflow-hidden rounded-lg border bg-card">
         <Table>
           <TableHeader>
-            <TableRow className="bg-gray-50">
+            <TableRow className="bg-muted/50 hover:bg-muted/50">
               <TableHead className="w-10" />
               <TableHead>Meeting No</TableHead>
               <TableHead>Title</TableHead>
@@ -252,11 +224,11 @@ export function MeetingsClient({
           <TableBody>
             {paginated.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center text-gray-400 py-10">No meetings found.</TableCell>
+                <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">No meetings found.</TableCell>
               </TableRow>
             ) : paginated.map(m => (
-              <TableRow key={m.id} className="cursor-pointer hover:bg-gray-50" onClick={() => router.push(`/meetings/${m.id}`)}>
-                <TableCell><button className="p-1 rounded hover:bg-gray-200">⋮</button></TableCell>
+              <TableRow key={m.id} className="cursor-pointer hover:bg-muted/50" onClick={() => router.push(`/meetings/${m.id}`)}>
+                <TableCell><button type="button" className="rounded p-1 hover:bg-muted" aria-label="Satır menüsü">⋮</button></TableCell>
                 <TableCell className="font-mono text-sm">{m.meetingNo}</TableCell>
                 <TableCell className="max-w-xs truncate">{m.title}</TableCell>
                 <TableCell>{formatDateOnlyIstanbul(m.plannedDate)}</TableCell>
@@ -276,7 +248,7 @@ export function MeetingsClient({
           </TableBody>
         </Table>
 
-        <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
+        <div className="flex items-center justify-between border-t bg-muted/30 px-4 py-3">
           <div className="flex items-center gap-2 text-sm">
             <span>Page Size:</span>
             <Select value={String(pageSize)} onValueChange={v => { setPageSize(Number(v)); setPage(1) }}>
@@ -328,14 +300,14 @@ export function MeetingsClient({
               <Label>Participators</Label>
               <div className="relative mt-1">
                 <div
-                  className="min-h-10 border rounded-md px-2 py-1 flex flex-wrap gap-1 items-center cursor-text bg-white focus-within:ring-2 focus-within:ring-ring"
+                  className="flex min-h-10 cursor-text flex-wrap items-center gap-1 rounded-md border border-input bg-background px-2 py-1 focus-within:ring-2 focus-within:ring-ring"
                   onClick={() => setParticipantDropdownOpen(true)}
                 >
                   {selectedParticipants.map(id => {
                     const c = calisanlar.find(x => x.id === id)
                     if (!c) return null
                     return (
-                      <span key={id} className="flex items-center gap-1 bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full">
+                      <span key={id} className="flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
                         {c.isim} {c.soyisim}
                         <button type="button" className="hover:text-red-500 font-bold"
                           onClick={e => { e.stopPropagation(); toggleParticipant(id) }}>×</button>
@@ -353,17 +325,17 @@ export function MeetingsClient({
                 {participantDropdownOpen && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setParticipantDropdownOpen(false)} />
-                    <div className="absolute z-20 w-full mt-1 border rounded-md bg-white shadow-lg max-h-48 overflow-y-auto">
+                    <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-md border bg-popover text-popover-foreground shadow-md">
                       {filteredCalisanlar.length === 0 ? (
-                        <div className="px-3 py-2 text-sm text-gray-400">No results found</div>
+                        <div className="px-3 py-2 text-sm text-muted-foreground">No results found</div>
                       ) : filteredCalisanlar.map(c => (
                         <div key={c.id}
-                          className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 ${selectedParticipants.includes(c.id) ? "bg-blue-50 font-medium" : ""}`}
+                          className={`flex cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground ${selectedParticipants.includes(c.id) ? "bg-accent/80 font-medium" : ""}`}
                           onClick={() => { toggleParticipant(c.id); setParticipantSearch("") }}
                         >
-                          {selectedParticipants.includes(c.id) && <span className="text-blue-600">✓</span>}
-                          <span className={selectedParticipants.includes(c.id) ? "text-blue-700" : ""}>{c.isim} {c.soyisim}</span>
-                          {c.departman && <span className="text-gray-400 text-xs ml-auto">{c.departman}</span>}
+                          {selectedParticipants.includes(c.id) && <span className="text-primary">✓</span>}
+                          <span className={selectedParticipants.includes(c.id) ? "text-foreground" : ""}>{c.isim} {c.soyisim}</span>
+                          {c.departman && <span className="ml-auto text-xs text-muted-foreground">{c.departman}</span>}
                         </div>
                       ))}
                     </div>
@@ -371,7 +343,7 @@ export function MeetingsClient({
                 )}
               </div>
               {selectedParticipants.length > 0 && (
-                <p className="text-xs text-gray-500 mt-1">{selectedParticipants.length} selected</p>
+                <p className="mt-1 text-xs text-muted-foreground">{selectedParticipants.length} selected</p>
               )}
             </div>
 
@@ -418,14 +390,15 @@ export function MeetingsClient({
                   />
                 </div>
                 <div className="flex items-end">
-                  <button
+                  <Button
                     type="button"
-                    className="h-9 min-w-9 rounded-md bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-700"
+                    size="icon"
+                    className="h-9 min-w-9 shrink-0"
                     onClick={addExternalParticipant}
                     title="Add external participant"
                   >
                     +
-                  </button>
+                  </Button>
                 </div>
               </div>
               {externalParticipants.length > 0 && (
@@ -455,7 +428,7 @@ export function MeetingsClient({
               )}
             </div>
 
-            <div className="flex items-center gap-3 rounded-lg bg-yellow-50 px-3 py-2">
+            <div className="flex items-center gap-3 rounded-lg border border-amber-200/80 bg-amber-50/80 px-3 py-2 dark:border-amber-900/50 dark:bg-amber-950/30">
               <Label className="flex-1">Online Meeting</Label>
               <Switch checked={isOnline} onCheckedChange={setIsOnline} />
             </div>
@@ -466,7 +439,6 @@ export function MeetingsClient({
             <Button
               onClick={handleCreate}
               disabled={saving || !title || !plannedDate || !meetingTypeId || (selectedParticipants.length === 0 && externalParticipants.length === 0)}
-              className="bg-green-600 hover:bg-green-700 text-white"
             >
               {saving ? "Creating..." : "Create"}
             </Button>

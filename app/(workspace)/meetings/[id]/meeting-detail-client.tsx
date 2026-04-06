@@ -127,7 +127,7 @@ export function MeetingDetailClient({
               className="hidden"
               onChange={e => e.target.files?.[0] && handleFileUpload(e.target.files[0])}
             />
-            <div className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors">
+            <div className="inline-flex items-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-medium px-4 py-2 rounded-md transition-colors">
               <Upload size={15} />
               {uploadingFile ? "Uploading..." : "Upload Files"}
             </div>
@@ -135,7 +135,7 @@ export function MeetingDetailClient({
 
           {attachedFile && (
             <a href={attachedFile.path} target="_blank"
-              className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
+              className="flex items-center gap-2 text-sm text-primary hover:underline">
               <Paperclip size={14} />
               {attachedFile.name}
             </a>
@@ -213,10 +213,10 @@ export function MeetingDetailClient({
             </div>
           )}
 
-          <div className="border rounded-lg p-4 bg-blue-50">
+          <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
             <div className="flex items-center gap-2 mb-2">
-              <History size={15} className="text-blue-600" />
-              <h3 className="font-semibold text-sm text-blue-700">History</h3>
+              <History size={15} className="text-primary" />
+              <h3 className="font-semibold text-sm text-foreground">History</h3>
             </div>
             <ul className="flex flex-col gap-1">
               {history.map((h, i) => (
@@ -236,7 +236,7 @@ export function MeetingDetailClient({
               {hazardReports.length === 0 ? (
                 <p className="text-xs text-gray-400 italic">No reports available.</p>
               ) : hazardReports.map(r => (
-                <label key={r.id} className="flex items-start gap-2 text-xs cursor-pointer hover:bg-gray-50 px-1 py-1 rounded">
+                <label key={r.id} className="flex cursor-pointer items-start gap-2 rounded px-1 py-1 text-xs hover:bg-muted/60">
                   <input
                     type="checkbox"
                     checked={selectedReports.includes(r.id)}

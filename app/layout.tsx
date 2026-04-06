@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
-import AiChatWidget from "@/components/ai/AiChatWidget";
+import { AiChatWidgetLazy } from "@/components/ai/ai-chat-widget-lazy";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -25,13 +25,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="tr">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {children}
         <Toaster richColors position="top-center" />
-        <AiChatWidget />
+        <AiChatWidgetLazy />
       </body>
     </html>
   );

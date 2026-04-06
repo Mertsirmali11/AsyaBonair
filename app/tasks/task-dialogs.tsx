@@ -358,7 +358,7 @@ export function TaskManageDialog({
               {/* —— Left column —— */}
               <div className="flex flex-col gap-5">
                 <section className="overflow-hidden rounded-lg border bg-white shadow-sm">
-                  <div className="flex items-center justify-between gap-2 bg-blue-600 px-4 py-2.5 text-white">
+                  <div className="flex items-center justify-between gap-2 bg-primary px-4 py-2.5 text-primary-foreground">
                     <h2 className="text-sm font-semibold tracking-wide">Task details</h2>
                     <Badge
                       className={cn(
@@ -553,7 +553,7 @@ export function TaskManageDialog({
                   <ul className="max-h-48 space-y-2 overflow-y-auto p-4 text-sm">
                     {detail.history.map((h, i) => (
                       <li key={`${h.at}-${i}`} className="flex gap-2 text-muted-foreground">
-                        <Clock className="mt-0.5 size-3.5 shrink-0 text-blue-600" />
+                        <Clock className="mt-0.5 size-3.5 shrink-0 text-primary" />
                         <span>
                           <span className="font-mono text-xs text-foreground">
                             {new Date(h.at).toLocaleDateString("en-US")}
@@ -571,7 +571,7 @@ export function TaskManageDialog({
               <div className="flex flex-col gap-5">
                 <section className="overflow-hidden rounded-lg border bg-white shadow-sm">
                   <div className="flex items-center gap-2 border-b px-4 py-2.5">
-                    <span className="size-2 shrink-0 rounded-full bg-blue-600" aria-hidden />
+                    <span className="size-2 shrink-0 rounded-full bg-primary" aria-hidden />
                     <h2 className="text-sm font-semibold">Task assignment</h2>
                   </div>
                   <div className="space-y-3 p-4">
@@ -602,9 +602,9 @@ export function TaskManageDialog({
                 </section>
 
                 <section className="flex min-h-[min(520px,50vh)] flex-1 flex-col overflow-hidden rounded-lg border bg-white shadow-sm lg:min-h-[min(640px,55vh)]">
-                  <div className="bg-blue-600 px-4 py-2.5 text-white">
+                  <div className="bg-primary px-4 py-2.5 text-primary-foreground">
                     <h2 className="text-sm font-semibold">Communication panel</h2>
-                    <p className="text-xs text-blue-100">Real-time discussion</p>
+                    <p className="text-xs text-primary-foreground/80">Real-time discussion</p>
                   </div>
                   <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
                     <div
@@ -693,7 +693,7 @@ export function TaskManageDialog({
                           type="button"
                           onClick={() => void sendMessage()}
                           disabled={sending || !messageText.trim()}
-                          className="min-w-[100px] gap-2 bg-blue-600 hover:bg-blue-700"
+                          className="min-w-[100px] gap-2 bg-primary hover:bg-primary/90"
                         >
                           {sending ? (
                             <Loader2 className="size-4 animate-spin" />

@@ -285,7 +285,7 @@ export function OutgoingCorrespondenceDialog({
                           href={href}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-blue-600 hover:underline"
+                          className="text-primary hover:underline"
                         >
                           {a.fileName}
                         </a>

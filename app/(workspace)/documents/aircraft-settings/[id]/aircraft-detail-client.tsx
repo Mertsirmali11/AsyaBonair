@@ -187,15 +187,15 @@ export function AircraftDetailClient({
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <a href={doc.filePath} target="_blank" rel="noreferrer"
-            className="p-1.5 rounded hover:bg-gray-100 text-blue-600">
+            className="rounded p-1.5 text-primary hover:bg-muted">
             <ExternalLink size={15} />
           </a>
           <button type="button" onClick={() => { void toggleArchive(doc) }}
-            className="p-1.5 rounded hover:bg-gray-100 text-gray-500">
+            className="rounded p-1.5 text-muted-foreground hover:bg-muted">
             {doc.isArchived ? <ArchiveRestore size={15} /> : <Archive size={15} />}
           </button>
           <button type="button" onClick={() => { void deleteDoc(doc) }}
-            className="p-1.5 rounded hover:bg-gray-100 text-red-400">
+            className="rounded p-1.5 text-destructive/80 hover:bg-muted">
             <Trash2 size={15} />
           </button>
         </div>
@@ -279,13 +279,13 @@ export function AircraftDetailClient({
         <TabsList>
           <TabsTrigger value="certificate">
             Certificates
-            <Badge className="ml-2 bg-blue-100 text-blue-700 text-xs">
+            <Badge className="ml-2 bg-secondary text-secondary-foreground text-xs">
               {docs.filter(d => d.category === "certificate" && !d.isArchived).length}
             </Badge>
           </TabsTrigger>
           <TabsTrigger value="manual">
             Manuals
-            <Badge className="ml-2 bg-blue-100 text-blue-700 text-xs">
+            <Badge className="ml-2 bg-secondary text-secondary-foreground text-xs">
               {docs.filter(d => d.category === "manual" && !d.isArchived).length}
             </Badge>
           </TabsTrigger>

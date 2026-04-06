@@ -28,7 +28,7 @@ export function CorrespondenceAttachmentsCell({ attachments, getHref }: Props) {
         href={href ?? "#"}
         target="_blank"
         rel="noopener noreferrer"
-        className="inline-flex max-w-[200px] items-center gap-1 truncate text-blue-600 hover:text-blue-800 hover:underline"
+        className="inline-flex max-w-[200px] items-center gap-1 truncate text-primary hover:underline"
         title={a.fileName}
         onClick={(e) => {
           if (!href) e.preventDefault()
@@ -69,7 +69,7 @@ export function CorrespondenceAttachmentsCell({ attachments, getHref }: Props) {
                   href={href ?? "#"}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="hover:bg-muted flex items-start gap-2 rounded-md px-2 py-2 text-sm text-blue-600 hover:text-blue-800"
+                  className="flex items-start gap-2 rounded-md px-2 py-2 text-sm text-primary hover:bg-muted"
                   title={a.fileName}
                   onClick={(e) => {
                     if (!href) e.preventDefault()
