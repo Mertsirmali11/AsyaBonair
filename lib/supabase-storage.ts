@@ -36,36 +36,53 @@ function getSupabaseAdmin(): SupabaseClient {
   return supabaseAdminInstance
 }
 
+export type UploadPdfToStorageResult =
+  | { ok: true; path: string; fileName: string; publicUrl: string }
+  | { ok: false; message: string }
+
 export async function uploadPdfToStorage(
   file: File,
-  paperNo: string
-): Promise<{ path: string; fileName: string; publicUrl: string } | null> {
+  folderPrefix: string,
+  options?: { storageFileName?: string; upsert?: boolean }
+): Promise<UploadPdfToStorageResult> {
   try {
-    const sanitizedFileName = file.name
+    const sourceName = options?.storageFileName ?? file.name
+    const sanitizedFileName = sourceName
       .replace(/[^a-zA-Z0-9._-]/g, "_")
       .replace(/\.\./g, "_")
       .replace(/\s+/g, "_")
-    const storagePath = `${paperNo}/${sanitizedFileName}`
+    const storagePath = `${folderPrefix}/${sanitizedFileName}`
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
     const supabaseAdmin = getSupabaseAdmin()
+    const upsert = options?.upsert ?? true
     const { error } = await supabaseAdmin.storage
       .from(getStorageBucket())
       .upload(storagePath, buffer, {
         contentType: "application/pdf",
-        upsert: false,
+        upsert,
       })
-    if (error) throw error
+    if (error) {
+      const msg =
+        typeof error.message === "string" && error.message.length > 0
+          ? error.message
+          : "Storage upload rejected"
+      console.error("[uploadPdfToStorage]", storagePath, error)
+      return { ok: false, message: msg }
+    }
     const { data: urlData } = supabaseAdmin.storage
       .from(getStorageBucket())
       .getPublicUrl(storagePath)
     return {
+      ok: true,
       path: storagePath,
       fileName: sanitizedFileName,
       publicUrl: urlData.publicUrl,
     }
-  } catch {
-    return null
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    console.error("[uploadPdfToStorage] catch", e)
+    return { ok: false, message }
   }
 }
 

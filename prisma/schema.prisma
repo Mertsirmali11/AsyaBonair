@@ -258,6 +258,8 @@ model IncomingPaper {
   content         String?   @db.Text
   pdfPath         String?   @map("pdf_path") @db.VarChar(500)
   pdfFileName     String?   @map("pdf_file_name") @db.VarChar(255)
+  /// [{ "path": "BON-IP-001/file.pdf", "fileName": "file.pdf" }, ...]
+  pdfAttachments  Json?     @map("pdf_attachments")
   createdBy       Int?      @map("created_by")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
@@ -279,6 +281,8 @@ model OutgoingCorrespondence {
   content         String?   @db.Text
   pdfPath         String?   @map("pdf_path") @db.VarChar(500)
   pdfFileName     String?   @map("pdf_file_name") @db.VarChar(255)
+  /// [{ "path": "outgoing/BON-OC-001/file.pdf", "fileName": "file.pdf" }, ...]
+  pdfAttachments  Json?     @map("pdf_attachments")
   createdBy       Int?      @map("created_by")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
@@ -292,11 +296,13 @@ model OutgoingCorrespondence {
 
 // Uçaklar Tablosu
 model Ucaklar {
-  id        Int                 @id @default(autoincrement())
-  register  String              @db.VarChar(100)
-  msn       String              @db.VarChar(100)
-  documents AircraftDocument[]
+  id         Int                 @id @default(autoincrement())
+  register   String              @db.VarChar(100)
+  msn        String              @db.VarChar(100)
+  isArchived Boolean             @default(false) @map("is_archived")
+  documents  AircraftDocument[]
 
+  @@index([isArchived])
   @@map("ucaklar")
 }
 

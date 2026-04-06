@@ -13,7 +13,15 @@ import {
 import {
   Tabs, TabsContent, TabsList, TabsTrigger,
 } from "@/components/ui/tabs"
-import { FileText, Upload, Archive, ArchiveRestore, Trash2, ExternalLink, Plus } from "lucide-react"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
+import {
+  FileText, Upload, Archive, ArchiveRestore, Trash2, ExternalLink, Plus, ChevronDown,
+} from "lucide-react"
+import { cn } from "@/lib/utils"
 
 const CERTIFICATE_TYPES = [
   "Airworthiness Certificate",
@@ -37,7 +45,7 @@ const MANUAL_TYPES = [
  
 ]
 
-interface Aircraft { id: number; register: string; msn: string }
+interface Aircraft { id: number; register: string; msn: string; isArchived: boolean }
 interface Doc {
   id: number
   category: string
@@ -72,7 +80,6 @@ export function AircraftDetailClient({
   currentUserId: number
 }) {
   const [docs, setDocs] = useState<Doc[]>([])
-  const [showArchived, setShowArchived] = useState(false)
   const [open, setOpen] = useState(false)
   const [activeTab, setActiveTab] = useState("certificate")
   const [docType, setDocType] = useState("")
@@ -87,10 +94,16 @@ export function AircraftDetailClient({
     if (res.ok) setDocs(await res.json())
   }
 
-  useEffect(() => { fetchDocs() }, [aircraft.id])
-
-  const filtered = (category: string) =>
-    docs.filter(d => d.category === category && d.isArchived === showArchived)
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const res = await fetch(`/api/aircraft/${aircraft.id}/documents`)
+      if (!cancelled && res.ok) setDocs(await res.json())
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [aircraft.id])
 
   const handleUpload = async () => {
     if (!file || !docType) return
@@ -135,52 +148,102 @@ export function AircraftDetailClient({
     fetchDocs()
   }
 
-  const DocList = ({ category }: { category: string }) => {
-    const list = filtered(category)
+  function renderDocCard(doc: Doc, opts: { inArchiveSection?: boolean }) {
+    const inArchive = opts.inArchiveSection ?? doc.isArchived
     return (
-      <div className="flex flex-col gap-3 mt-4">
-        {list.length === 0 ? (
-          <p className="text-sm text-gray-400 italic">No documents found.</p>
-        ) : list.map(doc => (
-          <div key={doc.id} className="border rounded-lg p-4 bg-white flex items-start justify-between gap-3">
-            <div className="flex items-start gap-3 min-w-0">
-              <FileText size={20} className="text-red-500 shrink-0 mt-0.5" />
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-sm truncate">{doc.fileName}</span>
-                  <Badge variant="outline" className="text-xs">{doc.docType}</Badge>
-                  {doc.validUntil && isExpired(doc.validUntil) && (
-                    <Badge className="bg-red-100 text-red-700 text-xs">Expired</Badge>
-                  )}
-                  {doc.validUntil && isExpiringSoon(doc.validUntil) && !isExpired(doc.validUntil) && (
-                    <Badge className="bg-yellow-100 text-yellow-700 text-xs">Expiring Soon</Badge>
-                  )}
-                </div>
-                <div className="flex gap-4 mt-1 text-xs text-gray-500 flex-wrap">
-                  {doc.fileSize && <span>{formatSize(doc.fileSize)}</span>}
-                  {doc.validFrom && <span>From: {new Date(doc.validFrom).toLocaleDateString("en-US")}</span>}
-                  {doc.validUntil && <span>Until: {new Date(doc.validUntil).toLocaleDateString("en-US")}</span>}
-                  {doc.uploader && <span>By: {doc.uploader.isim} {doc.uploader.soyisim}</span>}
-                  <span>{new Date(doc.createdAt).toLocaleDateString("en-US")}</span>
-                </div>
-              </div>
+      <div
+        key={doc.id}
+        className={cn(
+          "border rounded-lg p-4 flex items-start justify-between gap-3",
+          inArchive
+            ? "bg-muted/50 border-dashed text-muted-foreground"
+            : "bg-white"
+        )}
+      >
+        <div className="flex items-start gap-3 min-w-0">
+          <FileText size={20} className={cn("shrink-0 mt-0.5", inArchive ? "text-muted-foreground" : "text-red-500")} />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-medium text-sm truncate">{doc.fileName}</span>
+              <Badge variant="outline" className="text-xs">{doc.docType}</Badge>
+              {inArchive && (
+                <Badge variant="secondary" className="text-xs">Archived</Badge>
+              )}
+              {doc.validUntil && isExpired(doc.validUntil) && (
+                <Badge className="bg-red-100 text-red-700 text-xs">Expired</Badge>
+              )}
+              {doc.validUntil && isExpiringSoon(doc.validUntil) && !isExpired(doc.validUntil) && (
+                <Badge className="bg-yellow-100 text-yellow-700 text-xs">Expiring Soon</Badge>
+              )}
             </div>
-            <div className="flex items-center gap-1 shrink-0">
-              <a href={doc.filePath} target="_blank" rel="noreferrer"
-                className="p-1.5 rounded hover:bg-gray-100 text-blue-600">
-                <ExternalLink size={15} />
-              </a>
-              <button onClick={() => toggleArchive(doc)}
-                className="p-1.5 rounded hover:bg-gray-100 text-gray-500">
-                {doc.isArchived ? <ArchiveRestore size={15} /> : <Archive size={15} />}
-              </button>
-              <button onClick={() => deleteDoc(doc)}
-                className="p-1.5 rounded hover:bg-gray-100 text-red-400">
-                <Trash2 size={15} />
-              </button>
+            <div className="flex gap-4 mt-1 text-xs text-gray-500 flex-wrap">
+              {doc.fileSize && <span>{formatSize(doc.fileSize)}</span>}
+              {doc.validFrom && <span>From: {new Date(doc.validFrom).toLocaleDateString("en-US")}</span>}
+              {doc.validUntil && <span>Until: {new Date(doc.validUntil).toLocaleDateString("en-US")}</span>}
+              {doc.uploader && <span>By: {doc.uploader.isim} {doc.uploader.soyisim}</span>}
+              <span>{new Date(doc.createdAt).toLocaleDateString("en-US")}</span>
             </div>
           </div>
-        ))}
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <a href={doc.filePath} target="_blank" rel="noreferrer"
+            className="p-1.5 rounded hover:bg-gray-100 text-blue-600">
+            <ExternalLink size={15} />
+          </a>
+          <button type="button" onClick={() => { void toggleArchive(doc) }}
+            className="p-1.5 rounded hover:bg-gray-100 text-gray-500">
+            {doc.isArchived ? <ArchiveRestore size={15} /> : <Archive size={15} />}
+          </button>
+          <button type="button" onClick={() => { void deleteDoc(doc) }}
+            className="p-1.5 rounded hover:bg-gray-100 text-red-400">
+            <Trash2 size={15} />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  function renderCategoryContent(category: "certificate" | "manual") {
+    const active = docs
+      .filter(d => d.category === category && !d.isArchived)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    const archived = docs
+      .filter(d => d.category === category && d.isArchived)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    const archiveLabel = category === "certificate" ? "Archived certificates" : "Archived manuals"
+
+    return (
+      <div className="mt-4 space-y-4">
+        <div className="flex flex-col gap-3">
+          {active.length === 0 ? (
+            <p className="text-sm text-gray-400 italic">No active documents.</p>
+          ) : (
+            active.map(doc => renderDocCard(doc, { inArchiveSection: false }))
+          )}
+        </div>
+
+        {archived.length > 0 && (
+          <Collapsible defaultOpen={false} className="overflow-hidden rounded-lg border bg-card">
+            <CollapsibleTrigger
+              type="button"
+              className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left text-sm font-medium hover:bg-muted/50 [&[data-state=open]]:border-b [&[data-state=open]>svg:last-child]:rotate-180"
+            >
+              <span className="flex min-w-0 flex-1 items-center gap-2">
+                <Archive className="size-4 shrink-0" />
+                <span className="truncate">{archiveLabel}</span>
+                <Badge variant="secondary" className="shrink-0 font-normal tabular-nums">
+                  {archived.length}
+                </Badge>
+              </span>
+              <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-200" />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="flex flex-col gap-3 border-t bg-muted/20 p-4">
+                {archived.map(doc => renderDocCard(doc, { inArchiveSection: true }))}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        )}
       </div>
     )
   }
@@ -193,19 +256,24 @@ export function AircraftDetailClient({
           <p className="text-muted-foreground text-sm">MSN: {aircraft.msn}</p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          <button
+          <Button
             type="button"
-            onClick={() => setShowArchived(!showArchived)}
-            className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors ${showArchived ? "bg-gray-800 text-white" : "bg-background text-muted-foreground hover:bg-muted"}`}
+            onClick={() => setOpen(true)}
+            className="gap-2"
+            disabled={aircraft.isArchived}
+            title={aircraft.isArchived ? "Restore the aircraft from archive in Aircraft Settings to upload." : undefined}
           >
-            <Archive size={14} />
-            {showArchived ? "Show Active" : "Show Archived"}
-          </button>
-          <Button type="button" onClick={() => setOpen(true)} className="gap-2">
             <Plus className="size-4 shrink-0" /> Upload Document
           </Button>
         </div>
       </div>
+
+      {aircraft.isArchived && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          This aircraft is <strong>archived</strong>. Restore it from{" "}
+          <strong>Archived aircrafts</strong> in Aircraft Settings to upload new files.
+        </div>
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
@@ -222,8 +290,8 @@ export function AircraftDetailClient({
             </Badge>
           </TabsTrigger>
         </TabsList>
-        <TabsContent value="certificate"><DocList category="certificate" /></TabsContent>
-        <TabsContent value="manual"><DocList category="manual" /></TabsContent>
+        <TabsContent value="certificate">{renderCategoryContent("certificate")}</TabsContent>
+        <TabsContent value="manual">{renderCategoryContent("manual")}</TabsContent>
       </Tabs>
 
       <Dialog open={open} onOpenChange={v => { setOpen(v); if (!v) { setDocType(""); setFile(null); setError("") } }}>

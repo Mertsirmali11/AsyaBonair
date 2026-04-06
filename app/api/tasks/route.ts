@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
       where,
       include: {
         assignee: { select: { isim: true, soyisim: true } },
-        meeting: { select: { meetingNo: true, title: true } },
+        meeting: { select: { id: true, meetingNo: true, title: true } },
       },
       orderBy: { createdAt: "desc" },
       ...(Object.keys(where).length === 0 ? { take: 500 } : {}),
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
       },
       include: {
         assignee: { select: { isim: true, soyisim: true } },
-        meeting: { select: { meetingNo: true, title: true } },
+        meeting: { select: { id: true, meetingNo: true, title: true } },
       },
     })
 

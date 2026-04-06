@@ -33,7 +33,15 @@ export default async function AircraftDetailPage({ params }: { params: Promise<{
   return (
     <>
       <SetWorkspacePageTitle title={`${aircraft.register} — Documents`} />
-      <AircraftDetailClient aircraft={aircraft as any} currentUserId={calisan?.id ?? 0} />
+      <AircraftDetailClient
+        aircraft={{
+          id: aircraft.id,
+          register: aircraft.register,
+          msn: aircraft.msn,
+          isArchived: aircraft.isArchived,
+        }}
+        currentUserId={calisan?.id ?? 0}
+      />
     </>
   )
 }

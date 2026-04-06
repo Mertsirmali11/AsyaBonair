@@ -7,6 +7,7 @@ import { CalendarIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Calendar } from "@/components/ui/calendar"
 import {
   Popover,
@@ -24,6 +25,11 @@ interface DatePickerProps {
    * Year range defaults to last 100 years through the current calendar year.
    */
   birthDate?: boolean
+  /**
+   * Show a text field for typing (dd.MM.yyyy) plus a calendar button.
+   * Defaults to true except when `birthDate` is true (calendar-only then).
+   */
+  allowManualInput?: boolean
 }
 
 export function DatePicker({
@@ -32,9 +38,12 @@ export function DatePicker({
   placeholder = "dd.mm.yyyy",
   disabled = false,
   birthDate = false,
+  allowManualInput: allowManualInputProp,
 }: DatePickerProps) {
   const [open, setOpen] = React.useState(false)
   const currentYear = new Date().getFullYear()
+  const allowManualInput =
+    allowManualInputProp !== undefined ? allowManualInputProp : !birthDate
 
   const parseDate = (dateStr: string | undefined): Date | undefined => {
     if (!dateStr) return undefined
@@ -55,6 +64,54 @@ export function DatePicker({
     setOpen(false)
   }
 
+  const calendar = (
+    <Calendar
+      mode="single"
+      selected={selectedDate}
+      onSelect={handleSelect}
+      locale={enUS}
+      initialFocus
+      captionLayout={birthDate ? "dropdown" : "label"}
+      fromYear={birthDate ? currentYear - 100 : undefined}
+      toYear={birthDate ? currentYear : undefined}
+      defaultMonth={selectedDate ?? new Date(currentYear - 30, 0, 1)}
+    />
+  )
+
+  if (allowManualInput) {
+    return (
+      <div className="flex w-full gap-2">
+        <Input
+          type="text"
+          value={value ?? ""}
+          onChange={(e) => onChange?.(e.target.value)}
+          placeholder={placeholder}
+          disabled={disabled}
+          className="min-w-0 flex-1 font-mono text-sm h-9"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              disabled={disabled}
+              className="h-9 w-9 shrink-0"
+              title="Open calendar"
+            >
+              <CalendarIcon className="h-4 w-4" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            {calendar}
+          </PopoverContent>
+        </Popover>
+      </div>
+    )
+  }
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -71,17 +128,7 @@ export function DatePicker({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">
-        <Calendar
-          mode="single"
-          selected={selectedDate}
-          onSelect={handleSelect}
-          locale={enUS}
-          initialFocus
-          captionLayout={birthDate ? "dropdown" : "label"}
-          fromYear={birthDate ? currentYear - 100 : undefined}
-          toYear={birthDate ? currentYear : undefined}
-          defaultMonth={selectedDate ?? new Date(currentYear - 30, 0, 1)}
-        />
+        {calendar}
       </PopoverContent>
     </Popover>
   )

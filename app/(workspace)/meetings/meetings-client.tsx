@@ -37,6 +37,34 @@ interface Meeting {
 const PAGE_SIZE_OPTIONS = [10, 20, 50]
 const YEARS = ["All", "2026", "2025", "2024", "2023"]
 
+type ExternalParticipantRow = {
+  firstName: string
+  lastName: string
+  email: string
+}
+
+function parseExternalParticipantsJson(json: string | null): unknown[] {
+  if (!json) return []
+  try {
+    const data = JSON.parse(json) as unknown
+    return Array.isArray(data) ? data : []
+  } catch {
+    return []
+  }
+}
+
+function formatExternalParticipantLabel(item: unknown): string {
+  if (typeof item === "string") return item.trim()
+  if (item && typeof item === "object" && "email" in item) {
+    const o = item as { firstName?: string; lastName?: string; email?: string }
+    const n = `${o.firstName ?? ""} ${o.lastName ?? ""}`.trim()
+    const e = String(o.email ?? "").trim()
+    if (n && e) return `${n} (${e})`
+    return e || n
+  }
+  return ""
+}
+
 const statusColor = (status: string) => {
   if (status === "Completed") return "bg-green-100 text-green-700"
   if (status === "Cancelled") return "bg-red-100 text-red-700"
@@ -61,29 +89,78 @@ export function MeetingsClient({
   const [plannedDate, setPlannedDate] = useState("")
   const [meetingTypeId, setMeetingTypeId] = useState("")
   const [selectedParticipants, setSelectedParticipants] = useState<number[]>([])
+  const [externalFirstName, setExternalFirstName] = useState("")
+  const [externalLastName, setExternalLastName] = useState("")
   const [externalEmail, setExternalEmail] = useState("")
-  const [externalParticipants, setExternalParticipants] = useState<string[]>([])
+  const [externalParticipants, setExternalParticipants] = useState<ExternalParticipantRow[]>([])
   const [isOnline, setIsOnline] = useState(false)
   const [agenda, setAgenda] = useState("")
   const [participantSearch, setParticipantSearch] = useState("")
   const [participantDropdownOpen, setParticipantDropdownOpen] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  const fetchMeetings = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/meetings?year=${year}`)
-      const text = await res.text()
-      if (!text) { setMeetings([]); setPage(1); return }
-      const data = JSON.parse(text) as unknown
-      if (!res.ok || !Array.isArray(data)) { setMeetings([]); setPage(1); return }
-      setMeetings(data as Meeting[])
-      setPage(1)
-    } catch {
-      setMeetings([]); setPage(1)
-    }
-  }, [year])
+  const fetchMeetings = useCallback(
+    async (signal?: AbortSignal) => {
+      try {
+        const res = await fetch(`/api/meetings?year=${year}`, { signal })
+        const text = await res.text()
+        if (signal?.aborted) return
+        if (!text) {
+          setMeetings([])
+          setPage(1)
+          return
+        }
+        const data = JSON.parse(text) as unknown
+        if (!res.ok || !Array.isArray(data)) {
+          setMeetings([])
+          setPage(1)
+          return
+        }
+        setMeetings(data as Meeting[])
+        setPage(1)
+      } catch {
+        if (!signal?.aborted) {
+          setMeetings([])
+          setPage(1)
+        }
+      }
+    },
+    [year]
+  )
 
-  useEffect(() => { fetchMeetings() }, [fetchMeetings])
+  useEffect(() => {
+    const ac = new AbortController()
+    void fetch(`/api/meetings?year=${year}`, { signal: ac.signal })
+      .then(async (res) => {
+        const text = await res.text()
+        if (ac.signal.aborted) return
+        if (!text) {
+          setMeetings([])
+          setPage(1)
+          return
+        }
+        try {
+          const data = JSON.parse(text) as unknown
+          if (!res.ok || !Array.isArray(data)) {
+            setMeetings([])
+            setPage(1)
+            return
+          }
+          setMeetings(data as Meeting[])
+          setPage(1)
+        } catch {
+          setMeetings([])
+          setPage(1)
+        }
+      })
+      .catch(() => {
+        if (!ac.signal.aborted) {
+          setMeetings([])
+          setPage(1)
+        }
+      })
+    return () => ac.abort()
+  }, [year])
 
   const paginated = meetings.slice((page - 1) * pageSize, page * pageSize)
   const totalPages = Math.ceil(meetings.length / pageSize) || 1
@@ -98,17 +175,24 @@ export function MeetingsClient({
     )
   }
 
-  const addExternalEmail = () => {
-    if (externalEmail.includes("@") && !externalParticipants.includes(externalEmail)) {
-      setExternalParticipants(prev => [...prev, externalEmail])
-      setExternalEmail("")
-    }
+  const addExternalParticipant = () => {
+    const email = externalEmail.trim()
+    const firstName = externalFirstName.trim()
+    const lastName = externalLastName.trim()
+    if (!email.includes("@")) return
+    const lower = email.toLowerCase()
+    if (externalParticipants.some(p => p.email.toLowerCase() === lower)) return
+    setExternalParticipants(prev => [...prev, { firstName, lastName, email }])
+    setExternalFirstName("")
+    setExternalLastName("")
+    setExternalEmail("")
   }
 
   const resetForm = () => {
     setTitle(""); setPlannedDate(""); setMeetingTypeId("")
     setSelectedParticipants([]); setIsOnline(false); setAgenda("")
-    setParticipantSearch(""); setExternalEmail(""); setExternalParticipants([])
+    setParticipantSearch("")
+    setExternalFirstName(""); setExternalLastName(""); setExternalEmail(""); setExternalParticipants([])
   }
 
   const handleCreate = async () => {
@@ -181,8 +265,8 @@ export function MeetingsClient({
                 <TableCell className="max-w-xs truncate">
   {[
     ...m.participants.map(p => `${p.calisan.isim} ${p.calisan.soyisim}`),
-    ...(m.externalParticipants ? JSON.parse(m.externalParticipants) : [])
-  ].join(", ")}
+    ...parseExternalParticipantsJson(m.externalParticipants).map(formatExternalParticipantLabel),
+  ].filter(Boolean).join(", ")}
 </TableCell>
                 <TableCell>
                   <span className={`px-2 py-1 rounded text-xs font-semibold ${statusColor(m.status)}`}>{m.status}</span>
@@ -214,7 +298,7 @@ export function MeetingsClient({
       </div>
 
       <Dialog open={open} onOpenChange={v => { setOpen(v); if (!v) resetForm() }}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Create a New Meeting</DialogTitle>
           </DialogHeader>
@@ -291,29 +375,80 @@ export function MeetingsClient({
               )}
             </div>
 
-            {/* Dış Katılımcılar */}
+            {/* External participants */}
             <div>
-              <Label>External Participants (Email)</Label>
-              <div className="flex gap-2 mt-1">
-                <Input
-                  placeholder="ornek@mail.com"
-                  value={externalEmail}
-                  onChange={e => setExternalEmail(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addExternalEmail() } }}
-                />
-                <button
-                  type="button"
-                  className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
-                  onClick={addExternalEmail}
-                >+</button>
+              <Label>External Participators</Label>
+              <p className="text-muted-foreground mt-0.5 text-xs">
+                Enter first name, last name, and email, then click + to add. Invitation emails are sent to the email address only.
+              </p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <div>
+                  <Label className="text-xs text-muted-foreground">First name</Label>
+                  <Input
+                    placeholder="First name"
+                    value={externalFirstName}
+                    onChange={e => setExternalFirstName(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Last name</Label>
+                  <Input
+                    placeholder="Last name"
+                    value={externalLastName}
+                    onChange={e => setExternalLastName(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+              <div className="mt-2 flex gap-2">
+                <div className="min-w-0 flex-1">
+                  <Label className="text-xs text-muted-foreground">Email <span className="text-red-500">*</span></Label>
+                  <Input
+                    placeholder="name@example.com"
+                    value={externalEmail}
+                    onChange={e => setExternalEmail(e.target.value)}
+                    className="mt-1"
+                    onKeyDown={e => {
+                      if (e.key === "Enter") {
+                        e.preventDefault()
+                        addExternalParticipant()
+                      }
+                    }}
+                  />
+                </div>
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    className="h-9 min-w-9 rounded-md bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-700"
+                    onClick={addExternalParticipant}
+                    title="Add external participant"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
               {externalParticipants.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-2">
-                  {externalParticipants.map(email => (
-                    <span key={email} className="flex items-center gap-1 bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full">
-                      {email}
-                      <button type="button" className="hover:text-red-500 font-bold"
-                        onClick={() => setExternalParticipants(prev => prev.filter(e => e !== email))}>×</button>
+                <div className="mt-2 flex flex-col gap-1.5">
+                  {externalParticipants.map(p => (
+                    <span
+                      key={p.email}
+                      className="flex items-center justify-between gap-2 rounded-md border border-green-200 bg-green-50 px-2 py-1.5 text-xs text-green-900"
+                    >
+                      <span className="min-w-0 truncate">
+                        {[p.firstName, p.lastName].filter(Boolean).join(" ").trim() || "—"}
+                        <span className="text-muted-foreground"> · </span>
+                        {p.email}
+                      </span>
+                      <button
+                        type="button"
+                        className="shrink-0 font-bold text-green-700 hover:text-red-600"
+                        onClick={() =>
+                          setExternalParticipants(prev => prev.filter(x => x.email !== p.email))
+                        }
+                      >
+                        ×
+                      </button>
                     </span>
                   ))}
                 </div>

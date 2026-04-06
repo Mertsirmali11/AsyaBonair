@@ -43,9 +43,9 @@ function createPrismaClient() {
   })
 }
 
-export const prisma = globalForPrisma.prisma ?? createPrismaClient()
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma
-}
+/** Production: reuse one client. Dev: new client each process load so `prisma generate` is picked up after restart (avoid stale global delegate). */
+export const prisma =
+  process.env.NODE_ENV === "production"
+    ? (globalForPrisma.prisma ??= createPrismaClient())
+    : createPrismaClient()
 

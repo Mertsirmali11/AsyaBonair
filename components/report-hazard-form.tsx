@@ -167,15 +167,17 @@ export function ReportHazardForm({ userId }: ReportHazardFormProps) {
 
             <div className="flex items-center gap-2">
               <Checkbox
-                id="notAnonymous"
-                checked={!isAnonymous}
-                onCheckedChange={(checked) => setIsAnonymous(!checked)}
+                id="report-anonymous"
+                checked={isAnonymous}
+                onCheckedChange={(checked) =>
+                  setIsAnonymous(checked === true)
+                }
               />
               <Label
-                htmlFor="notAnonymous"
+                htmlFor="report-anonymous"
                 className="text-sm font-medium cursor-pointer"
               >
-                Not anonymous (Reporter information will be saved)
+                Reported by Not Anonymous
               </Label>
             </div>
 

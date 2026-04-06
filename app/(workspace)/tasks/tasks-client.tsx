@@ -6,15 +6,31 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
-import { CheckCircle2, Clock, Circle } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Button } from "@/components/ui/button"
+import { CheckCircle2, Clock, Circle, MoreVertical } from "lucide-react"
+import { TaskManageDialog, TaskQuickViewDialog, type TaskRow } from "./task-dialogs"
 
-interface Task {
-  id: number
-  title: string
-  status: string
-  dueDate: string | null
-  assignee: { isim: string | null; soyisim: string | null } | null
-  meeting: { meetingNo: string; title: string }
+interface Task extends TaskRow {
+  createdAt?: string
+}
+
+async function fetchTasksFromApi(): Promise<Task[]> {
+  const res = await fetch("/api/tasks")
+  const text = await res.text()
+  if (!text) return []
+  try {
+    const data = JSON.parse(text) as unknown
+    if (!res.ok || !Array.isArray(data)) return []
+    return data as Task[]
+  } catch {
+    return []
+  }
 }
 
 const statusIcon = (s: string) => {
@@ -26,27 +42,31 @@ const statusIcon = (s: string) => {
 export function TasksClient() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [filter, setFilter] = useState("All")
+  const [quickViewTask, setQuickViewTask] = useState<Task | null>(null)
+  const [manageTaskId, setManageTaskId] = useState<number | null>(null)
+  const [manageOpen, setManageOpen] = useState(false)
 
   const fetchTasks = async () => {
     try {
-      const res = await fetch("/api/tasks")
-      const text = await res.text()
-      if (!text) {
-        setTasks([])
-        return
-      }
-      const data = JSON.parse(text) as unknown
-      if (!res.ok || !Array.isArray(data)) {
-        setTasks([])
-        return
-      }
-      setTasks(data as Task[])
+      setTasks(await fetchTasksFromApi())
     } catch {
       setTasks([])
     }
   }
 
-  useEffect(() => { fetchTasks() }, [])
+  useEffect(() => {
+    let cancelled = false
+    void fetchTasksFromApi()
+      .then((rows) => {
+        if (!cancelled) setTasks(rows)
+      })
+      .catch(() => {
+        if (!cancelled) setTasks([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const updateStatus = async (taskId: number, status: string) => {
     await fetch(`/api/tasks/${taskId}`, {
@@ -55,6 +75,11 @@ export function TasksClient() {
       body: JSON.stringify({ status }),
     })
     fetchTasks()
+  }
+
+  const openManage = (taskId: number) => {
+    setManageTaskId(taskId)
+    setManageOpen(true)
   }
 
   const filtered = filter === "All" ? tasks : tasks.filter(t => t.status === filter)
@@ -80,6 +105,9 @@ export function TasksClient() {
         <Table>
           <TableHeader>
             <TableRow className="bg-gray-50">
+              <TableHead className="w-12 px-2 text-center">
+                <span className="sr-only">Actions</span>
+              </TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Task</TableHead>
               <TableHead>Meeting</TableHead>
@@ -91,12 +119,42 @@ export function TasksClient() {
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-gray-400 py-10">
+                <TableCell colSpan={7} className="text-center text-gray-400 py-10">
                   No tasks found.
                 </TableCell>
               </TableRow>
             ) : filtered.map(task => (
               <TableRow key={task.id}>
+                <TableCell className="w-12 px-2 text-center">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 text-muted-foreground"
+                        aria-label="Task actions"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <MoreVertical className="size-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          openManage(task.id)
+                        }}
+                      >
+                        Manage
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() => setQuickViewTask(task)}
+                      >
+                        Quick view
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
                 <TableCell>{statusIcon(task.status)}</TableCell>
                 <TableCell className="font-medium max-w-xs truncate">{task.title}</TableCell>
                 <TableCell className="text-xs text-gray-500">
@@ -130,6 +188,24 @@ export function TasksClient() {
           </TableBody>
         </Table>
       </div>
+
+      <TaskQuickViewDialog
+        task={quickViewTask}
+        open={quickViewTask !== null}
+        onOpenChange={(open) => {
+          if (!open) setQuickViewTask(null)
+        }}
+      />
+
+      <TaskManageDialog
+        taskId={manageTaskId}
+        open={manageOpen}
+        onOpenChange={(open) => {
+          setManageOpen(open)
+          if (!open) setManageTaskId(null)
+        }}
+        onUpdated={fetchTasks}
+      />
     </div>
   )
 }

@@ -4,13 +4,13 @@ import * as React from "react"
 import { useState, useEffect, useMemo } from "react"
 import {
   IconArrowsSort,
-  IconFileTypePdf,
   IconPencil,
   IconPlus,
   IconSortAscending,
   IconSortDescending,
   IconTrash,
 } from "@tabler/icons-react"
+import { CorrespondenceAttachmentsCell } from "@/components/correspondence-attachments-cell"
 import { IncomingCorrespondenceDialog } from "@/components/incoming-correspondence-dialog"
 import { Button } from "@/components/ui/button"
 import {
@@ -38,6 +38,10 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  getIncomingAttachmentsFromRow,
+  incomingAttachmentProxyUrl,
+} from "@/lib/incoming-correspondence-attachments"
 
 interface IncomingCorrespondence {
   id: number
@@ -48,6 +52,7 @@ interface IncomingCorrespondence {
   content: string | null
   pdfPath: string | null
   pdfFileName: string | null
+  pdfAttachments?: unknown
   createdBy: number | null
   createdAt: string
   creator: {
@@ -74,7 +79,15 @@ const columns: ColumnDef[] = [
   { key: "subject", label: "Subject", sortKey: "subject", getValue: (p) => p.subject || "-" },
   { key: "date", label: "Date", sortKey: "date", getValue: (p) => p.date || "" },
   { key: "content", label: "Content", sortKey: null, getValue: (p) => p.content || "-" },
-  { key: "attachment", label: "Attachment", sortKey: null, getValue: (p) => p.pdfFileName || "-" },
+  {
+    key: "attachment",
+    label: "Attachment",
+    sortKey: null,
+    getValue: (p) =>
+      getIncomingAttachmentsFromRow(p)
+        .map((a) => a.fileName)
+        .join(", ") || "-",
+  },
   { key: "uploadedBy", label: "Uploaded By", sortKey: null, getValue: (p) => p.creator ? `${p.creator.isim || ""} ${p.creator.soyisim || ""}`.trim() || p.creator.email : "-" },
 ]
 
@@ -96,7 +109,9 @@ export function IncomingCorrespondencesTable({ userId }: { userId: string }) {
 
   const fetchPapers = async () => {
     try {
-      const response = await fetch("/api/incoming-papers")
+      const response = await fetch("/api/incoming-papers", {
+        cache: "no-store",
+      })
       if (response.ok) {
         const data = await response.json()
         setPapers(data)
@@ -165,7 +180,7 @@ export function IncomingCorrespondencesTable({ userId }: { userId: string }) {
           paper.subject,
           formatDate(paper.date),
           paper.content,
-          paper.pdfFileName,
+          ...getIncomingAttachmentsFromRow(paper).map((a) => a.fileName),
           paper.creator ? `${paper.creator.isim || ""} ${paper.creator.soyisim || ""}` : "",
         ]
         return searchableFields.some((field) => field?.toLowerCase().includes(lowerSearch))
@@ -207,14 +222,6 @@ export function IncomingCorrespondencesTable({ userId }: { userId: string }) {
   useEffect(() => {
     setCurrentPage(1)
   }, [searchTerm])
-
-  const getPdfUrl = (paper: IncomingCorrespondence) => {
-    if (!paper.pdfPath) return null
-    const parts = paper.pdfPath.split("/")
-    const paperNo = parts[0]
-    const fileName = parts[1]
-    return `/api/incoming-papers/files/${paperNo}/${fileName}`
-  }
 
   const openCreate = () => {
     setFormMode("create")
@@ -310,7 +317,7 @@ export function IncomingCorrespondencesTable({ userId }: { userId: string }) {
                 </TableRow>
               ) : (
                 paginatedPapers.map((paper) => {
-                  const pdfUrl = getPdfUrl(paper)
+                  const attachments = getIncomingAttachmentsFromRow(paper)
                   return (
                     <TableRow key={paper.id} className="hover:bg-slate-50 border-b border-gray-300">
                       <TableCell className="whitespace-nowrap border-r border-gray-200">
@@ -325,20 +332,11 @@ export function IncomingCorrespondencesTable({ userId }: { userId: string }) {
                       <TableCell className="max-w-xs truncate border-r border-gray-200">
                         {paper.content || "-"}
                       </TableCell>
-                      <TableCell className="border-r border-gray-200">
-                        {pdfUrl ? (
-                          <a
-                            href={pdfUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 hover:underline"
-                          >
-                            <IconFileTypePdf className="h-4 w-4" />
-                            PDF
-                          </a>
-                        ) : (
-                          "-"
-                        )}
+                      <TableCell className="border-r border-gray-200 align-middle">
+                        <CorrespondenceAttachmentsCell
+                          attachments={attachments}
+                          getHref={incomingAttachmentProxyUrl}
+                        />
                       </TableCell>
                       <TableCell className="border-r border-gray-200">
                         {paper.creator 

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
+import AiChatWidget from "@/components/ai/AiChatWidget";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -30,6 +31,7 @@ export default function RootLayout({
       >
         {children}
         <Toaster richColors position="top-center" />
+        <AiChatWidget />
       </body>
     </html>
   );

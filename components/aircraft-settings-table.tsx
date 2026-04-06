@@ -1,7 +1,7 @@
 "use client"
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { IconPlus, IconDotsVertical } from "@tabler/icons-react"
+import { IconPlus, IconDotsVertical, IconArchive, IconArchiveOff } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -18,15 +18,24 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
+import { Badge } from "@/components/ui/badge"
+import { cn } from "@/lib/utils"
 
 interface Aircraft {
   id: number
   register: string
   msn: string
+  isArchived: boolean
 }
 
-export function AircraftSettingsTable() {
+type AircraftSettingsTableProps = {
+  /** Default list shows only active aircraft; archived page shows only archived. */
+  variant?: "active" | "archived"
+}
+
+export function AircraftSettingsTable({ variant = "active" }: AircraftSettingsTableProps) {
   const router = useRouter()
+  const isArchivedView = variant === "archived"
   const [aircraft, setAircraft] = React.useState<Aircraft[]>([])
   const [searchTerm, setSearchTerm] = React.useState("")
   const [dialogOpen, setDialogOpen] = React.useState(false)
@@ -43,9 +52,14 @@ export function AircraftSettingsTable() {
 
   React.useEffect(() => { fetchAircraft() }, [])
 
-  const filtered = aircraft.filter(a =>
-    `${a.register} ${a.msn}`.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const archivedCount = aircraft.filter(a => a.isArchived).length
+
+  const filtered = aircraft
+    .filter(a => (isArchivedView ? a.isArchived : !a.isArchived))
+    .filter(a =>
+      `${a.register} ${a.msn}`.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+    .sort((a, b) => a.register.localeCompare(b.register))
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage))
   const startIndex = (currentPage - 1) * itemsPerPage
@@ -72,41 +86,87 @@ export function AircraftSettingsTable() {
     fetchAircraft()
   }
 
+  const toggleAircraftArchive = async (a: Aircraft) => {
+    const next = !a.isArchived
+    const res = await fetch(`/api/aircraft/${a.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isArchived: next }),
+    })
+    if (res.ok) fetchAircraft()
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-2xl font-bold tracking-tight">Aircraft Settings</h2>
-        <div className="flex shrink-0 justify-end sm:justify-end">
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button type="button" className="gap-2">
-                <IconPlus className="size-4 shrink-0" />
-                Add Aircraft
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle>Add Aircraft</DialogTitle>
-              </DialogHeader>
-              <div className="mt-2 flex flex-col gap-4">
-                <div>
-                  <Label>Register *</Label>
-                  <Input value={register} onChange={e => setRegister(e.target.value)} placeholder="TC-XXX" className="mt-1" />
-                </div>
-                <div>
-                  <Label>MSN *</Label>
-                  <Input value={msn} onChange={e => setMsn(e.target.value)} placeholder="MSN" className="mt-1" />
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-                  <Button type="button" onClick={handleAdd} disabled={saving || !register || !msn}>
-                    {saving ? "Saving..." : "Save"}
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
+        <div className="space-y-1">
+          {isArchivedView && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="-ml-2 h-8 px-2 text-muted-foreground"
+              onClick={() => router.push("/documents/aircraft-settings")}
+            >
+              ← Aircraft Settings
+            </Button>
+          )}
+          <h2 className="text-2xl font-bold tracking-tight">
+            {isArchivedView ? "Archived aircrafts" : "Aircraft Settings"}
+          </h2>
+          {isArchivedView && (
+            <p className="text-sm text-muted-foreground">
+              Aircraft archived from the main list appear here. Restore to show them again in Aircraft Settings.
+            </p>
+          )}
         </div>
+        {!isArchivedView && (
+          <div className="flex w-full shrink-0 flex-col items-stretch gap-2 sm:w-auto sm:items-end">
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+              <DialogTrigger asChild>
+                <Button type="button" className="gap-2">
+                  <IconPlus className="size-4 shrink-0" />
+                  Add Aircraft
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Add Aircraft</DialogTitle>
+                </DialogHeader>
+                <div className="mt-2 flex flex-col gap-4">
+                  <div>
+                    <Label>Register *</Label>
+                    <Input value={register} onChange={e => setRegister(e.target.value)} placeholder="TC-XXX" className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>MSN *</Label>
+                    <Input value={msn} onChange={e => setMsn(e.target.value)} placeholder="MSN" className="mt-1" />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+                    <Button type="button" onClick={handleAdd} disabled={saving || !register || !msn}>
+                      {saving ? "Saving..." : "Save"}
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-2"
+              onClick={() => router.push("/documents/aircraft-settings/archived")}
+            >
+              <IconArchive className="size-4 shrink-0" />
+              Archived aircrafts
+              {archivedCount > 0 && (
+                <Badge variant="secondary" className="ml-0.5 font-normal tabular-nums">
+                  {archivedCount}
+                </Badge>
+              )}
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-2">
@@ -133,13 +193,18 @@ export function AircraftSettingsTable() {
               {paginated.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
-                    No aircraft found.
+                    {isArchivedView ? "No archived aircraft." : "No aircraft found."}
                   </TableCell>
                 </TableRow>
               ) : paginated.map(a => (
                 <TableRow
                   key={a.id}
-                  className="hover:bg-slate-50 border-b border-gray-300 cursor-pointer"
+                  className={cn(
+                    "border-b border-gray-300 cursor-pointer",
+                    isArchivedView
+                      ? "bg-muted/40 text-muted-foreground hover:bg-muted/60"
+                      : "hover:bg-slate-50"
+                  )}
                   onClick={() => router.push(`/documents/aircraft-settings/${a.id}`)}
                 >
                   <TableCell className="font-medium border-r border-gray-200">{a.register}</TableCell>
@@ -152,9 +217,25 @@ export function AircraftSettingsTable() {
                           <IconDotsVertical className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-36">
+                      <DropdownMenuContent align="end" className="w-48">
                         <DropdownMenuItem onSelect={() => router.push(`/documents/aircraft-settings/${a.id}`)}>
                           View Documents
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="gap-2"
+                          onSelect={() => { void toggleAircraftArchive(a) }}
+                        >
+                          {a.isArchived ? (
+                            <>
+                              <IconArchiveOff className="size-4 shrink-0" />
+                              Restore from archive
+                            </>
+                          ) : (
+                            <>
+                              <IconArchive className="size-4 shrink-0" />
+                              Archive aircraft
+                            </>
+                          )}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
