@@ -33,6 +33,8 @@ const prisma = new PrismaClient({
 
 async function clearAllData() {
   await prisma.$transaction(async (tx) => {
+    await tx.safetyObjective.deleteMany()
+    await tx.customReportType.deleteMany()
     await tx.hazardAttachment.deleteMany()
     await tx.aircraftDocument.deleteMany()
     await tx.meetingTask.deleteMany()

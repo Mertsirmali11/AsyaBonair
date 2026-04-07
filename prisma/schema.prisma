@@ -508,3 +508,28 @@ model SafetyRiskBoard {
   @@index([updatedAt(sort: Desc)])
   @@map("safety_risk_boards")
 }
+
+/// Configurations → Safety settings: kurumsal hedefler (sıra + ekleme tarihi otomatik).
+model SafetyObjective {
+  id             Int      @id @default(autoincrement())
+  sortOrder      Int      @map("sort_order")
+  text           String   @db.Text
+  insertionDate  DateTime @map("insertion_date") @db.Date
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([sortOrder])
+  @@map("safety_objectives")
+}
+
+/// Özel rapor türleri (sıra otomatik).
+model CustomReportType {
+  id        Int      @id @default(autoincrement())
+  sortOrder Int      @map("sort_order")
+  name      String   @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([sortOrder])
+  @@map("custom_report_types")
+}

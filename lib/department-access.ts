@@ -4,6 +4,13 @@ export function canAccessConfigurationsArea(
   return departman === "Human Resources" || departman === "Quality"
 }
 
+/** Objectives / custom report types (Configurations → Safety settings). */
+export function canAccessQualityOrAdminSettings(
+  departman: string | null | undefined
+): boolean {
+  return departman === "Quality" || departman === "Admin"
+}
+
 /**
  * Who may open **Configurations → New worker** and approve/reject self-service registrations.
  * Override with `WORKER_REGISTRATION_APPROVER_DEPARTMENTS` (comma-separated department names).

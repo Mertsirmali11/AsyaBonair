@@ -720,6 +720,7 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
                               <SelectItem value="Supply">Supply</SelectItem>
                               <SelectItem value="Accounting">Accounting</SelectItem>
                               <SelectItem value="Quality">Quality</SelectItem>
+                              <SelectItem value="Admin">Admin</SelectItem>
                               <SelectItem value="Administrative Affairs">Administrative Affairs</SelectItem>
                               <SelectItem value="IT">IT</SelectItem>
                               <SelectItem value="Planning">Planning</SelectItem>

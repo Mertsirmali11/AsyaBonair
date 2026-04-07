@@ -31,6 +31,7 @@ import { useDmInbox } from "@/components/dm-inbox-provider"
 import { cn } from "@/lib/utils"
 import {
   canAccessConfigurationsArea,
+  canAccessQualityOrAdminSettings,
   canApproveWorkerRegistrations,
 } from "@/lib/department-access"
 import {
@@ -77,10 +78,16 @@ const configurationsSubItems: {
   title: string
   url: string
   approversOnly?: boolean
+  qualityOrAdminOnly?: boolean
 }[] = [
   { title: "New worker", url: "/configurations/new-worker", approversOnly: true },
   { title: "User Settings", url: "/configurations" },
   { title: "Pilot Settings", url: "/configurations/pilot-settings" },
+  {
+    title: "Safety settings",
+    url: "/configurations/safety-settings",
+    qualityOrAdminOnly: true,
+  },
   { title: "Announcements", url: "/configurations/announcements" },
   { title: "AI manuals", url: "/configurations/manuals" },
 ]
@@ -132,9 +139,12 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
 
   const hasConfigurationsAccess = canAccessConfigurationsArea(user.departman)
   const canReviewRegistrations = canApproveWorkerRegistrations(user.departman)
-  const showConfigurationsNav = hasConfigurationsAccess || canReviewRegistrations
+  const canSafetyQualityPage = canAccessQualityOrAdminSettings(user.departman)
+  const showConfigurationsNav =
+    hasConfigurationsAccess || canReviewRegistrations || canSafetyQualityPage
   const visibleConfigurationSubItems = configurationsSubItems.filter((item) => {
     if (item.approversOnly) return canReviewRegistrations
+    if (item.qualityOrAdminOnly) return canSafetyQualityPage
     return hasConfigurationsAccess
   })
   const visibleControlledDocumentsSubItems = controlledDocumentsSubItems.filter((item) => {
@@ -462,7 +472,9 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
                 <CollapsibleContent>
                   <SidebarMenuSub>
                     {visibleConfigurationSubItems.map((subItem) => {
-                      const isSubActive = pathname === subItem.url
+                      const isSubActive =
+                        pathname === subItem.url ||
+                        !!pathname?.startsWith(`${subItem.url}/`)
                       return (
                         <SidebarMenuSubItem key={subItem.title}>
                           <SidebarMenuSubButton
