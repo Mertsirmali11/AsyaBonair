@@ -14,7 +14,7 @@ interface SiteHeaderProps {
     avatar?: string | null
     departman?: string | null
   }
-  /** Bağlam dışında veya geçici override için */
+  /** Optional override when outside workspace title context */
   title?: string
 }
 

@@ -43,12 +43,12 @@ export function ConfigManualsClient() {
         manuals?: ManualRow[]
         error?: string
       }
-      if (!res.ok) throw new Error(data.error || "Liste alınamadı")
+      if (!res.ok) throw new Error(data.error || "Could not load list")
       setItems(Array.isArray(data.manuals) ? data.manuals : [])
     } catch (e) {
       setBanner({
         type: "err",
-        text: e instanceof Error ? e.message : "Liste alınamadı",
+        text: e instanceof Error ? e.message : "Could not load list",
       })
       setItems([])
     } finally {
@@ -63,7 +63,10 @@ export function ConfigManualsClient() {
   const submit = async () => {
     const t = title.trim()
     if (!t || !file) {
-      setBanner({ type: "err", text: "Başlık ve dosya seçin (PDF, Word, Excel, PowerPoint)." })
+      setBanner({
+        type: "err",
+        text: "Enter a title and choose a file (PDF, Word, Excel, or PowerPoint).",
+      })
       return
     }
     setUploading(true)
@@ -73,15 +76,18 @@ export function ConfigManualsClient() {
       fd.append("file", file)
       const res = await fetch("/api/manuals", { method: "POST", body: fd })
       const data = (await res.json().catch(() => ({}))) as { error?: string }
-      if (!res.ok) throw new Error(data.error || "Yükleme başarısız")
-      setBanner({ type: "ok", text: "Manuel kaydedildi. AI sohbette seçilebilir." })
+      if (!res.ok) throw new Error(data.error || "Upload failed")
+      setBanner({
+        type: "ok",
+        text: "Manual saved. It can be selected in AI chat.",
+      })
       setTitle("")
       setFile(null)
       await load()
     } catch (e) {
       setBanner({
         type: "err",
-        text: e instanceof Error ? e.message : "Yükleme başarısız",
+        text: e instanceof Error ? e.message : "Upload failed",
       })
     } finally {
       setUploading(false)
@@ -89,18 +95,18 @@ export function ConfigManualsClient() {
   }
 
   const remove = async (id: number) => {
-    if (!confirm("Bu manueli silmek istediğinize emin misiniz?")) return
+    if (!confirm("Delete this manual?")) return
     setDeletingId(id)
     try {
       const res = await fetch(`/api/manuals/${id}`, { method: "DELETE" })
       const data = (await res.json().catch(() => ({}))) as { error?: string }
-      if (!res.ok) throw new Error(data.error || "Silinemedi")
-      setBanner({ type: "ok", text: "Manuel silindi." })
+      if (!res.ok) throw new Error(data.error || "Could not delete")
+      setBanner({ type: "ok", text: "Manual deleted." })
       await load()
     } catch (e) {
       setBanner({
         type: "err",
-        text: e instanceof Error ? e.message : "Silinemedi",
+        text: e instanceof Error ? e.message : "Could not delete",
       })
     } finally {
       setDeletingId(null)
@@ -108,14 +114,14 @@ export function ConfigManualsClient() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       {banner && (
         <div
           role="status"
           className={
             banner.type === "ok"
-              ? "rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-950 dark:text-emerald-100"
-              : "rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              ? "rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground"
+              : "rounded-lg border border-destructive/40 bg-background px-4 py-3 text-sm text-destructive"
           }
         >
           {banner.text}
@@ -124,15 +130,15 @@ export function ConfigManualsClient() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Manuel dosyası yükle</CardTitle>
+          <CardTitle>Upload manual file</CardTitle>
           <CardDescription>
-            Örn. Compliance Monitoring Manual. Metin PDF veya Office dosyasından çıkarılır; AI sohbette
-            seçildiğinde yanıtlar bu metne dayanır.
+            For example, Compliance Monitoring Manual. Text is extracted from PDF or Office files;
+            when selected in AI chat, answers are grounded in that content.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div className="space-y-2">
-            <Label htmlFor="manual-title">Manuel adı</Label>
+            <Label htmlFor="manual-title">Manual title</Label>
             <Input
               id="manual-title"
               value={title}
@@ -142,7 +148,7 @@ export function ConfigManualsClient() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="manual-file">Dosya (PDF, Word, Excel, PowerPoint)</Label>
+            <Label htmlFor="manual-file">File (PDF, Word, Excel, PowerPoint)</Label>
             <Input
               id="manual-file"
               type="file"
@@ -158,16 +164,16 @@ export function ConfigManualsClient() {
             onClick={() => void submit()}
           >
             <IconUpload className="size-4" />
-            {uploading ? "Yükleniyor…" : "Kaydet"}
+            {uploading ? "Uploading…" : "Save"}
           </Button>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Yüklenen manueler</CardTitle>
+          <CardTitle>Uploaded manuals</CardTitle>
           <CardDescription>
-            Bonair AI sohbetinde açılır listeden seçilir. Tüm çalışanlar listeyi görebilir.
+            Shown in the picker in Bonair AI chat. All staff can see the list.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -177,7 +183,7 @@ export function ConfigManualsClient() {
               <Skeleton className="h-12 w-full" />
             </div>
           ) : items.length === 0 ? (
-            <p className="text-muted-foreground text-sm">Henüz manuel yok.</p>
+            <p className="text-muted-foreground text-sm">No manuals yet.</p>
           ) : (
             <ul className="divide-y rounded-md border">
               {items.map((m) => (
@@ -198,7 +204,7 @@ export function ConfigManualsClient() {
                     className="text-destructive hover:bg-destructive/10"
                     disabled={deletingId === m.id}
                     onClick={() => void remove(m.id)}
-                    aria-label="Sil"
+                    aria-label="Delete"
                   >
                     <IconTrash className="size-4" />
                   </Button>

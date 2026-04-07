@@ -140,9 +140,15 @@ const initialFormData = {
 interface UserManagementProps {
   departmentFilter?: string | null
   title?: string
+  /** When true, omit the in-component page title (shell provides the H1). */
+  hidePageTitle?: boolean
 }
 
-export function UserManagement({ departmentFilter, title = "User Management" }: UserManagementProps) {
+export function UserManagement({
+  departmentFilter,
+  title = "User Management",
+  hidePageTitle = false,
+}: UserManagementProps) {
   const pathname = usePathname()
   const isPilotSettings = departmentFilter === "Pilot"
   const [calisanlar, setCalisanlar] = useState<Calisan[]>([])
@@ -486,8 +492,14 @@ export function UserManagement({ departmentFilter, title = "User Management" }: 
           </Button>
         </div>
       )}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-2xl font-bold tracking-tight">{title}</h2>
+      <div
+        className={
+          hidePageTitle
+            ? "flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-end"
+            : "flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+        }
+      >
+        {!hidePageTitle && <h2 className="text-2xl font-bold tracking-tight">{title}</h2>}
         <div className="flex shrink-0 justify-end sm:justify-end">
         <Dialog open={dialogOpen} onOpenChange={(open) => {
           setDialogOpen(open)

@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation"
+
 import { auth } from "@/auth"
-import { canAccessConfigurationsArea } from "@/lib/department-access"
 import { ConfigManualsClient } from "@/components/config-manuals-client"
+import { ConfigurationsPageShell } from "@/components/configurations-page-shell"
 import { DashboardLayout } from "@/components/dashboard-layout"
+import { canAccessConfigurationsArea } from "@/lib/department-access"
 
 export default async function ConfigurationsManualsPage() {
   const session = await auth()
@@ -19,10 +21,14 @@ export default async function ConfigurationsManualsPage() {
   }
 
   return (
-    <DashboardLayout user={user} headerTitle="Configurations · AI manuals">
-      <div className="flex flex-col gap-6 p-4 md:p-6">
+    <DashboardLayout user={user}>
+      <ConfigurationsPageShell
+        workspaceTitle="Configurations · AI manuals"
+        pageTitle="AI manuals"
+        breadcrumbCurrent="AI manuals"
+      >
         <ConfigManualsClient />
-      </div>
+      </ConfigurationsPageShell>
     </DashboardLayout>
   )
 }

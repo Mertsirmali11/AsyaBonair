@@ -173,9 +173,9 @@
 }
 
 /* -------------------------------------------------------------------------- */
-/* Configurations · Safety settings — beyaz / nötr, renksiz vurgu               */
+/* Configurations routes — shared shell (Safety settings tables, etc.)        */
 /* -------------------------------------------------------------------------- */
-.safety-settings-shell {
+.configurations-shell {
   --ss-ink: oklch(0.25 0.02 260);
   --ss-ink-muted: oklch(0.45 0.01 260);
   --ss-edge: var(--border);
@@ -192,7 +192,7 @@
   box-shadow: none;
 }
 
-.dark .safety-settings-shell {
+.dark .configurations-shell {
   --ss-ink: oklch(0.93 0.01 260);
   --ss-ink-muted: oklch(0.65 0.01 260);
   --ss-surface: var(--card);
@@ -201,7 +201,7 @@
   --ss-head: oklch(0.22 0.015 265);
 }
 
-.safety-settings-shell .ss-page-heading {
+.configurations-shell .ss-page-heading {
   color: var(--foreground);
   font-weight: 650;
   letter-spacing: -0.03em;
@@ -209,44 +209,44 @@
   padding-bottom: 0.25rem;
 }
 
-.safety-settings-shell .ss-breadcrumb {
+.configurations-shell .ss-breadcrumb {
   padding: 0.5rem 0.85rem;
   border-radius: var(--radius-md);
   background: #fff;
   border: 1px solid var(--ss-edge);
 }
 
-.dark .safety-settings-shell .ss-breadcrumb {
+.dark .configurations-shell .ss-breadcrumb {
   background: var(--card);
 }
 
-.safety-settings-shell .ss-breadcrumb a {
+.configurations-shell .ss-breadcrumb a {
   color: var(--muted-foreground);
 }
 
-.safety-settings-shell .ss-breadcrumb [aria-current="page"] {
+.configurations-shell .ss-breadcrumb [aria-current="page"] {
   color: var(--foreground);
   font-weight: 500;
 }
 
-.safety-settings-shell .ss-flash-ok,
-.safety-settings-shell .ss-flash-err {
+.configurations-shell .ss-flash-ok,
+.configurations-shell .ss-flash-err {
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   background: #fff;
   color: var(--foreground);
 }
 
-.dark .safety-settings-shell .ss-flash-ok,
-.dark .safety-settings-shell .ss-flash-err {
+.dark .configurations-shell .ss-flash-ok,
+.dark .configurations-shell .ss-flash-err {
   background: var(--card);
 }
 
-.safety-settings-shell .ss-flash-err {
+.configurations-shell .ss-flash-err {
   color: var(--destructive);
 }
 
-.safety-settings-shell .ss-panel {
+.configurations-shell .ss-panel {
   overflow: hidden;
   border-radius: var(--radius-lg);
   border: 1px solid var(--ss-edge);
@@ -254,34 +254,34 @@
   box-shadow: none;
 }
 
-.safety-settings-shell .ss-panel-header {
+.configurations-shell .ss-panel-header {
   background: #fff;
   border-bottom: 1px solid var(--ss-edge);
 }
 
-.dark .safety-settings-shell .ss-panel-header {
+.dark .configurations-shell .ss-panel-header {
   background: var(--card);
 }
 
-.safety-settings-shell .ss-panel-title {
+.configurations-shell .ss-panel-title {
   padding-left: 0;
   color: var(--foreground);
   font-weight: 650;
   letter-spacing: -0.02em;
 }
 
-.safety-settings-shell .ss-table-wrap {
+.configurations-shell .ss-table-wrap {
   border-radius: calc(var(--radius-md) + 2px);
   border: 1px solid var(--ss-edge);
   overflow: hidden;
 }
 
-.safety-settings-shell table.ss-table thead tr {
+.configurations-shell table.ss-table thead tr {
   background: var(--ss-head);
   border-color: var(--ss-edge) !important;
 }
 
-.safety-settings-shell table.ss-table thead th {
+.configurations-shell table.ss-table thead th {
   color: var(--muted-foreground);
   font-size: 0.7rem;
   text-transform: uppercase;
@@ -289,28 +289,28 @@
   font-weight: 600;
 }
 
-.safety-settings-shell table.ss-table tbody tr {
+.configurations-shell table.ss-table tbody tr {
   border-color: var(--ss-edge) !important;
   transition: background 0.12s ease;
 }
 
-.safety-settings-shell table.ss-table tbody tr.ss-row-a {
+.configurations-shell table.ss-table tbody tr.ss-row-a {
   background: var(--ss-row-a);
 }
 
-.safety-settings-shell table.ss-table tbody tr.ss-row-b {
+.configurations-shell table.ss-table tbody tr.ss-row-b {
   background: var(--ss-row-b);
 }
 
-.safety-settings-shell table.ss-table tbody tr:hover {
+.configurations-shell table.ss-table tbody tr:hover {
   background: #f4f4f5;
 }
 
-.dark .safety-settings-shell table.ss-table tbody tr:hover {
+.dark .configurations-shell table.ss-table tbody tr:hover {
   background: oklch(0.24 0.015 265);
 }
 
-.safety-settings-shell .ss-order-pill {
+.configurations-shell .ss-order-pill {
   display: inline-flex;
   min-width: 2rem;
   justify-content: center;
@@ -324,26 +324,26 @@
   border: 1px solid var(--ss-edge);
 }
 
-.dark .safety-settings-shell .ss-order-pill {
+.dark .configurations-shell .ss-order-pill {
   background: var(--card);
   color: var(--foreground);
 }
 
-.safety-settings-shell .ss-date-cell {
+.configurations-shell .ss-date-cell {
   font-variant-numeric: tabular-nums;
   font-size: 0.8125rem;
   color: var(--muted-foreground);
 }
 
-.safety-settings-shell .ss-action-btn {
+.configurations-shell .ss-action-btn {
   border-radius: var(--radius-md);
 }
 
-.safety-settings-shell .ss-action-btn[data-variant="ghost"]:hover {
+.configurations-shell .ss-action-btn[data-variant="ghost"]:hover {
   background: #f4f4f5 !important;
 }
 
-.dark .safety-settings-shell .ss-action-btn[data-variant="ghost"]:hover {
+.dark .configurations-shell .ss-action-btn[data-variant="ghost"]:hover {
   background: oklch(0.28 0.015 265) !important;
 }
 
@@ -360,7 +360,7 @@
     0 28px 70px -20px oklch(0 0 0 / 0.45);
 }
 
-.safety-settings-shell .ss-skeleton {
+.configurations-shell .ss-skeleton {
   border-radius: var(--radius-md);
   border: 1px solid var(--ss-edge);
   background: linear-gradient(

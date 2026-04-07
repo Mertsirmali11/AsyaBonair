@@ -107,7 +107,7 @@ function statusBadge(status: WorkerRegistrationRow["status"]) {
   }
 }
 
-export function WorkerRegistrationsPanel() {
+export function WorkerRegistrationsPanel({ embedded = false }: { embedded?: boolean }) {
   const [statusFilter, setStatusFilter] = React.useState<string>("PENDING")
   const [rows, setRows] = React.useState<WorkerRegistrationRow[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -218,16 +218,30 @@ export function WorkerRegistrationsPanel() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 border-b border-border pb-6 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">New worker registrations</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Review self-service sign-up requests. When you approve, assign a department; hire date
-            is set automatically to the approval date (Istanbul). Login uses the email and
-            password they registered with.
+      <div
+        className={
+          embedded
+            ? "flex flex-col gap-4 border-b border-border pb-6 sm:flex-row sm:items-center sm:justify-between sm:gap-6"
+            : "flex flex-col gap-4 border-b border-border pb-6 sm:flex-row sm:items-end sm:justify-between"
+        }
+      >
+        {!embedded && (
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">New worker registrations</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Review self-service sign-up requests. When you approve, assign a department; hire date
+              is set automatically to the approval date (Istanbul). Login uses the email and
+              password they registered with.
+            </p>
+          </div>
+        )}
+        {embedded && (
+          <p className="text-muted-foreground min-w-0 max-w-3xl flex-1 text-left text-sm leading-relaxed">
+            Approve or reject self-service sign-ups. Hire date is set to the approval date (Istanbul).
+            Login uses the email and password they registered with.
           </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+        )}
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           <Label htmlFor="reg-status" className="sr-only">
             Status filter
           </Label>

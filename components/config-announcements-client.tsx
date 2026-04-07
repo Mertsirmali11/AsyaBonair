@@ -62,7 +62,11 @@ type AckStatsPayload = {
   }>
 }
 
-export function ConfigAnnouncementsClient() {
+export function ConfigAnnouncementsClient({
+  compactHeader = false,
+}: {
+  compactHeader?: boolean
+}) {
   const [items, setItems] = React.useState<ConfigAnnouncement[]>([])
   const [loading, setLoading] = React.useState(true)
   const [query, setQuery] = React.useState("")
@@ -171,16 +175,16 @@ export function ConfigAnnouncementsClient() {
       })
       const data = (await res.json().catch(() => ({}))) as { error?: string }
       if (!res.ok) {
-        throw new Error(data.error || "E-posta gönderilemedi.")
+        throw new Error(data.error || "Could not send email.")
       }
       setBanner({
         type: "ok",
-        text: "Rapor e-posta adresinize gönderildi (gelen kutusu / spam).",
+        text: "Report sent to your email (check inbox / spam).",
       })
     } catch (e) {
       setBanner({
         type: "err",
-        text: e instanceof Error ? e.message : "E-posta gönderilemedi.",
+        text: e instanceof Error ? e.message : "Could not send email.",
       })
     } finally {
       setEmailReportSending(false)
@@ -315,17 +319,30 @@ export function ConfigAnnouncementsClient() {
   return (
     <div className="flex w-full flex-col gap-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0 space-y-1.5">
-          <h2 className="text-2xl font-bold tracking-tight">Announcements</h2>
-          <p className="text-muted-foreground text-sm">
-            Create, view, edit, and delete announcements. New posts email all staff when Resend is
-            configured. Staff confirm on the dashboard with «Okudum, anladım»; here you see counts and
-            who is pending. Same permissions as the dashboard (Quality / Human Resources).
+        {!compactHeader && (
+          <div className="min-w-0 space-y-1.5">
+            <h2 className="text-2xl font-bold tracking-tight">Announcements</h2>
+            <p className="text-muted-foreground text-sm">
+              Create, view, edit, and delete announcements. New posts email all staff when Resend is
+              configured. Staff confirm on the dashboard with “I have read and understood”; here you
+              see counts and who is pending. Same permissions as the dashboard (Quality / Human
+              Resources).
+            </p>
+          </div>
+        )}
+        {compactHeader && (
+          <p className="text-muted-foreground min-w-0 max-w-3xl flex-1 text-left text-sm leading-relaxed">
+            Create and manage announcements; new posts email all staff when Resend is configured.
           </p>
-        </div>
+        )}
         <Button
           type="button"
-          className="shrink-0 gap-2 self-end sm:self-center"
+          className={
+            compactHeader
+              ? "h-10 shrink-0 gap-2 self-start sm:self-center"
+              : "shrink-0 gap-2 self-end sm:self-center"
+          }
+          variant="outline"
           onClick={() => {
             setCreateOpen(true)
             setNewTitle("")
@@ -390,7 +407,7 @@ export function ConfigAnnouncementsClient() {
                           {typeof a.acknowledgedCount === "number" &&
                             typeof a.totalStaff === "number" && (
                               <p className="text-xs font-medium text-sky-800 dark:text-sky-200">
-                                Onay: {a.acknowledgedCount} / {a.totalStaff} çalışan
+                                Acknowledged: {a.acknowledgedCount} / {a.totalStaff} staff
                               </p>
                             )}
                           <p className="text-muted-foreground text-xs">
@@ -494,16 +511,16 @@ export function ConfigAnnouncementsClient() {
                 <div className="rounded-lg border bg-muted/40 p-3 text-sm">
                   <p className="font-medium">Okuma / onay durumu</p>
                   {ackStatsLoading && (
-                    <p className="text-muted-foreground mt-1 text-xs">Yükleniyor…</p>
+                    <p className="text-muted-foreground mt-1 text-xs">Loading…</p>
                   )}
                   {!ackStatsLoading && ackStats && (
                     <>
                       <p className="mt-1 text-xs">
                         <strong>{ackStats.acknowledgedCount}</strong> /{" "}
-                        <strong>{ackStats.totalStaff}</strong> çalışan «Okudum, anladım» dedi.
+                        <strong>{ackStats.totalStaff}</strong> staff selected “I have read and understood”.
                         {" · "}
                         <span className="text-amber-800 dark:text-amber-200">
-                          {ackStats.notAcknowledged.length} kişi henüz onaylamadı
+                          {ackStats.notAcknowledged.length} staff not yet acknowledged
                         </span>
                       </p>
                       <Button
@@ -516,13 +533,13 @@ export function ConfigAnnouncementsClient() {
                       >
                         <IconMailForward className="size-4" />
                         {emailReportSending
-                          ? "Gönderiliyor…"
-                          : "Detaylı raporu e-postama gönder"}
+                          ? "Sending…"
+                          : "Email me the full report"}
                       </Button>
                       {ackStats.notAcknowledged.length > 0 && (
                         <div className="mt-3 max-h-36 overflow-y-auto rounded border bg-background p-2 text-xs">
                           <p className="mb-1 font-medium text-destructive">
-                            Henüz onaylamayanlar
+                            Not yet acknowledged
                           </p>
                           <ul className="list-inside list-disc space-y-0.5">
                             {ackStats.notAcknowledged.slice(0, 80).map((c) => (
@@ -534,8 +551,7 @@ export function ConfigAnnouncementsClient() {
                           </ul>
                           {ackStats.notAcknowledged.length > 80 && (
                             <p className="text-muted-foreground mt-1">
-                              … ve {ackStats.notAcknowledged.length - 80} kişi (tam liste
-                              e-postada)
+                              … and {ackStats.notAcknowledged.length - 80} more (full list in email)
                             </p>
                           )}
                         </div>
@@ -544,7 +560,7 @@ export function ConfigAnnouncementsClient() {
                   )}
                   {!ackStatsLoading && !ackStats && (
                     <p className="text-muted-foreground mt-1 text-xs">
-                      İstatistik yüklenemedi.
+                      Could not load statistics.
                     </p>
                   )}
                 </div>

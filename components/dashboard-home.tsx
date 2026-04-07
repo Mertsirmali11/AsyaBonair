@@ -114,7 +114,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
       setLoading(true)
     }
 
-    let lastMsg = "Veriler yüklenemedi."
+    let lastMsg = "Could not load data."
     for (let attempt = 0; attempt < SUMMARY_RETRIES; attempt++) {
       try {
         const res = await fetch("/api/dashboard/summary", { cache: "no-store" })
@@ -133,11 +133,11 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
         }
         lastMsg =
           res.status >= 500
-            ? "Sunucu geçici olarak yanıt vermedi. Bir süre sonra tekrar deneyin."
-            : "Özet verisi alınamadı."
+            ? "The server did not respond. Please try again shortly."
+            : "Could not load dashboard summary."
         await new Promise((r) => setTimeout(r, SUMMARY_RETRY_MS * (attempt + 1)))
       } catch {
-        lastMsg = "Bağlantı kesildi veya zaman aşımı oluştu."
+        lastMsg = "Connection lost or request timed out."
         await new Promise((r) => setTimeout(r, SUMMARY_RETRY_MS * (attempt + 1)))
       }
     }
@@ -188,7 +188,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
       const res = await fetch(`/api/announcements/${id}/ack`, { method: "POST" })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        alert(err.error || "Onay kaydedilemedi.")
+        alert(err.error || "Could not save acknowledgment.")
         return
       }
       setAnnouncements((prev) =>
@@ -250,25 +250,25 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
               className="shrink-0 border-amber-600/40 bg-card/90 dark:bg-background"
               onClick={() => void fetchAll("initial")}
             >
-              Yeniden dene
+              Retry
             </Button>
           </div>
         )}
         {loading && !loadError && (
-          <p className="text-muted-foreground text-sm">Özet yükleniyor…</p>
+          <p className="text-muted-foreground text-sm">Loading summary…</p>
         )}
         {todayMeetings.length > 0 && (
           <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950 shadow-sm dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <p className="font-medium">
-                Bugün için {todayMeetings.length} toplantınız planlandı.
+                You have {todayMeetings.length} meeting{todayMeetings.length === 1 ? "" : "s"} scheduled today.
               </p>
               {canOpenMeetingsPage ? (
                 <Link
                   href="/meetings"
                   className="inline-flex items-center gap-1 font-semibold text-sky-800 underline-offset-4 hover:underline dark:text-sky-200"
                 >
-                  Toplantı planlarına git
+                  Go to meetings
                   <ArrowRight className="size-4" />
                 </Link>
               ) : (
@@ -276,7 +276,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                   href={`/meetings/${todayMeetings[0].id}`}
                   className="inline-flex items-center gap-1 font-semibold text-sky-800 underline-offset-4 hover:underline dark:text-sky-200"
                 >
-                  Toplantı detayına git
+                  Open meeting
                   <ArrowRight className="size-4" />
                 </Link>
               )}
@@ -302,7 +302,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
             <div className="flex flex-col gap-3 max-h-[600px] overflow-y-auto">
               {loading && !loadError && announcements.length === 0 ? (
                 <div className="rounded-lg border bg-card p-6 text-center text-sm text-muted-foreground">
-                  Duyurular yükleniyor…
+                  Loading announcements…
                 </div>
               ) : !loading && !loadError && announcements.length === 0 ? (
                 <div className="rounded-lg border bg-card p-6 text-center text-muted-foreground">
@@ -326,7 +326,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                     <div className="flex flex-wrap items-center gap-2">
                       {a.acknowledgedByMe ? (
                         <span className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">
-                          Okudum, anladım (onaylandı)
+                          I have read and understood (acknowledged)
                         </span>
                       ) : (
                         <Button
@@ -337,7 +337,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                           disabled={ackingId === a.id}
                           onClick={() => void handleAckAnnouncement(a.id)}
                         >
-                          {ackingId === a.id ? "Kaydediliyor…" : "Okudum, anladım"}
+                          {ackingId === a.id ? "Saving…" : "I have read and understood"}
                         </Button>
                       )}
                     </div>
@@ -379,7 +379,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
               </div>
               <p className="text-xs text-muted-foreground mb-3">
                 Open action items: due <strong>today</strong> or within the{" "}
-                <strong>next 30 days</strong> (İstanbul calendar). Completed tasks
+                <strong>next 30 days</strong> (Istanbul calendar). Completed tasks
                 are hidden.
               </p>
               <div className="border rounded-lg bg-white overflow-hidden max-h-[min(420px,55vh)] overflow-y-auto">
@@ -468,7 +468,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                       <p className="text-sm font-medium">{m.title}</p>
                       <p className="text-xs text-muted-foreground">{m.meetingType?.name ?? "—"} · {m.meetingNo}</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        {formatDateOnlyIstanbul(m.plannedDate)} (İstanbul)
+                        {formatDateOnlyIstanbul(m.plannedDate)} (Istanbul)
                       </p>
                     </div>
                     <span className={`rounded px-2 py-0.5 text-xs font-semibold ${m.status === "Completed" ? "bg-green-100 text-green-800 dark:bg-green-950/50 dark:text-green-300" : "bg-secondary text-secondary-foreground"}`}>

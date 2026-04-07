@@ -1,8 +1,18 @@
+import dynamic from "next/dynamic"
 import { redirect } from "next/navigation"
 
 import { auth } from "@/auth"
+import { ConfigurationsPageShell } from "@/components/configurations-page-shell"
 import { canAccessConfigurationsArea } from "@/lib/department-access"
-import { UserManagement } from "@/components/user-management"
+
+const UserManagement = dynamic(
+  () => import("@/components/user-management").then((m) => ({ default: m.UserManagement })),
+  {
+    loading: () => (
+      <p className="text-muted-foreground text-sm">Loading user settings…</p>
+    ),
+  }
+)
 
 export default async function ConfigurationsPage() {
   const session = await auth()
@@ -16,8 +26,12 @@ export default async function ConfigurationsPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-6">
-      <UserManagement title="User Settings" />
-    </div>
+    <ConfigurationsPageShell
+      workspaceTitle="Configurations · User settings"
+      pageTitle="User settings"
+      breadcrumbCurrent="User settings"
+    >
+      <UserManagement hidePageTitle title="User Settings" />
+    </ConfigurationsPageShell>
   )
 }
