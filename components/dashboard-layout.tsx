@@ -21,7 +21,9 @@ interface User {
 interface DashboardLayoutProps {
   children: React.ReactNode
   user: User
-  /** Üst başlık; verilmezse WorkspacePageTitle bağlamı kullanılır */
+  /** Audit Plan menü öğesi — sunucuda `canAccessAuditPlan` ile hesaplanır */
+  showAuditPlanNav?: boolean
+  /** Üst başlık (SiteHeader); verilmezse sayfa `SetWorkspacePageTitle` kullanır */
   headerTitle?: string
 }
 
@@ -51,6 +53,7 @@ function WorkspaceInsetWithTitle({
 export function DashboardLayout({
   children,
   user,
+  showAuditPlanNav = false,
   headerTitle,
 }: DashboardLayoutProps) {
   return (
@@ -64,7 +67,7 @@ export function DashboardLayout({
       }
     >
       <DmInboxProvider>
-        <AppSidebar variant="inset" user={user} />
+        <AppSidebar variant="inset" user={user} showAuditPlanNav={showAuditPlanNav} />
         <SidebarInset className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <WorkspaceInsetWithTitle user={user} headerTitle={headerTitle}>
             {children}

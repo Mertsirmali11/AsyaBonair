@@ -7,7 +7,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "prisma generate && next dev",
     "dev:fresh": "node scripts/free-dev-port.mjs && next dev",
     "build": "prisma generate && next build",
     "start": "next start",

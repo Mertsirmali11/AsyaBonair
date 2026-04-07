@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { DashboardLayout } from "@/components/dashboard-layout"
+import { canAccessAuditPlan } from "@/lib/audit-plan-access"
 
 export default async function WorkspaceLayout({
   children,
@@ -19,5 +20,11 @@ export default async function WorkspaceLayout({
     departman: session.user?.departman || null,
   }
 
-  return <DashboardLayout user={user}>{children}</DashboardLayout>
+  const showAuditPlanNav = canAccessAuditPlan(session.user?.email)
+
+  return (
+    <DashboardLayout user={user} showAuditPlanNav={showAuditPlanNav}>
+      {children}
+    </DashboardLayout>
+  )
 }

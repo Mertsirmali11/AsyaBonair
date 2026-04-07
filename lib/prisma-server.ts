@@ -99,3 +99,12 @@ function getOrCreatePrisma(): PrismaClient {
 
 export const prisma = getOrCreatePrisma()
 
+if (process.env.NODE_ENV === "development") {
+  const p = prisma as unknown as { auditCategoryType?: unknown }
+  if (!p.auditCategoryType) {
+    console.error(
+      "[prisma] Prisma Client is missing models (e.g. auditCategoryType). Run `pnpm exec prisma generate` and restart `pnpm dev`."
+    )
+  }
+}
+

@@ -89,6 +89,7 @@ const configurationsSubItems: {
     qualityOrAdminOnly: true,
   },
   { title: "Announcements", url: "/configurations/announcements" },
+  { title: "Audit Settings", url: "/configurations/audit-settings" },
   { title: "AI manuals", url: "/configurations/manuals" },
 ]
 
@@ -108,11 +109,24 @@ const correspondencesSubItems = [
 
 const safetyManagementSubItems = [{ title: "Risk Board", url: "/safety/risk-board" }]
 
+const complianceMonitoringSubItems = [
+  { title: "Overview", url: "/compliance" },
+  { title: "Audit Plan", url: "/compliance/audit-plan" },
+  { title: "Checklists", url: "/compliance/checklists" },
+]
+
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   user: User
+  /** Audit Plan alt menüsü — yalnızca `AUDIT_PLAN_ADMIN_EMAILS` içindeki kullanıcılar */
+  showAuditPlanNav?: boolean
 }
 
-export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
+export function AppSidebar({
+  user,
+  showAuditPlanNav = false,
+  className,
+  ...props
+}: AppSidebarProps) {
   const pathname = usePathname()
   const { hasUnread } = useDmInbox()
   const flushMessagesGutter =
@@ -136,6 +150,9 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
   const [safetyManagementOpen, setSafetyManagementOpen] = React.useState(
     pathname?.startsWith("/safety") || false
   )
+  const [complianceMonitoringOpen, setComplianceMonitoringOpen] = React.useState(
+    pathname?.startsWith("/compliance") || false
+  )
 
   const hasConfigurationsAccess = canAccessConfigurationsArea(user.departman)
   const canReviewRegistrations = canApproveWorkerRegistrations(user.departman)
@@ -151,6 +168,20 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
     if (item.configurationsOnly) return hasConfigurationsAccess
     return true
   })
+
+  const visibleComplianceMonitoringSubItems = React.useMemo(
+    () =>
+      complianceMonitoringSubItems.filter((item) => {
+        if (
+          item.url === "/compliance/audit-plan" ||
+          item.url === "/compliance/checklists"
+        ) {
+          return showAuditPlanNav
+        }
+        return true
+      }),
+    [showAuditPlanNav]
+  )
 
   React.useEffect(() => {
     const storedConfigurations = window.localStorage.getItem(
@@ -178,6 +209,13 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
     if (storedSafety !== null) {
       setSafetyManagementOpen(storedSafety === "true")
     }
+
+    const storedCompliance = window.localStorage.getItem(
+      "bonair.sidebar.complianceMonitoringOpen"
+    )
+    if (storedCompliance !== null) {
+      setComplianceMonitoringOpen(storedCompliance === "true")
+    }
   }, [])
 
   React.useEffect(() => {
@@ -192,6 +230,9 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
     }
     if (pathname?.startsWith("/safety")) {
       setSafetyManagementOpen(true)
+    }
+    if (pathname?.startsWith("/compliance")) {
+      setComplianceMonitoringOpen(true)
     }
   }, [pathname])
 
@@ -222,6 +263,13 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
       safetyManagementOpen ? "true" : "false"
     )
   }, [safetyManagementOpen])
+
+  React.useEffect(() => {
+    window.localStorage.setItem(
+      "bonair.sidebar.complianceMonitoringOpen",
+      complianceMonitoringOpen ? "true" : "false"
+    )
+  }, [complianceMonitoringOpen])
 
   React.useEffect(() => {
     const el = sidebarContentRef.current
@@ -279,25 +327,66 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
       <SidebarContent ref={sidebarContentRef} className="px-2 py-2">
         <SidebarMenu>
           {menuItemsBeforeControlledDocs.map((item) => {
-            const isActive = pathname === item.url || pathname?.startsWith(item.url + "/")
-            return (
-              <React.Fragment key={item.title}>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    className={cn(
-                      "h-10 px-3 rounded-lg transition-colors",
-                      isActive && "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                    )}
+            if (item.title === "Compliance Monitoring") {
+              const complianceActive = pathname?.startsWith("/compliance")
+              return (
+                <React.Fragment key={item.title}>
+                  <Collapsible
+                    open={complianceMonitoringOpen}
+                    onOpenChange={setComplianceMonitoringOpen}
+                    className="group/collapsible"
                   >
-                    <Link href={item.url}>
-                      <item.icon className="size-5" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <CollapsibleTrigger asChild>
+                        <SidebarMenuButton
+                          className={cn(
+                            "h-10 w-full justify-between rounded-lg px-3 transition-colors",
+                            complianceActive &&
+                              "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                          )}
+                        >
+                          <div className="flex items-center gap-2">
+                            <IconClipboardCheck className="size-5" />
+                            <span>Compliance Monitoring</span>
+                          </div>
+                          <IconChevronDown
+                            className={cn(
+                              "size-4 transition-transform duration-200",
+                              complianceMonitoringOpen && "rotate-180"
+                            )}
+                          />
+                        </SidebarMenuButton>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <SidebarMenuSub>
+                          {visibleComplianceMonitoringSubItems.map((subItem) => {
+                            const isSubActive =
+                              subItem.url === "/compliance"
+                                ? pathname === "/compliance" ||
+                                  pathname === "/compliance/"
+                                : pathname === subItem.url ||
+                                  !!pathname?.startsWith(`${subItem.url}/`)
+                            return (
+                              <SidebarMenuSubItem key={subItem.title}>
+                                <SidebarMenuSubButton
+                                  asChild
+                                  className={cn(
+                                    "h-9 pl-9",
+                                    isSubActive && "bg-sidebar-accent/50 font-medium"
+                                  )}
+                                >
+                                  <Link href={subItem.url}>
+                                    <span>{subItem.title}</span>
+                                  </Link>
+                                </SidebarMenuSubButton>
+                              </SidebarMenuSubItem>
+                            )
+                          })}
+                        </SidebarMenuSub>
+                      </CollapsibleContent>
+                    </SidebarMenuItem>
+                  </Collapsible>
 
-                {item.title === "Compliance Monitoring" && (
                   <Collapsible
                     open={safetyManagementOpen}
                     onOpenChange={setSafetyManagementOpen}
@@ -307,9 +396,9 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
                       <CollapsibleTrigger asChild>
                         <SidebarMenuButton
                           className={cn(
-                            "h-10 px-3 rounded-lg transition-colors w-full justify-between",
+                            "h-10 w-full justify-between rounded-lg px-3 transition-colors",
                             pathname?.startsWith("/safety") &&
-                              "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                              "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                           )}
                         >
                           <div className="flex items-center gap-2">
@@ -353,8 +442,28 @@ export function AppSidebar({ user, className, ...props }: AppSidebarProps) {
                       </CollapsibleContent>
                     </SidebarMenuItem>
                   </Collapsible>
-                )}
-              </React.Fragment>
+                </React.Fragment>
+              )
+            }
+
+            const isActive =
+              pathname === item.url || pathname?.startsWith(item.url + "/")
+            return (
+              <SidebarMenuItem key={item.title}>
+                <SidebarMenuButton
+                  asChild
+                  className={cn(
+                    "h-10 rounded-lg px-3 transition-colors",
+                    isActive &&
+                      "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                  )}
+                >
+                  <Link href={item.url}>
+                    <item.icon className="size-5" />
+                    <span>{item.title}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             )
           })}
 

@@ -105,6 +105,8 @@ model Calisan {
   announcementAcknowledgments AnnouncementAcknowledgment[]
   companyManuals CompanyManual[]
   safetyRiskBoardsUpdated   SafetyRiskBoard[] @relation("SafetyRiskBoardUpdatedBy")
+  auditPlanAuditors AuditPlanAuditor[] @relation("AuditPlanAuditorCalisan")
+  auditPlanAuditees AuditPlanAuditee[] @relation("AuditPlanAuditeeCalisan")
 
   @@index([createdAt(sort: Desc)])
   @@index([isim, soyisim])
@@ -549,4 +551,184 @@ model CustomReportType {
 
   @@index([sortOrder])
   @@map("custom_report_types")
+}
+
+/// Denetim kategorisi (Configurations → Audit Settings’ten yönetilir)
+model AuditCategoryType {
+  id          Int      @id @default(autoincrement())
+  name        String   @db.VarChar(400)
+  description String?  @db.Text
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  subcategories AuditSubCategoryType[]
+  entries       AuditPlanEntry[]
+
+  @@index([sortOrder])
+  @@index([isActive])
+  @@map("audit_category_types")
+}
+
+/// Üst kategoriye bağlı alt kategori (Audit Plan formu)
+model AuditSubCategoryType {
+  id                  Int      @id @default(autoincrement())
+  auditCategoryTypeId Int      @map("audit_category_type_id")
+  name                String   @db.VarChar(400)
+  sortOrder           Int      @default(0) @map("sort_order")
+  isActive            Boolean  @default(true) @map("is_active")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  auditCategoryType AuditCategoryType @relation(fields: [auditCategoryTypeId], references: [id], onDelete: Cascade)
+  entries           AuditPlanEntry[]
+
+  @@index([auditCategoryTypeId])
+  @@index([sortOrder])
+  @@map("audit_subcategory_types")
+}
+
+/// Denetim planı satırı (Compliance → Audit Plan)
+model AuditPlanEntry {
+  id                  Int       @id @default(autoincrement())
+  plannedDate         DateTime  @map("planned_date") @db.Date
+  datePostponed       DateTime? @map("date_postponed") @db.Date
+  initializedDate     DateTime? @map("initialized_date") @db.Date
+  auditCategoryTypeId    Int  @map("audit_category_type_id")
+  auditSubCategoryTypeId Int? @map("audit_subcategory_type_id")
+  auditNumberPrefix      String? @map("audit_number_prefix") @db.VarChar(100)
+  ct                  String    @default("") @db.VarChar(20)
+  remarks             String?   @db.Text
+  status              String    @default("Initialized") @db.VarChar(50)
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  auditCategoryType    AuditCategoryType     @relation(fields: [auditCategoryTypeId], references: [id], onDelete: Restrict)
+  auditSubCategoryType AuditSubCategoryType? @relation(fields: [auditSubCategoryTypeId], references: [id], onDelete: SetNull)
+  auditors             AuditPlanAuditor[]
+  auditees             AuditPlanAuditee[]
+  checklistAssignments AuditPlanChecklistAssignment[]
+
+  @@index([plannedDate])
+  @@index([auditCategoryTypeId])
+  @@index([auditSubCategoryTypeId])
+  @@index([createdAt(sort: Desc)])
+  @@map("audit_plan_entries")
+}
+
+/// Denetim checklist şablonu (Compliance → Checklists)
+model AuditChecklist {
+  id          Int      @id @default(autoincrement())
+  title       String   @db.VarChar(400)
+  /// Örn. BON-CMM-CL-010 — boşsa API `BON-CMM-CL-{id}` üretir
+  checklistNumber String? @unique @db.VarChar(100) @map("checklist_number")
+  checklistType   String  @default("Classic (Satisfactory/Unsatisfactory)") @map("checklist_type") @db.VarChar(200)
+  initialRevisionNumber Int      @default(0) @map("initial_revision_number")
+  initialRevisionDate   DateTime? @map("initial_revision_date") @db.Date
+  latestRevisionNumber  Int      @default(0) @map("latest_revision_number")
+  latestRevisionDate    DateTime? @map("latest_revision_date") @db.Date
+  description String?  @db.Text
+  isActive    Boolean  @default(true) @map("is_active")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  items        AuditChecklistItem[]
+  revisions    AuditChecklistRevision[]
+  assignments  AuditPlanChecklistAssignment[]
+
+  @@index([sortOrder])
+  @@index([isActive])
+  @@map("audit_checklists")
+}
+
+/// Checklist’in belirli bir revizyonundaki anlık kopya (başlık, açıklama, maddeler)
+model AuditChecklistRevision {
+  id               Int      @id @default(autoincrement())
+  auditChecklistId Int      @map("audit_checklist_id")
+  revisionNumber   Int      @map("revision_number")
+  revisionDate     DateTime @map("revision_date") @db.Date
+  title            String   @db.VarChar(400)
+  description      String?  @db.Text
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  checklist AuditChecklist @relation(fields: [auditChecklistId], references: [id], onDelete: Cascade)
+  items     AuditChecklistRevisionItem[]
+
+  @@unique([auditChecklistId, revisionNumber])
+  @@index([auditChecklistId])
+  @@map("audit_checklist_revisions")
+}
+
+model AuditChecklistRevisionItem {
+  id         Int      @id @default(autoincrement())
+  revisionId Int      @map("audit_checklist_revision_id")
+  label      String   @db.Text
+  sortOrder  Int      @default(0) @map("sort_order")
+  isRequired Boolean  @default(true) @map("is_required")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  revision AuditChecklistRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+
+  @@index([revisionId])
+  @@index([sortOrder])
+  @@map("audit_checklist_revision_items")
+}
+
+model AuditChecklistItem {
+  id               Int      @id @default(autoincrement())
+  auditChecklistId Int      @map("audit_checklist_id")
+  label            String   @db.Text
+  sortOrder        Int      @default(0) @map("sort_order")
+  isRequired       Boolean  @default(true) @map("is_required")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  checklist AuditChecklist @relation(fields: [auditChecklistId], references: [id], onDelete: Cascade)
+
+  @@index([auditChecklistId])
+  @@index([sortOrder])
+  @@map("audit_checklist_items")
+}
+
+/// Denetim satırına atanmış checklist şablonu
+model AuditPlanChecklistAssignment {
+  id               Int      @id @default(autoincrement())
+  auditPlanEntryId Int      @map("audit_plan_entry_id")
+  auditChecklistId Int      @map("audit_checklist_id")
+  assignedAt       DateTime @default(now()) @map("assigned_at")
+
+  entry     AuditPlanEntry @relation(fields: [auditPlanEntryId], references: [id], onDelete: Cascade)
+  checklist AuditChecklist @relation(fields: [auditChecklistId], references: [id], onDelete: Cascade)
+
+  @@unique([auditPlanEntryId, auditChecklistId])
+  @@index([auditChecklistId])
+  @@map("audit_plan_checklist_assignments")
+}
+
+model AuditPlanAuditor {
+  id               Int @id @default(autoincrement())
+  auditPlanEntryId Int @map("audit_plan_entry_id")
+  calisanId        Int @map("calisan_id")
+
+  entry   AuditPlanEntry @relation(fields: [auditPlanEntryId], references: [id], onDelete: Cascade)
+  calisan Calisan        @relation("AuditPlanAuditorCalisan", fields: [calisanId], references: [id], onDelete: Cascade)
+
+  @@unique([auditPlanEntryId, calisanId])
+  @@index([calisanId])
+  @@map("audit_plan_auditors")
+}
+
+model AuditPlanAuditee {
+  id               Int @id @default(autoincrement())
+  auditPlanEntryId Int @map("audit_plan_entry_id")
+  calisanId        Int @map("calisan_id")
+
+  entry   AuditPlanEntry @relation(fields: [auditPlanEntryId], references: [id], onDelete: Cascade)
+  calisan Calisan        @relation("AuditPlanAuditeeCalisan", fields: [calisanId], references: [id], onDelete: Cascade)
+
+  @@unique([auditPlanEntryId, calisanId])
+  @@index([calisanId])
+  @@map("audit_plan_auditees")
 }

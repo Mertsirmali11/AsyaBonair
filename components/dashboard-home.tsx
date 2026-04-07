@@ -11,6 +11,7 @@ import {
   Trash2,
   ArrowRight,
   ClipboardList,
+  FileWarning,
 } from "lucide-react"
 import { formatDateOnlyIstanbul, formatDateTimeIstanbul } from "@/lib/date-format"
 import { Button } from "@/components/ui/button"
@@ -80,6 +81,15 @@ interface DashboardTask {
   assignee: { isim: string | null; soyisim: string | null } | null
 }
 
+interface CertificateExpiryAlert {
+  id: number
+  docType: string
+  fileName: string
+  validUntil: string
+  daysRemaining: number
+  aircraft: { id: number; register: string; msn: string }
+}
+
 const SUMMARY_RETRIES = 3
 const SUMMARY_RETRY_MS = 400
 
@@ -95,6 +105,9 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
   const [tasksDueNext30Days, setTasksDueNext30Days] = useState<DashboardTask[]>(
     []
   )
+  const [certificatesExpiringSoon, setCertificatesExpiringSoon] = useState<
+    CertificateExpiryAlert[]
+  >([])
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState("")
   const [content, setContent] = useState("")
@@ -126,6 +139,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
           setBirthdays(data.birthdays ?? [])
           setTasksDueToday(data.tasksDueToday ?? [])
           setTasksDueNext30Days(data.tasksDueNext30Days ?? [])
+          setCertificatesExpiringSoon(data.certificatesExpiringSoon ?? [])
           setLoadError(null)
           hasLoadedOnceRef.current = true
           setLoading(false)
@@ -257,6 +271,74 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
         {loading && !loadError && (
           <p className="text-muted-foreground text-sm">Loading summary…</p>
         )}
+        {certificatesExpiringSoon.length > 0 && (
+          <div
+            role="status"
+            className="rounded-lg border border-amber-300/80 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm dark:border-amber-700/50 dark:bg-amber-950/35 dark:text-amber-50"
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex gap-2">
+                <FileWarning
+                  className="mt-0.5 size-5 shrink-0 text-amber-700 dark:text-amber-400"
+                  aria-hidden
+                />
+                <div>
+                  <p className="font-semibold text-amber-950 dark:text-amber-100">
+                    Süresi dolmak üzere olan uçak sertifikaları
+                  </p>
+                  <p className="mt-0.5 text-xs text-amber-900/85 dark:text-amber-200/90">
+                    Geçerlilik bitiş tarihi bugünden itibaren 30 gün veya daha az
+                    kalan sertifikalar (Controlled Documents → Aircraft).
+                  </p>
+                </div>
+              </div>
+            </div>
+            <ul className="mt-3 space-y-2 border-t border-amber-200/80 pt-3 dark:border-amber-800/60">
+              {certificatesExpiringSoon.map((c) => (
+                <li
+                  key={c.id}
+                  className="flex flex-col gap-1 sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-between sm:gap-x-4"
+                >
+                  <div className="min-w-0">
+                    <Link
+                      href={`/documents/aircraft-settings/${c.aircraft.id}`}
+                      className="font-medium text-amber-950 underline-offset-4 hover:underline dark:text-amber-100"
+                    >
+                      {c.aircraft.register}
+                    </Link>
+                    <span className="text-muted-foreground"> — </span>
+                    <span className="text-amber-950/95 dark:text-amber-100/95">
+                      {c.docType}
+                    </span>
+                    <span className="block truncate text-xs text-amber-900/80 dark:text-amber-200/80">
+                      {c.fileName}
+                    </span>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-xs tabular-nums">
+                    <span>
+                      Bitiş:{" "}
+                      <span className="font-medium">
+                        {formatDateOnlyIstanbul(c.validUntil)}
+                      </span>
+                    </span>
+                    <span
+                      className={
+                        c.daysRemaining <= 7
+                          ? "font-semibold text-red-700 dark:text-red-400"
+                          : "font-medium text-amber-900 dark:text-amber-300"
+                      }
+                    >
+                      {c.daysRemaining === 0
+                        ? "Bugün son gün"
+                        : `${c.daysRemaining} gün kaldı`}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {todayMeetings.length > 0 && (
           <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950 shadow-sm dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

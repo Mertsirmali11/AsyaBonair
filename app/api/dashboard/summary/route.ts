@@ -10,6 +10,7 @@ import {
   getIstanbulLocalDayUtcRange,
   getUtcRangeForCalendarDate,
 } from "@/lib/day-range"
+import { canAccessConfigurationsArea } from "@/lib/department-access"
 
 const ANNOUNCEMENTS_DASHBOARD_LIMIT = 80
 
@@ -45,7 +46,7 @@ export async function GET() {
 
     const viewer = await prisma.calisan.findUnique({
       where: { email: session.user.email },
-      select: { id: true },
+      select: { id: true, departman: true },
     })
 
     const { year, month, day } = getCalendarYmdInTimeZone(APP_TIMEZONE)
@@ -64,8 +65,21 @@ export async function GET() {
     const { start: hazardDayStart, end: hazardDayEnd } =
       getIstanbulLocalDayUtcRange(year, month, day)
 
-    const [meetings, hazards, announcements, birthdays, tasksInWindow] =
-      await Promise.all([
+    const end30 = addCalendarDays(year, month, day, 30)
+    const certWindowEndDate = getUtcRangeForCalendarDate(
+      end30.year,
+      end30.month,
+      end30.day
+    ).start
+
+    const [
+      meetings,
+      hazards,
+      announcements,
+      birthdays,
+      tasksInWindow,
+      certificateRows,
+    ] = await Promise.all([
       prisma.meeting.findMany({
         where: {
           plannedDate: { gte: dayStartUtc, lt: dayEndUtc },
@@ -135,6 +149,39 @@ export async function GET() {
         orderBy: [{ dueDate: "asc" }, { id: "asc" }],
         take: 80,
       }),
+      canAccessConfigurationsArea(viewer?.departman)
+        ? prisma.aircraftDocument.findMany({
+            where: {
+              category: "certificate",
+              isArchived: false,
+              validUntil: {
+                not: null,
+                gte: todayStart,
+                lte: certWindowEndDate,
+              },
+              aircraft: { isArchived: false },
+            },
+            select: {
+              id: true,
+              docType: true,
+              fileName: true,
+              validUntil: true,
+              aircraft: {
+                select: { id: true, register: true, msn: true },
+              },
+            },
+            orderBy: { validUntil: "asc" },
+            take: 50,
+          })
+        : Promise.resolve(
+            [] as {
+              id: number
+              docType: string
+              fileName: string
+              validUntil: Date | null
+              aircraft: { id: number; register: string; msn: string }
+            }[]
+          ),
     ])
 
     const annIds = announcements.map((a) => a.id)
@@ -164,6 +211,25 @@ export async function GET() {
       else tasksDueNext30Days.push(t)
     }
 
+    const todayUtcMs = Date.UTC(year, month - 1, day)
+    const certificatesExpiringSoon = certificateRows.map((r) => {
+        const v = r.validUntil!
+        const untilUtc = Date.UTC(
+          v.getUTCFullYear(),
+          v.getUTCMonth(),
+          v.getUTCDate()
+        )
+        const daysRemaining = Math.round((untilUtc - todayUtcMs) / 86400000)
+        return {
+          id: r.id,
+          docType: r.docType,
+          fileName: r.fileName,
+          validUntil: v.toISOString(),
+          daysRemaining,
+          aircraft: r.aircraft,
+        }
+      })
+
     return NextResponse.json(
       prismaJson({
         announcements: announcementsWithAck,
@@ -172,6 +238,7 @@ export async function GET() {
         birthdays,
         tasksDueToday,
         tasksDueNext30Days,
+        certificatesExpiringSoon,
       })
     )
   } catch (e) {
