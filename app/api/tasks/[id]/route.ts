@@ -11,9 +11,6 @@ export async function GET(
     if (!session?.user?.email) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-    if (session.user.departman !== "Quality") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    }
 
     const { id: idParam } = await params
     const id = Number.parseInt(idParam, 10)
@@ -86,9 +83,10 @@ export async function GET(
     }
     history.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
 
-    const participants = task.meeting.participants
-      .map((p) => p.calisan)
-      .filter(Boolean)
+    const participants =
+      task.meeting?.participants
+        ?.map((p) => p.calisan)
+        .filter(Boolean) ?? []
     const assignedByName =
       participants.length > 0 ? name(participants[0]!) : null
 
@@ -101,11 +99,13 @@ export async function GET(
       createdAt: task.createdAt.toISOString(),
       updatedAt: task.updatedAt.toISOString(),
       meetingId: task.meetingId,
-      meeting: {
-        id: task.meeting.id,
-        meetingNo: task.meeting.meetingNo,
-        title: task.meeting.title,
-      },
+      meeting: task.meeting
+        ? {
+            id: task.meeting.id,
+            meetingNo: task.meeting.meetingNo,
+            title: task.meeting.title,
+          }
+        : null,
       assignedByName,
       assignee: task.assignee,
       filePath: task.filePath,

@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { createPortal } from "react-dom"
 import {
   useCallback,
@@ -18,6 +19,7 @@ import {
   Clock,
   Info,
   Lightbulb,
+  Loader2,
   Pencil,
   Plus,
   Printer,
@@ -65,6 +67,17 @@ import {
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
+import {
+  BarrierReviewDialog,
+  type BarrierReviewRecord,
+} from "@/components/barrier-review-dialog"
+import { TaskManageDialog } from "@/app/tasks/task-dialogs"
+import {
+  barrierStatusFromTask,
+  findTaskByBarrierTitle,
+  formatAssigneeName,
+  type MeetingTaskMatchRow,
+} from "@/lib/meeting-task-title-match"
 import { riskBoardKeyFromTitle } from "@/lib/safety-risk-board-key"
 import {
   type RiskMatrixTone,
@@ -165,6 +178,13 @@ function ymdToday(): string {
   return `${y}-${m}-${day}`
 }
 
+function formatMeetingTaskDueDisplay(iso: string | null): string {
+  if (!iso) return "—"
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return "—"
+  return d.toLocaleDateString("en-US")
+}
+
 function formatRiskDocDate(ymd: string): string {
   const p = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim())
   if (!p) return ymd
@@ -193,6 +213,9 @@ export type BarrierEntry = {
   text: string
   /** YYYY-MM-DD; eski düz metin bariyerlerde boş olabilir */
   recordedAt: string
+  /** Toplantı görevi ile açık bağlantı (Action Page yönlendirmesi) */
+  linkedTaskId?: number | null
+  linkedMeetingId?: number | null
 }
 
 type HistoryEntry = {
@@ -210,10 +233,16 @@ function barrierFromUnknown(b: unknown): BarrierEntry {
   if (b && typeof b === "object") {
     const o = b as Record<string, unknown>
     if (typeof o.text === "string") {
+      const lt = o.linkedTaskId
+      const lm = o.linkedMeetingId
       return {
         id: typeof o.id === "string" ? o.id : newBarrierId(),
         text: o.text,
         recordedAt: typeof o.recordedAt === "string" ? o.recordedAt : "",
+        linkedTaskId:
+          typeof lt === "number" && Number.isInteger(lt) ? lt : null,
+        linkedMeetingId:
+          typeof lm === "number" && Number.isInteger(lm) ? lm : null,
       }
     }
   }
@@ -328,11 +357,29 @@ type TaskBoardSnapshotV1 = {
   v: 1
   probability: number | null
   severity: string | null
+  initialProbability: number | null
+  initialSeverity: string | null
+  finalProbability: number | null
+  finalSeverity: string | null
   threats: BoardRow[]
   consequences: BoardRow[]
   threatOpenById: Record<string, boolean>
   consequenceOpenById: Record<string, boolean>
   history: HistoryEntry[]
+}
+
+function parseOptionalSnapshotProbability(v: unknown): number | null {
+  if (v === undefined || v === null) return null
+  if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > 5) {
+    return null
+  }
+  return v
+}
+
+function parseOptionalSnapshotSeverity(v: unknown): string | null {
+  if (v === undefined || v === null) return null
+  if (typeof v !== "string" || !/^[EDCBA]$/i.test(v)) return null
+  return v.toUpperCase()
 }
 
 function parseHistoryJson(json: unknown): HistoryEntry[] {
@@ -433,6 +480,10 @@ function readTaskBoardSnapshotRaw(storageKey: string): TaskBoardSnapshotV1 | nul
       probability: p === undefined || p === null ? null : p,
       severity:
         s === undefined || s === null ? null : (s as string).toUpperCase(),
+      initialProbability: parseOptionalSnapshotProbability(o.initialProbability),
+      initialSeverity: parseOptionalSnapshotSeverity(o.initialSeverity),
+      finalProbability: parseOptionalSnapshotProbability(o.finalProbability),
+      finalSeverity: parseOptionalSnapshotSeverity(o.finalSeverity),
       threats: threats as BoardRow[],
       consequences: consequences as BoardRow[],
       threatOpenById,
@@ -475,6 +526,10 @@ function defaultSnapshotForTitle(eventTitle: string): TaskBoardSnapshotV1 {
     v: 1,
     probability: legacy?.probability ?? null,
     severity: legacy?.severity ?? null,
+    initialProbability: null,
+    initialSeverity: null,
+    finalProbability: null,
+    finalSeverity: null,
     threats,
     consequences,
     threatOpenById: openMapForIds(threats.map((t) => t.id), true),
@@ -503,14 +558,12 @@ function parseBoardRowsJson(json: unknown): BoardRow[] | null {
 function ThreatConsequenceExpandedBody({
   variant,
   item,
-  onRegisterAsRisk,
   onEdit,
   onDelete,
   onAddBarrier,
 }: {
   variant: "threat" | "consequence"
   item: BoardRow
-  onRegisterAsRisk: () => void
   onEdit: () => void
   onDelete: () => void
   onAddBarrier: () => void
@@ -519,11 +572,6 @@ function ThreatConsequenceExpandedBody({
     variant === "threat"
       ? "border-sky-200/80 bg-sky-100/50 dark:border-sky-900/50 dark:bg-sky-950/30"
       : "border-rose-200/80 bg-rose-100/50 dark:border-rose-900/50 dark:bg-rose-950/30"
-
-  const primaryBtn =
-    variant === "threat"
-      ? "border-0 bg-sky-500 text-white hover:bg-sky-600"
-      : "border-0 bg-rose-600 text-white hover:bg-rose-700"
 
   const secondaryBtn = "border-0 bg-[#2d3748] text-white hover:bg-[#1e293b]"
 
@@ -536,16 +584,7 @@ function ThreatConsequenceExpandedBody({
 
   return (
     <div className="space-y-3 p-3">
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          size="sm"
-          className={primaryBtn}
-          onClick={onRegisterAsRisk}
-        >
-          <Plus className="size-3.5" />
-          Register as risk
-        </Button>
+      <div className="flex flex-wrap items-center gap-2">
         <Button type="button" size="sm" className={secondaryBtn} onClick={onEdit}>
           <Pencil className="size-3.5" />
           Edit
@@ -554,11 +593,11 @@ function ThreatConsequenceExpandedBody({
           <Trash2 className="size-3.5" />
           Delete
         </Button>
+        <Button type="button" size="sm" className={secondaryBtn} onClick={onAddBarrier}>
+          <Plus className="size-3.5" />
+          Barrier
+        </Button>
       </div>
-      <Button type="button" size="sm" className={secondaryBtn} onClick={onAddBarrier}>
-        <Plus className="size-3.5" />
-        Barrier
-      </Button>
       {contentBlocks.length > 0 ? (
         <div className="space-y-2">
           {contentBlocks.map((block) => (
@@ -585,7 +624,6 @@ function BoardCollapsibleRow({
   index,
   open,
   onOpenChange,
-  onRegisterAsRisk,
   onEdit,
   onDelete,
   onAddBarrier,
@@ -595,7 +633,6 @@ function BoardCollapsibleRow({
   index: number
   open: boolean
   onOpenChange: (open: boolean) => void
-  onRegisterAsRisk: () => void
   onEdit: () => void
   onDelete: () => void
   onAddBarrier: () => void
@@ -645,7 +682,6 @@ function BoardCollapsibleRow({
         <ThreatConsequenceExpandedBody
           variant={variant}
           item={item}
-          onRegisterAsRisk={onRegisterAsRisk}
           onEdit={onEdit}
           onDelete={onDelete}
           onAddBarrier={onAddBarrier}
@@ -692,6 +728,8 @@ function formToBarrierEntries(
         id: prev.id,
         text: line,
         recordedAt: prev.recordedAt || today,
+        linkedTaskId: prev.linkedTaskId ?? null,
+        linkedMeetingId: prev.linkedMeetingId ?? null,
       }
     }
     return { id: newBarrierId(), text: line, recordedAt: today }
@@ -1238,7 +1276,12 @@ function RiskAssessmentPrintDocument({
                         fontWeight: 600,
                         padding: "4px 10px",
                         borderRadius: 9999,
-                        backgroundColor: "#7c3aed",
+                        backgroundColor:
+                          r.status === "Current"
+                            ? "#059669"
+                            : r.status === "In Progress"
+                              ? "#0284c7"
+                              : "#7c3aed",
                         color: "#fff",
                       }}
                     >
@@ -1289,6 +1332,37 @@ function RiskAssessmentPrintDocument({
       </p>
     </div>
   )
+}
+
+function resolveBarrierTaskLink(
+  b: BarrierEntry,
+  meetingTasks: MeetingTaskMatchRow[]
+): {
+  linked: MeetingTaskMatchRow | null
+  linkedTaskId: number | null
+  linkedMeetingId: number | null
+} {
+  if (b.linkedTaskId != null) {
+    const fromList = meetingTasks.find((t) => t.id === b.linkedTaskId)
+    if (fromList) {
+      return {
+        linked: fromList,
+        linkedTaskId: fromList.id,
+        linkedMeetingId: fromList.meetingId,
+      }
+    }
+    return {
+      linked: null,
+      linkedTaskId: b.linkedTaskId,
+      linkedMeetingId: b.linkedMeetingId ?? null,
+    }
+  }
+  const byTitle = findTaskByBarrierTitle(meetingTasks, b.text)
+  return {
+    linked: byTitle,
+    linkedTaskId: byTitle?.id ?? null,
+    linkedMeetingId: byTitle?.meetingId ?? null,
+  }
 }
 
 export function TaskBoardView({
@@ -1357,13 +1431,66 @@ export function TaskBoardView({
     id: string
   } | null>(null)
   const [barrierDraft, setBarrierDraft] = useState("")
+  const [barrierEntryMode, setBarrierEntryMode] = useState<"existing" | "new">(
+    "new"
+  )
+  const [barrierSelectedTaskId, setBarrierSelectedTaskId] = useState("")
+  const [barrierSaving, setBarrierSaving] = useState(false)
 
   const [selectedProbability, setSelectedProbability] = useState<number | null>(
     null
   )
   const [selectedSeverity, setSelectedSeverity] = useState<string | null>(null)
 
+  const [savedInitialProbability, setSavedInitialProbability] = useState<
+    number | null
+  >(null)
+  const [savedInitialSeverity, setSavedInitialSeverity] = useState<
+    string | null
+  >(null)
+  const [savedFinalProbability, setSavedFinalProbability] = useState<
+    number | null
+  >(null)
+  const [savedFinalSeverity, setSavedFinalSeverity] = useState<string | null>(
+    null
+  )
+
   const [history, setHistory] = useState<HistoryEntry[]>([])
+
+  const router = useRouter()
+  const [meetingTasks, setMeetingTasks] = useState<MeetingTaskMatchRow[]>([])
+  const [barrierReviewOpen, setBarrierReviewOpen] = useState(false)
+  const [barrierReviewRecord, setBarrierReviewRecord] =
+    useState<BarrierReviewRecord | null>(null)
+  const [barrierLinkedTaskManageId, setBarrierLinkedTaskManageId] = useState<
+    number | null
+  >(null)
+  const [barrierLinkedTaskManageOpen, setBarrierLinkedTaskManageOpen] =
+    useState(false)
+
+  const loadMeetingTasks = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tasks")
+      if (!res.ok) return
+      const data = (await res.json()) as unknown
+      if (!Array.isArray(data)) return
+      setMeetingTasks(data as MeetingTaskMatchRow[])
+    } catch {
+      setMeetingTasks([])
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadMeetingTasks()
+  }, [loadMeetingTasks])
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") void loadMeetingTasks()
+    }
+    document.addEventListener("visibilitychange", onVis)
+    return () => document.removeEventListener("visibilitychange", onVis)
+  }, [loadMeetingTasks])
 
   const skipPersistRef = useRef(true)
   const useServerPersistenceRef = useRef(true)
@@ -1401,6 +1528,10 @@ export function TaskBoardView({
     setThreatOpenById({ ...snap.threatOpenById })
     setConsequenceOpenById({ ...snap.consequenceOpenById })
     setHistory(snap.history.map((h) => ({ ...h })))
+    setSavedInitialProbability(snap.initialProbability ?? null)
+    setSavedInitialSeverity(snap.initialSeverity ?? null)
+    setSavedFinalProbability(snap.finalProbability ?? null)
+    setSavedFinalSeverity(snap.finalSeverity ?? null)
     if (!fromDisk) {
       writeTaskBoardSnapshot(displayTitle, snap)
     }
@@ -1441,6 +1572,27 @@ export function TaskBoardView({
         )
         setThreatOpenById(parseOpenMapJson(b.threatOpenById))
         setConsequenceOpenById(parseOpenMapJson(b.consequenceOpenById))
+        const sip = b.initialProbability
+        const sis = b.initialSeverity
+        const sfp = b.finalProbability
+        const sfs = b.finalSeverity
+        setSavedInitialProbability(
+          typeof sip === "number" && sip >= 1 && sip <= 5 ? sip : null
+        )
+        setSavedInitialSeverity(
+          typeof sis === "string" && /^[EDCBA]$/i.test(sis)
+            ? sis.toUpperCase()
+            : null
+        )
+        setSavedFinalProbability(
+          typeof sfp === "number" && sfp >= 1 && sfp <= 5 ? sfp : null
+        )
+        setSavedFinalSeverity(
+          typeof sfs === "string" && /^[EDCBA]$/i.test(sfs)
+            ? sfs.toUpperCase()
+            : null
+        )
+        setHistory(parseHistoryJson(b.boardHistory))
       } catch {
         useServerPersistenceRef.current = false
       }
@@ -1459,6 +1611,10 @@ export function TaskBoardView({
       v: 1,
       probability: selectedProbability,
       severity: selectedSeverity,
+      initialProbability: savedInitialProbability,
+      initialSeverity: savedInitialSeverity,
+      finalProbability: savedFinalProbability,
+      finalSeverity: savedFinalSeverity,
       threats: threats.map((t) => ({ ...t })),
       consequences: consequences.map((c) => ({ ...c })),
       threatOpenById: { ...threatOpenById },
@@ -1478,10 +1634,15 @@ export function TaskBoardView({
           riskTitle: displayTitle,
           probability: snap.probability,
           severity: snap.severity,
+          initialProbability: snap.initialProbability,
+          initialSeverity: snap.initialSeverity,
+          finalProbability: snap.finalProbability,
+          finalSeverity: snap.finalSeverity,
           threats: snap.threats,
           consequences: snap.consequences,
           threatOpenById: snap.threatOpenById,
           consequenceOpenById: snap.consequenceOpenById,
+          history: snap.history,
         }),
       }).catch(() => {})
     }, 650)
@@ -1495,6 +1656,10 @@ export function TaskBoardView({
     threatOpenById,
     consequenceOpenById,
     history,
+    savedInitialProbability,
+    savedInitialSeverity,
+    savedFinalProbability,
+    savedFinalSeverity,
   ])
 
   const allThreatRefs = useMemo(
@@ -1534,18 +1699,6 @@ export function TaskBoardView({
     [appendHistory]
   )
 
-  const handleSaveInitialAssessment = useCallback(() => {
-    if (selectedProbability === null || selectedSeverity === null) {
-      toast.error("Önce olasılık (1–5) ve şiddet (E–A) seçin.")
-      return
-    }
-    const code = `${selectedProbability}${selectedSeverity}`
-    appendHistory(
-      `Initial assessment was recorded as ${code} and set status to be mitigated`
-    )
-    toast.success(`İlk değerlendirme kaydedildi: ${code}`)
-  }, [appendHistory, selectedProbability, selectedSeverity])
-
   const livePreviewCode = useMemo(() => {
     if (selectedProbability === null || selectedSeverity === null) return null
     return `${selectedProbability}${selectedSeverity}`
@@ -1571,37 +1724,167 @@ export function TaskBoardView({
       responsible: string
       dueDate: string
       status: string
+      linkedTaskId: number | null
+      linkedMeetingId: number | null
     }
     const rows: Row[] = []
     const riskSource = `${displayTitle} (Risk)`
     for (const t of threats) {
       t.barriers.forEach((b, i) => {
+        const { linked, linkedTaskId, linkedMeetingId } =
+          resolveBarrierTaskLink(b, meetingTasks)
+        const statusLabel = barrierStatusFromTask(linked)
         rows.push({
           key: `threat:${t.id}:${b.id}:${i}`,
           taskName: b.text,
           source: riskSource,
           recordDate: b.recordedAt || "—",
-          responsible: "—",
-          dueDate: "—",
-          status: "Pending for Assignment",
+          responsible: linked ? formatAssigneeName(linked.assignee) : "—",
+          dueDate: linked
+            ? formatMeetingTaskDueDisplay(linked.dueDate)
+            : "—",
+          status: statusLabel,
+          linkedTaskId,
+          linkedMeetingId,
         })
       })
     }
     for (const c of consequences) {
       c.barriers.forEach((b, i) => {
+        const { linked, linkedTaskId, linkedMeetingId } =
+          resolveBarrierTaskLink(b, meetingTasks)
+        const statusLabel = barrierStatusFromTask(linked)
         rows.push({
           key: `cons:${c.id}:${b.id}:${i}`,
           taskName: b.text,
           source: riskSource,
           recordDate: b.recordedAt || "—",
-          responsible: "—",
-          dueDate: "—",
-          status: "Pending for Assignment",
+          responsible: linked ? formatAssigneeName(linked.assignee) : "—",
+          dueDate: linked
+            ? formatMeetingTaskDueDisplay(linked.dueDate)
+            : "—",
+          status: statusLabel,
+          linkedTaskId,
+          linkedMeetingId,
         })
       })
     }
     return rows
-  }, [consequences, displayTitle, threats])
+  }, [consequences, displayTitle, meetingTasks, threats])
+
+  const hasSavedInitialAssessment =
+    savedInitialProbability !== null && savedInitialSeverity !== null
+
+  const barriersAllowFinalSave = useMemo(
+    () =>
+      barrierRecordRows.length === 0 ||
+      barrierRecordRows.every((r) => r.status === "Current"),
+    [barrierRecordRows]
+  )
+
+  const handleSaveInitialAssessment = useCallback(() => {
+    if (selectedProbability === null || selectedSeverity === null) {
+      toast.error(
+        "Select probability (1–5) and severity (E–A) before saving."
+      )
+      return
+    }
+    const code = `${selectedProbability}${selectedSeverity}`
+
+    if (!hasSavedInitialAssessment) {
+      setSavedInitialProbability(selectedProbability)
+      setSavedInitialSeverity(selectedSeverity)
+      appendHistory(
+        `Initial assessment was recorded as ${code} and set status to be mitigated`
+      )
+      toast.success(`Initial assessment saved: ${code}`)
+      return
+    }
+
+    if (!barriersAllowFinalSave) {
+      toast.error(
+        "Final assessment is only allowed when there are no barrier records, or every barrier status is Current."
+      )
+      return
+    }
+
+    setSavedFinalProbability(selectedProbability)
+    setSavedFinalSeverity(selectedSeverity)
+    appendHistory(`Final assessment was recorded as ${code}`)
+    toast.success(`Final assessment saved: ${code}`)
+  }, [
+    appendHistory,
+    barriersAllowFinalSave,
+    hasSavedInitialAssessment,
+    selectedProbability,
+    selectedSeverity,
+  ])
+
+  const firstAssessmentTableDisplay = useMemo(() => {
+    if (
+      savedInitialProbability !== null &&
+      savedInitialSeverity !== null
+    ) {
+      const tone = riskMatrixToneFromSelection(
+        savedInitialProbability,
+        savedInitialSeverity
+      )
+      return {
+        tone,
+        formatted: formatRiskAssessmentWithBand(
+          savedInitialProbability,
+          savedInitialSeverity
+        ),
+      }
+    }
+    if (
+      livePreviewCode !== null &&
+      liveMatrixTone !== null &&
+      selectedProbability !== null &&
+      selectedSeverity !== null
+    ) {
+      return {
+        tone: liveMatrixTone,
+        formatted: formatRiskAssessmentWithBand(
+          selectedProbability,
+          selectedSeverity
+        ),
+      }
+    }
+    return null
+  }, [
+    liveMatrixTone,
+    livePreviewCode,
+    savedInitialProbability,
+    savedInitialSeverity,
+    selectedProbability,
+    selectedSeverity,
+  ])
+
+  const finalAssessmentTableDisplay = useMemo(() => {
+    if (
+      savedFinalProbability !== null &&
+      savedFinalSeverity !== null
+    ) {
+      const tone = riskMatrixToneFromSelection(
+        savedFinalProbability,
+        savedFinalSeverity
+      )
+      return {
+        tone,
+        formatted: formatRiskAssessmentWithBand(
+          savedFinalProbability,
+          savedFinalSeverity
+        ),
+      }
+    }
+    return null
+  }, [savedFinalProbability, savedFinalSeverity])
+
+  const saveAssessmentDisabled =
+    selectedProbability === null ||
+    selectedSeverity === null ||
+    (hasSavedInitialAssessment && !barriersAllowFinalSave)
 
   const openCreateThreatForm = useCallback(() => {
     const ref = nextReference([...allThreatRefs, ...allConsequenceRefs])
@@ -1796,12 +2079,6 @@ export function TaskBoardView({
     toast.success("Threat silindi.")
   }, [appendHistory])
 
-  const registerThreatAsRisk = useCallback((row: BoardRow) => {
-    toast.success(`"${row.label}" risk kaydına işlendi (önizleme).`, {
-      description: `${row.reference} — ${displayTitle}`,
-    })
-  }, [displayTitle])
-
   const openCreateConsequenceForm = useCallback(() => {
     const ref = nextReference([...allThreatRefs, ...allConsequenceRefs])
     setConsequenceDialogMode("create")
@@ -1954,33 +2231,85 @@ export function TaskBoardView({
     toast.success("Consequence silindi.")
   }, [appendHistory])
 
-  const registerConsequenceAsRisk = useCallback((row: BoardRow) => {
-    toast.success(`"${row.label}" risk kaydına işlendi (önizleme).`, {
-      description: `${row.reference} — ${displayTitle}`,
-    })
-  }, [displayTitle])
-
   const openBarrierDialog = useCallback(
     (kind: "threat" | "consequence", id: string) => {
       setBarrierTarget({ kind, id })
+      setBarrierEntryMode("new")
+      setBarrierSelectedTaskId("")
       setBarrierDraft("")
       setBarrierDialogOpen(true)
     },
     []
   )
 
-  const saveBarrier = useCallback(() => {
+  const saveBarrier = useCallback(async () => {
     const text = barrierDraft.trim()
     if (!text) {
-      toast.error("Bariyer metni boş olamaz.")
+      toast.error("Barrier description is required.")
       return
     }
     if (!barrierTarget) return
+
+    let linkedTaskId: number | null = null
+    let linkedMeetingId: number | null = null
+
+    if (barrierEntryMode === "existing") {
+      const tid = Number.parseInt(barrierSelectedTaskId, 10)
+      if (!barrierSelectedTaskId || Number.isNaN(tid)) {
+        toast.error("Select an existing task.")
+        return
+      }
+      const task = meetingTasks.find((t) => t.id === tid)
+      if (!task) {
+        toast.error("Task not found. Refresh the page and try again.")
+        return
+      }
+      linkedTaskId = task.id
+      linkedMeetingId = task.meetingId
+    } else {
+      setBarrierSaving(true)
+      try {
+        const res = await fetch("/api/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            title: text,
+            status: "Open",
+          }),
+        })
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string
+          id?: number
+          meetingId?: number | null
+        }
+        if (!res.ok) {
+          toast.error(
+            typeof data.error === "string"
+              ? data.error
+              : "Could not create task."
+          )
+          return
+        }
+        if (typeof data.id !== "number") {
+          toast.error("Invalid response when creating task.")
+          return
+        }
+        linkedTaskId = data.id
+        linkedMeetingId =
+          typeof data.meetingId === "number" ? data.meetingId : null
+        void loadMeetingTasks()
+      } finally {
+        setBarrierSaving(false)
+      }
+    }
 
     const entry: BarrierEntry = {
       id: newBarrierId(),
       text,
       recordedAt: ymdToday(),
+      linkedTaskId,
+      linkedMeetingId,
     }
     const updater = (row: BoardRow): BoardRow => ({
       ...row,
@@ -2002,14 +2331,37 @@ export function TaskBoardView({
         prev.map((c) => (c.id === barrierTarget.id ? updater(c) : c))
       )
     }
-    appendHistory(
-      `Barrier "${text}" was added to ${kindLabel} "${parentLabel}"`
+
+    if (barrierEntryMode === "existing") {
+      appendHistory(
+        `Barrier "${text}" was linked to existing task #${linkedTaskId} under ${kindLabel} "${parentLabel}"`
+      )
+    } else {
+      appendHistory(
+        `Barrier "${text}" was added with new task #${linkedTaskId} under ${kindLabel} "${parentLabel}"`
+      )
+    }
+    toast.success(
+      barrierEntryMode === "existing"
+        ? "Barrier linked to task."
+        : "Barrier added and task created."
     )
-    toast.success("Bariyer eklendi.")
     setBarrierDialogOpen(false)
     setBarrierTarget(null)
     setBarrierDraft("")
-  }, [appendHistory, barrierDraft, barrierTarget, consequences, threats])
+    setBarrierEntryMode("new")
+    setBarrierSelectedTaskId("")
+  }, [
+    appendHistory,
+    barrierDraft,
+    barrierEntryMode,
+    barrierSelectedTaskId,
+    barrierTarget,
+    consequences,
+    loadMeetingTasks,
+    meetingTasks,
+    threats,
+  ])
 
   const setThreatOpenAt = (id: string, open: boolean) => {
     setThreatOpenById((prev) => ({ ...prev, [id]: open }))
@@ -2027,9 +2379,55 @@ export function TaskBoardView({
   }, [])
 
   const printPreAssessmentLine = useMemo(() => {
+    if (
+      savedInitialProbability !== null &&
+      savedInitialSeverity !== null
+    ) {
+      const tone = riskMatrixToneFromSelection(
+        savedInitialProbability,
+        savedInitialSeverity
+      )
+      return `${savedInitialProbability}${savedInitialSeverity} — ${printBandLabelForDoc(tone)}`
+    }
     if (livePreviewCode === null || liveMatrixTone === null) return "—"
     return `${livePreviewCode} — ${printBandLabelForDoc(liveMatrixTone)}`
-  }, [livePreviewCode, liveMatrixTone])
+  }, [
+    liveMatrixTone,
+    livePreviewCode,
+    savedInitialProbability,
+    savedInitialSeverity,
+  ])
+
+  const printPreAssessmentTone = useMemo((): RiskMatrixTone | null => {
+    if (
+      savedInitialProbability !== null &&
+      savedInitialSeverity !== null
+    ) {
+      return riskMatrixToneFromSelection(
+        savedInitialProbability,
+        savedInitialSeverity
+      )
+    }
+    return liveMatrixTone
+  }, [
+    liveMatrixTone,
+    savedInitialProbability,
+    savedInitialSeverity,
+  ])
+
+  const printPostAssessmentLine = useMemo(() => {
+    if (
+      savedFinalProbability !== null &&
+      savedFinalSeverity !== null
+    ) {
+      const tone = riskMatrixToneFromSelection(
+        savedFinalProbability,
+        savedFinalSeverity
+      )
+      return `${savedFinalProbability}${savedFinalSeverity} — ${printBandLabelForDoc(tone)}`
+    }
+    return ""
+  }, [savedFinalProbability, savedFinalSeverity])
 
   const printRiskLevelLine = useMemo(
     () =>
@@ -2111,17 +2509,16 @@ export function TaskBoardView({
               <TableCell>SPI-04, SPI-11</TableCell>
               <TableCell className="align-middle whitespace-nowrap">
                 <div className="flex items-center gap-1.5">
-                  {livePreviewCode && liveMatrixTone !== null ? (
+                  {firstAssessmentTableDisplay ? (
                     <span
                       className={cn(
                         "rounded-md border px-2.5 py-1 text-xs font-semibold tabular-nums",
-                        firstAssessmentCellClass(liveMatrixTone)
+                        firstAssessmentCellClass(
+                          firstAssessmentTableDisplay.tone
+                        )
                       )}
                     >
-                      {formatRiskAssessmentWithBand(
-                        selectedProbability!,
-                        selectedSeverity!
-                      )}
+                      {firstAssessmentTableDisplay.formatted}
                     </span>
                   ) : (
                     <span className="text-muted-foreground text-xs">—</span>
@@ -2135,14 +2532,30 @@ export function TaskBoardView({
                   </StaticButton>
                 </div>
               </TableCell>
-              <TableCell>
-                <StaticButton
-                  variant="ghost"
-                  size="icon-sm"
-                  className="text-muted-foreground"
-                >
-                  <SquarePen className="size-4" />
-                </StaticButton>
+              <TableCell className="align-middle whitespace-nowrap">
+                <div className="flex items-center gap-1.5">
+                  {finalAssessmentTableDisplay ? (
+                    <span
+                      className={cn(
+                        "rounded-md border px-2.5 py-1 text-xs font-semibold tabular-nums",
+                        firstAssessmentCellClass(
+                          finalAssessmentTableDisplay.tone
+                        )
+                      )}
+                    >
+                      {finalAssessmentTableDisplay.formatted}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground text-xs">—</span>
+                  )}
+                  <StaticButton
+                    variant="ghost"
+                    size="icon-sm"
+                    className="text-muted-foreground shrink-0"
+                  >
+                    <SquarePen className="size-4" />
+                  </StaticButton>
+                </div>
               </TableCell>
               <TableCell>
                 <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-900 dark:text-amber-200">
@@ -2193,7 +2606,6 @@ export function TaskBoardView({
                 index={index}
                 open={threatOpenById[row.id] !== false}
                 onOpenChange={(v) => setThreatOpenAt(row.id, v)}
-                onRegisterAsRisk={() => registerThreatAsRisk(row)}
                 onEdit={() => openEditThreat(row)}
                 onDelete={() => deleteThreat(row)}
                 onAddBarrier={() => openBarrierDialog("threat", row.id)}
@@ -2287,10 +2699,18 @@ export function TaskBoardView({
               <Button
                 type="button"
                 size="lg"
+                disabled={saveAssessmentDisabled}
+                title={
+                  hasSavedInitialAssessment && !barriersAllowFinalSave
+                    ? "Final assessment: clear all barriers or set every barrier status to Current."
+                    : undefined
+                }
                 onClick={handleSaveInitialAssessment}
-                className="w-full max-w-md border-0 bg-orange-500 text-white hover:bg-orange-600 dark:bg-orange-600 dark:hover:bg-orange-700"
+                className="w-full max-w-md border-0 bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 dark:bg-orange-600 dark:hover:bg-orange-700"
               >
-                Save initial assessment
+                {hasSavedInitialAssessment
+                  ? "Save final assessment"
+                  : "Save initial assessment"}
               </Button>
             </div>
           </CardContent>
@@ -2339,7 +2759,6 @@ export function TaskBoardView({
                 index={index}
                 open={consequenceOpenById[row.id] !== false}
                 onOpenChange={(v) => setConsequenceOpenAt(row.id, v)}
-                onRegisterAsRisk={() => registerConsequenceAsRisk(row)}
                 onEdit={() => openEditConsequence(row)}
                 onDelete={() => deleteConsequence(row)}
                 onAddBarrier={() => openBarrierDialog("consequence", row.id)}
@@ -2378,7 +2797,43 @@ export function TaskBoardView({
                 </TableRow>
               ) : (
                 barrierRecordRows.map((r) => (
-                  <TableRow key={r.key} className="bg-background hover:bg-muted/30">
+                  <TableRow
+                    key={r.key}
+                    role="button"
+                    tabIndex={0}
+                    className="bg-background cursor-pointer hover:bg-muted/50"
+                    onClick={() => {
+                      setBarrierReviewRecord({
+                        taskName: r.taskName,
+                        source: r.source,
+                        recordDate: r.recordDate,
+                        responsible: r.responsible,
+                        dueDate: r.dueDate,
+                        statusLabel: r.status as BarrierReviewRecord["statusLabel"],
+                        linkedTaskId: r.linkedTaskId,
+                        linkedMeetingId: r.linkedMeetingId,
+                        riskTitle: displayTitle,
+                      })
+                      setBarrierReviewOpen(true)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault()
+                        setBarrierReviewRecord({
+                          taskName: r.taskName,
+                          source: r.source,
+                          recordDate: r.recordDate,
+                          responsible: r.responsible,
+                          dueDate: r.dueDate,
+                          statusLabel: r.status as BarrierReviewRecord["statusLabel"],
+                          linkedTaskId: r.linkedTaskId,
+                          linkedMeetingId: r.linkedMeetingId,
+                          riskTitle: displayTitle,
+                        })
+                        setBarrierReviewOpen(true)
+                      }
+                    }}
+                  >
                     <TableCell className="max-w-[220px] whitespace-normal font-medium">
                       {r.taskName}
                     </TableCell>
@@ -2399,7 +2854,11 @@ export function TaskBoardView({
                         className={cn(
                           "rounded-full border-0 px-2.5 py-0.5 text-xs font-medium text-white",
                           r.status === "Pending for Assignment" &&
-                            "bg-violet-600 hover:bg-violet-600"
+                            "bg-violet-600 hover:bg-violet-600",
+                          r.status === "In Progress" &&
+                            "bg-sky-600 hover:bg-sky-600",
+                          r.status === "Current" &&
+                            "bg-emerald-600 hover:bg-emerald-600"
                         )}
                       >
                         {r.status}
@@ -2432,7 +2891,7 @@ export function TaskBoardView({
                   {entry.date}
                 </span>
                 {" — "}
-                {entry.message} by {entry.actor ?? "Bilinmiyor"}
+                {entry.message} by {entry.actor ?? "Unknown"}
               </li>
             ))}
           </ul>
@@ -2804,22 +3263,91 @@ export function TaskBoardView({
           if (!o) {
             setBarrierTarget(null)
             setBarrierDraft("")
+            setBarrierEntryMode("new")
+            setBarrierSelectedTaskId("")
+            setBarrierSaving(false)
           }
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Add barrier</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-2 py-2">
-            <Label htmlFor="barrier-text">Barrier text</Label>
-            <Textarea
-              id="barrier-text"
-              value={barrierDraft}
-              onChange={(e) => setBarrierDraft(e.target.value)}
-              placeholder="Describe the barrier…"
-              className="min-h-[100px]"
-            />
+          <div className="space-y-4 py-2">
+            <div className="space-y-3">
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="barrier-entry-mode"
+                  checked={barrierEntryMode === "existing"}
+                  onChange={() => {
+                    setBarrierEntryMode("existing")
+                  }}
+                />
+                Connect to an existing task
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="barrier-entry-mode"
+                  checked={barrierEntryMode === "new"}
+                  onChange={() => {
+                    setBarrierEntryMode("new")
+                    setBarrierSelectedTaskId("")
+                  }}
+                />
+                Create a new task
+              </label>
+            </div>
+
+            {barrierEntryMode === "existing" ? (
+              <div className="space-y-2 border-t pt-3">
+                <Label>Meeting task</Label>
+                <Select
+                  value={barrierSelectedTaskId || undefined}
+                  onValueChange={(id) => {
+                    setBarrierSelectedTaskId(id)
+                    const tid = Number.parseInt(id, 10)
+                    if (Number.isNaN(tid)) return
+                    const task = meetingTasks.find((t) => t.id === tid)
+                    if (task) setBarrierDraft(task.title)
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select a task…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {meetingTasks.length === 0 ? (
+                      <div className="text-muted-foreground px-2 py-3 text-sm">
+                        No tasks loaded. Open Tasks or a meeting page first, or
+                        refresh.
+                      </div>
+                    ) : (
+                      meetingTasks.map((t) => (
+                        <SelectItem key={t.id} value={String(t.id)}>
+                          {t.meeting?.meetingNo ?? "—"} — {t.title}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+
+            <div className="grid gap-2 border-t pt-3">
+              <Label htmlFor="barrier-text">Barrier description</Label>
+              <Textarea
+                id="barrier-text"
+                value={barrierDraft}
+                onChange={(e) => setBarrierDraft(e.target.value)}
+                placeholder={
+                  barrierEntryMode === "new"
+                    ? "Becomes the new task title and barrier text…"
+                    : "Shown on the risk board; prefilled from the task title…"
+                }
+                className="min-h-[100px]"
+              />
+            </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button
@@ -2829,16 +3357,64 @@ export function TaskBoardView({
                 setBarrierDialogOpen(false)
                 setBarrierTarget(null)
                 setBarrierDraft("")
+                setBarrierEntryMode("new")
+                setBarrierSelectedTaskId("")
+                setBarrierSaving(false)
               }}
             >
               Cancel
             </Button>
-            <Button type="button" onClick={saveBarrier}>
-              Add
+            <Button
+              type="button"
+              disabled={barrierSaving}
+              onClick={() => void saveBarrier()}
+            >
+              {barrierSaving ? (
+                <>
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                  Creating task…
+                </>
+              ) : barrierEntryMode === "existing" ? (
+                "Connect"
+              ) : (
+                "Add barrier & task"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BarrierReviewDialog
+        open={barrierReviewOpen}
+        onOpenChange={(o) => {
+          setBarrierReviewOpen(o)
+          if (!o) setBarrierReviewRecord(null)
+        }}
+        record={barrierReviewRecord}
+        historyEntries={history.map((h) => ({
+          ...h,
+          actor: h.actor ?? "Unknown",
+        }))}
+        onOpenLinkedTask={(taskId, meetingId) => {
+          if (meetingId != null && meetingId > 0) {
+            router.push(`/meetings/${meetingId}?taskId=${taskId}`)
+          } else {
+            setBarrierLinkedTaskManageId(taskId)
+            setBarrierLinkedTaskManageOpen(true)
+          }
+          void loadMeetingTasks()
+        }}
+      />
+
+      <TaskManageDialog
+        taskId={barrierLinkedTaskManageId}
+        open={barrierLinkedTaskManageOpen}
+        onOpenChange={(o) => {
+          setBarrierLinkedTaskManageOpen(o)
+          if (!o) setBarrierLinkedTaskManageId(null)
+        }}
+        onUpdated={() => void loadMeetingTasks()}
+      />
 
       {printPortalReady
         ? createPortal(
@@ -2850,8 +3426,8 @@ export function TaskBoardView({
               resource="Maintenance"
               connectedSpis="SPI-04, SPI-11"
               preAssessmentLine={printPreAssessmentLine}
-              preAssessmentTone={liveMatrixTone}
-              postAssessmentLine=""
+              preAssessmentTone={printPreAssessmentTone}
+              postAssessmentLine={printPostAssessmentLine}
               statusLabel="Awaiting mitigation"
               threats={threats}
               consequences={consequences}

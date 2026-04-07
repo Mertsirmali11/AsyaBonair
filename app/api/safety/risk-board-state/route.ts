@@ -67,6 +67,11 @@ export async function PUT(req: NextRequest) {
     const threatOpenById = body.threatOpenById as unknown as Prisma.InputJsonValue
     const consequenceOpenById =
       body.consequenceOpenById as unknown as Prisma.InputJsonValue
+    const historyPayload = body.history
+    const boardHistoryJson =
+      historyPayload !== undefined
+        ? (historyPayload as unknown as Prisma.InputJsonValue)
+        : undefined
 
     const board = await prisma.safetyRiskBoard.upsert({
       where: { riskKey: body.riskKey },
@@ -75,20 +80,32 @@ export async function PUT(req: NextRequest) {
         riskTitle: body.riskTitle,
         probability: body.probability,
         severity: body.severity,
+        initialProbability: body.initialProbability,
+        initialSeverity: body.initialSeverity,
+        finalProbability: body.finalProbability,
+        finalSeverity: body.finalSeverity,
         threats,
         consequences,
         threatOpenById,
         consequenceOpenById,
+        boardHistory: boardHistoryJson ?? [],
         updatedByCalisanId: calisanId,
       },
       update: {
         riskTitle: body.riskTitle,
         probability: body.probability,
         severity: body.severity,
+        initialProbability: body.initialProbability,
+        initialSeverity: body.initialSeverity,
+        finalProbability: body.finalProbability,
+        finalSeverity: body.finalSeverity,
         threats,
         consequences,
         threatOpenById,
         consequenceOpenById,
+        ...(boardHistoryJson !== undefined
+          ? { boardHistory: boardHistoryJson }
+          : {}),
         updatedByCalisanId: calisanId,
       },
     })

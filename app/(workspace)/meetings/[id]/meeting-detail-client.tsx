@@ -39,11 +39,14 @@ export function MeetingDetailClient({
   calisanlar,
   hazardReports,
   currentUserName,
+  highlightTaskId = null,
 }: {
   meeting: Meeting
   calisanlar: Calisan[]
   hazardReports: HazardReport[]
   currentUserName: string
+  /** URL ?taskId= — scroll to and highlight that task row */
+  highlightTaskId?: number | null
 }) {
   const router = useRouter()
   const [title, setTitle] = useState(meeting.title)
@@ -196,7 +199,11 @@ export function MeetingDetailClient({
           </div>
 
           <div className="border rounded-lg p-4 bg-white">
-            <MeetingTasks meetingId={meeting.id} calisanlar={calisanlar} />
+            <MeetingTasks
+              meetingId={meeting.id}
+              calisanlar={calisanlar}
+              highlightTaskId={highlightTaskId}
+            />
           </div>
 
           <div className="border rounded-lg p-4 bg-white">

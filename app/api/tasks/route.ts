@@ -32,7 +32,16 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const meetingId = Number(body.meetingId)
+    const rawMeetingId = body.meetingId
+    let meetingId: number | null = null
+    if (
+      rawMeetingId !== undefined &&
+      rawMeetingId !== null &&
+      rawMeetingId !== ""
+    ) {
+      const n = Number(rawMeetingId)
+      if (!Number.isNaN(n) && n > 0) meetingId = n
+    }
     const title = String(body.title ?? "").trim()
     const assigneeId =
       body.assigneeId !== undefined && body.assigneeId !== null && body.assigneeId !== ""
@@ -41,8 +50,8 @@ export async function POST(req: NextRequest) {
     const dueDate = body.dueDate ? new Date(String(body.dueDate)) : null
     const status = String(body.status ?? "Open")
 
-    if (!meetingId || Number.isNaN(meetingId) || !title) {
-      return NextResponse.json({ error: "meetingId and title are required" }, { status: 400 })
+    if (!title) {
+      return NextResponse.json({ error: "title is required" }, { status: 400 })
     }
 
     const task = await prisma.meetingTask.create({

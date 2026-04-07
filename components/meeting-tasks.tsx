@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -12,6 +12,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { ClipboardList, Loader2, Trash2 } from "lucide-react"
+
+import { cn } from "@/lib/utils"
 
 interface CalisanLite {
   id: number
@@ -40,12 +42,15 @@ function parseTasksPayload(text: string, ok: boolean): MeetingTaskRow[] {
 export function MeetingTasks({
   meetingId,
   calisanlar,
+  highlightTaskId = null,
 }: {
   meetingId: number
   calisanlar: CalisanLite[]
+  highlightTaskId?: number | null
 }) {
   const [tasks, setTasks] = useState<MeetingTaskRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [flashTaskId, setFlashTaskId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [title, setTitle] = useState("")
   const [assigneeId, setAssigneeId] = useState<string>("")
@@ -67,6 +72,16 @@ export function MeetingTasks({
   useEffect(() => {
     void load()
   }, [load])
+
+  useLayoutEffect(() => {
+    if (highlightTaskId == null || highlightTaskId <= 0 || loading) return
+    const el = document.getElementById(`meeting-task-${highlightTaskId}`)
+    if (!el) return
+    el.scrollIntoView({ behavior: "smooth", block: "center" })
+    setFlashTaskId(highlightTaskId)
+    const t = window.setTimeout(() => setFlashTaskId(null), 4500)
+    return () => window.clearTimeout(t)
+  }, [highlightTaskId, loading, tasks])
 
   const addTask = async () => {
     const t = title.trim()
@@ -128,7 +143,12 @@ export function MeetingTasks({
           {tasks.map((task) => (
             <li
               key={task.id}
-              className="flex flex-col gap-1 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between"
+              id={`meeting-task-${task.id}`}
+              className={cn(
+                "flex flex-col gap-1 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs transition-shadow sm:flex-row sm:items-center sm:justify-between",
+                flashTaskId === task.id &&
+                  "ring-primary ring-offset-background ring-2 ring-offset-2"
+              )}
             >
               <div className="min-w-0 flex-1">
                 <p className="font-medium text-foreground">{task.title}</p>

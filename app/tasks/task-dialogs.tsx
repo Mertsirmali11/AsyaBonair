@@ -25,7 +25,7 @@ export type TaskRow = {
   dueDate: string | null
   createdAt?: string
   assignee: { isim: string | null; soyisim: string | null } | null
-  meeting: { id: number; meetingNo: string; title: string }
+  meeting: { id: number; meetingNo: string; title: string } | null
 }
 
 type TaskMessage = {
@@ -48,7 +48,7 @@ type HistoryRow = { at: string; text: string }
 type TaskDetail = TaskRow & {
   assigneeId: number | null
   updatedAt: string
-  meetingId: number
+  meetingId: number | null
   filePath: string | null
   fileName: string | null
   assignedByName: string | null
@@ -140,17 +140,25 @@ export function TaskQuickViewDialog({
           </div>
           <div>
             <p className="text-muted-foreground text-xs">Meeting</p>
-            <Link
-              href={`/meetings/${task.meeting.id}`}
-              className="text-primary font-mono text-xs underline-offset-4 hover:underline"
-            >
-              {task.meeting.meetingNo}
-            </Link>
-            <p className="text-muted-foreground mt-0.5">{task.meeting.title}</p>
+            {task.meeting ? (
+              <>
+                <Link
+                  href={`/meetings/${task.meeting.id}`}
+                  className="text-primary font-mono text-xs underline-offset-4 hover:underline"
+                >
+                  {task.meeting.meetingNo}
+                </Link>
+                <p className="text-muted-foreground mt-0.5">{task.meeting.title}</p>
+              </>
+            ) : (
+              <p className="text-muted-foreground mt-0.5 text-sm">Not linked to a meeting</p>
+            )}
           </div>
-          <Button asChild className="w-full">
-            <Link href={`/meetings/${task.meeting.id}`}>Open meeting</Link>
-          </Button>
+          {task.meeting ? (
+            <Button asChild className="w-full">
+              <Link href={`/meetings/${task.meeting.id}`}>Open meeting</Link>
+            </Button>
+          ) : null}
         </div>
       </DialogContent>
     </Dialog>
@@ -331,13 +339,19 @@ export function TaskManageDialog({
           </DialogTitle>
           {detail && (
             <p className="text-muted-foreground text-xs font-normal sm:text-sm">
-              {detail.meeting.meetingNo} ·{" "}
-              <Link
-                href={`/meetings/${detail.meeting.id}`}
-                className="text-primary underline-offset-4 hover:underline"
-              >
-                {detail.meeting.title}
-              </Link>
+              {detail.meeting ? (
+                <>
+                  {detail.meeting.meetingNo} ·{" "}
+                  <Link
+                    href={`/meetings/${detail.meeting.id}`}
+                    className="text-primary underline-offset-4 hover:underline"
+                  >
+                    {detail.meeting.title}
+                  </Link>
+                </>
+              ) : (
+                "Standalone task — not linked to a meeting"
+              )}
             </p>
           )}
         </DialogHeader>
@@ -449,13 +463,17 @@ export function TaskManageDialog({
                       <p className="text-muted-foreground mb-1 text-[10px] font-semibold uppercase tracking-wider">
                         Related source
                       </p>
-                      <Link
-                        href={`/meetings/${detail.meeting.id}`}
-                        className="text-primary inline-flex items-start gap-2 text-sm leading-snug underline-offset-4 hover:underline"
-                      >
-                        <Info className="mt-0.5 size-4 shrink-0" />
-                        <span>{detail.meeting.title}</span>
-                      </Link>
+                      {detail.meeting ? (
+                        <Link
+                          href={`/meetings/${detail.meeting.id}`}
+                          className="text-primary inline-flex items-start gap-2 text-sm leading-snug underline-offset-4 hover:underline"
+                        >
+                          <Info className="mt-0.5 size-4 shrink-0" />
+                          <span>{detail.meeting.title}</span>
+                        </Link>
+                      ) : (
+                        <p className="text-muted-foreground text-sm">No meeting — barrier / standalone task</p>
+                      )}
                     </div>
                   </div>
                 </section>
@@ -578,8 +596,18 @@ export function TaskManageDialog({
                     <div className="rounded-md border border-sky-200 bg-sky-50 px-4 py-3 text-sm leading-relaxed text-slate-800">
                       <p className="font-medium">Dear {assigneeGreeting},</p>
                       <p className="mt-2">
-                        You have been assigned an action related to meeting{" "}
-                        <span className="font-mono font-semibold">{detail.meeting.meetingNo}</span>
+                        You have been assigned an action
+                        {detail.meeting ? (
+                          <>
+                            {" "}
+                            related to meeting{" "}
+                            <span className="font-mono font-semibold">
+                              {detail.meeting.meetingNo}
+                            </span>
+                          </>
+                        ) : (
+                          <> (standalone — not tied to a meeting)</>
+                        )}
                         {detail.dueDate && (
                           <>
                             . Please complete it by{" "}

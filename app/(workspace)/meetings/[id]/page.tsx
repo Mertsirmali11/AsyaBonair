@@ -5,10 +5,19 @@ import { prismaJson } from "@/lib/prisma-json"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { MeetingDetailClient } from "./meeting-detail-client"
 
-type Props = { params: Promise<{ id: string }> }
+type Props = {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ taskId?: string }>
+}
 
-export default async function MeetingDetailPage({ params }: Props) {
+export default async function MeetingDetailPage({ params, searchParams }: Props) {
   const { id } = await params
+  const sp = await searchParams
+  const taskIdRaw = sp.taskId
+  const highlightTaskId =
+    typeof taskIdRaw === "string" && /^\d+$/.test(taskIdRaw)
+      ? Number.parseInt(taskIdRaw, 10)
+      : null
   const session = await auth()
   if (!session) redirect("/login")
 
@@ -64,6 +73,7 @@ export default async function MeetingDetailPage({ params }: Props) {
         calisanlar={calisanlar}
         hazardReports={hazardReports as any}
         currentUserName={user.name}
+        highlightTaskId={highlightTaskId}
       />
     </>
   )

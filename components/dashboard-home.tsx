@@ -76,7 +76,7 @@ interface DashboardTask {
   title: string
   dueDate: string | null
   status: string
-  meeting: { id: number; meetingNo: string; title: string }
+  meeting: { id: number; meetingNo: string; title: string } | null
   assignee: { isim: string | null; soyisim: string | null } | null
 }
 
@@ -418,17 +418,27 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                             </span>
                           </TableCell>
                           <TableCell className="align-top max-w-[200px] whitespace-normal">
-                            <Link
-                              href={`/meetings/${t.meeting.id}`}
-                              className="font-medium text-indigo-800 hover:underline"
-                            >
-                              {t.title}
-                            </Link>
+                            {t.meeting ? (
+                              <Link
+                                href={`/meetings/${t.meeting.id}`}
+                                className="font-medium text-indigo-800 hover:underline"
+                              >
+                                {t.title}
+                              </Link>
+                            ) : (
+                              <span className="font-medium text-foreground">{t.title}</span>
+                            )}
                           </TableCell>
                           <TableCell className="align-top text-muted-foreground text-xs whitespace-normal hidden sm:table-cell max-w-[180px]">
-                            {t.meeting.meetingNo}
-                            <span className="text-gray-400"> · </span>
-                            {t.meeting.title}
+                            {t.meeting ? (
+                              <>
+                                {t.meeting.meetingNo}
+                                <span className="text-gray-400"> · </span>
+                                {t.meeting.title}
+                              </>
+                            ) : (
+                              <span className="italic">No meeting</span>
+                            )}
                           </TableCell>
                           <TableCell className="align-top text-xs hidden md:table-cell">
                             {t.assignee

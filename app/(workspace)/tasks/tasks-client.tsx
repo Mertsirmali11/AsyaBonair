@@ -160,8 +160,15 @@ export function TasksClient() {
                 <TableCell>{statusIcon(task.status)}</TableCell>
                 <TableCell className="font-medium max-w-xs truncate">{task.title}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">
-                  <span className="font-mono">{task.meeting.meetingNo}</span>
-                  <br />{task.meeting.title}
+                  {task.meeting ? (
+                    <>
+                      <span className="font-mono">{task.meeting.meetingNo}</span>
+                      <br />
+                      {task.meeting.title}
+                    </>
+                  ) : (
+                    <span className="italic">—</span>
+                  )}
                 </TableCell>
                 <TableCell>
                   {task.assignee ? `${task.assignee.isim} ${task.assignee.soyisim}` : "—"}
