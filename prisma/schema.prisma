@@ -104,6 +104,7 @@ model Calisan {
   workerRegistrationsReviewed WorkerRegistrationRequest[] @relation("WorkerRegistrationReviewedBy")
   announcementAcknowledgments AnnouncementAcknowledgment[]
   companyManuals CompanyManual[]
+  safetyRiskBoardsUpdated   SafetyRiskBoard[] @relation("SafetyRiskBoardUpdatedBy")
 
   @@index([createdAt(sort: Desc)])
   @@index([isim, soyisim])
@@ -483,4 +484,27 @@ model TaskAttachment {
 
   @@index([taskId])
   @@map("task_attachments")
+}
+
+/// Task board / bow-tie: kurum genelinde risk başına tek paylaşımlı kayıt.
+model SafetyRiskBoard {
+  id                  String   @id @default(cuid())
+  /// Başlıktan türetilen sabit anahtar (max 600 karakter)
+  riskKey             String   @unique @map("risk_key") @db.VarChar(600)
+  /// Tam risk / olay başlığı (görüntü)
+  riskTitle           String   @map("risk_title") @db.Text
+  probability         Int?
+  severity            String?  @db.VarChar(1)
+  threats             Json
+  consequences        Json
+  threatOpenById      Json     @map("threat_open_by_id")
+  consequenceOpenById Json     @map("consequence_open_by_id")
+  updatedByCalisanId  Int?     @map("updated_by_calisan_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  updatedBy Calisan? @relation("SafetyRiskBoardUpdatedBy", fields: [updatedByCalisanId], references: [id], onDelete: SetNull)
+
+  @@index([updatedAt(sort: Desc)])
+  @@map("safety_risk_boards")
 }

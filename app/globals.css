@@ -123,3 +123,52 @@
   }
 }
 
+/* Risk assessment: yalnızca PDF / yazıcı çıktısı (TaskBoardView Print) */
+#risk-assessment-print-root {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  width: 210mm;
+  max-width: 100vw;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 0;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  body.risk-assessment-printing * {
+    visibility: hidden;
+  }
+
+  body.risk-assessment-printing #risk-assessment-print-root,
+  body.risk-assessment-printing #risk-assessment-print-root * {
+    visibility: visible;
+  }
+
+  body.risk-assessment-printing #risk-assessment-print-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: none;
+    overflow: visible;
+    pointer-events: auto;
+    opacity: 1;
+    background: #fff !important;
+    color: #0a0a0a !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body.risk-assessment-printing #risk-assessment-print-root .ra-avoid-break {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
+

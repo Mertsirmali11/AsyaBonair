@@ -1,7 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { usePathname } from "next/navigation"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   ArrowLeft,
   Info,
@@ -35,79 +36,21 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  firstAssessmentCellClass,
+  formatRiskAssessmentWithBand,
+  parseRiskLevelCode,
+  riskMatrixToneFromSelection,
+} from "@/lib/safety-risk-matrix"
+import { riskBoardKeyFromTitle } from "@/lib/safety-risk-board-key"
+import { RISK_BOARD_SEED_ROWS, type RiskBoardSeedRow, type RiskStatusTone } from "@/lib/safety-risk-seed"
+import {
+  assessmentCodeFromParts,
+  readLocalRiskBoardAssessment,
+} from "@/lib/safety-task-board-local-read"
 import { cn } from "@/lib/utils"
 
-type RiskStatusTone = "awaiting" | "mitigation" | "monitored"
-
-type RiskRow = {
-  id: string
-  riskNo: string
-  date: string
-  title: string
-  titleDot?: "amber" | "red" | "green" | null
-  initial: string
-  final: string
-  field: string
-  threads: string
-  threadsHighlight?: boolean
-  status: string
-  statusTone: RiskStatusTone
-}
-
-const MOCK_RISKS: RiskRow[] = [
-  {
-    id: "1",
-    riskNo: "BON-SR-1620",
-    date: "2026-03-11",
-    title: "test2",
-    titleDot: "amber",
-    initial: "Not Determined",
-    final: "Not Determined",
-    field: "Aircraft Audit",
-    threads: "No special actions required",
-    status: "Awaiting Assessment",
-    statusTone: "awaiting",
-  },
-  {
-    id: "2",
-    riskNo: "BON-SR-1621",
-    date: "2026-03-10",
-    title: "Wings System Error (Experience Logbooks)",
-    titleDot: "red",
-    initial: "2C",
-    final: "2C",
-    field: "Flight Operation Dept",
-    threads: "No special actions required",
-    status: "Awaiting Mitigation",
-    statusTone: "mitigation",
-  },
-  {
-    id: "3",
-    riskNo: "BON-SR-1618",
-    date: "2026-03-09",
-    title: "TC-IHY Right Flap Trailing Edge Damage",
-    titleDot: "green",
-    initial: "3C",
-    final: "1E",
-    field: "Performance / EFB",
-    threads: "Needs Assessment",
-    threadsHighlight: true,
-    status: "To be Monitored",
-    statusTone: "monitored",
-  },
-  {
-    id: "4",
-    riskNo: "BON-SR-1615",
-    date: "2026-03-08",
-    title: "Tools not returned on time or left uncontrolled",
-    initial: "4C",
-    final: "2D",
-    field: "Maintenance",
-    threads: "No special actions required",
-    status: "Awaiting Assessment",
-    statusTone: "awaiting",
-  },
-]
+type RiskRow = RiskBoardSeedRow
 
 function statusBadgeClass(tone: RiskStatusTone) {
   switch (tone) {
@@ -128,10 +71,23 @@ function taskBoardHref(title: string) {
   return `/safety/task-board?${q.toString()}`
 }
 
+type BoardSummary = {
+  riskKey: string
+  riskTitle: string
+  probability: number | null
+  severity: string | null
+}
+
 export function RiskBoardView() {
   const [risks, setRisks] = useState<RiskRow[]>(() =>
-    MOCK_RISKS.map((r) => ({ ...r }))
+    RISK_BOARD_SEED_ROWS.map((r) => ({ ...r }))
   )
+  const [serverSummaries, setServerSummaries] = useState<BoardSummary[] | null>(
+    null
+  )
+  /** Sunucu cevabı veya sayfaya dönüşte localStorage yeniden okunsun */
+  const [boardRefreshNonce, setBoardRefreshNonce] = useState(0)
+  const pathname = usePathname()
   const [keyword, setKeyword] = useState("")
 
   const [editOpen, setEditOpen] = useState(false)
@@ -148,6 +104,66 @@ export function RiskBoardView() {
         r.field.toLowerCase().includes(q)
     )
   }, [keyword, risks])
+
+  const loadSummaries = useCallback(async () => {
+    try {
+      const res = await fetch("/api/safety/risk-board-summaries", {
+        credentials: "include",
+      })
+      if (!res.ok) {
+        setServerSummaries([])
+        return
+      }
+      const data = (await res.json()) as { boards?: BoardSummary[] }
+      setServerSummaries(Array.isArray(data.boards) ? data.boards : [])
+    } catch {
+      setServerSummaries([])
+    } finally {
+      setBoardRefreshNonce((n) => n + 1)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (pathname === "/safety/risk-board") void loadSummaries()
+  }, [pathname, loadSummaries])
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") void loadSummaries()
+    }
+    document.addEventListener("visibilitychange", onVis)
+    return () => document.removeEventListener("visibilitychange", onVis)
+  }, [loadSummaries])
+
+  /** Sunucu + tarayıcı localStorage’daki bow-tie ilk değerlendirmesi (seed üzerine yazar). */
+  const liveInitialByKey = useMemo(() => {
+    const map: Record<string, string> = {}
+    if (serverSummaries) {
+      for (const b of serverSummaries) {
+        if (
+          typeof b.probability === "number" &&
+          b.probability >= 1 &&
+          b.probability <= 5 &&
+          typeof b.severity === "string" &&
+          /^[EDCBA]$/i.test(b.severity)
+        ) {
+          map[b.riskKey] = assessmentCodeFromParts(
+            b.probability,
+            b.severity
+          )
+        }
+      }
+    }
+    for (const r of risks) {
+      const k = riskBoardKeyFromTitle(r.title)
+      if (map[k]) continue
+      const local = readLocalRiskBoardAssessment(r.title)
+      if (local) {
+        map[k] = assessmentCodeFromParts(local.probability, local.severity)
+      }
+    }
+    return map
+  }, [serverSummaries, risks, boardRefreshNonce])
 
   const openEditTitle = (row: RiskRow) => {
     setEditingId(row.id)
@@ -251,7 +267,9 @@ export function RiskBoardView() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start" className="w-48">
                       <DropdownMenuItem asChild>
-                        <Link href={taskBoardHref(row.title)}>Open task board</Link>
+                        <Link href={taskBoardHref(row.title)}>
+                          Open risk assessment
+                        </Link>
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={() => openEditTitle(row)}>
@@ -288,7 +306,38 @@ export function RiskBoardView() {
                     <span className="whitespace-normal font-medium">{row.title}</span>
                   </span>
                 </TableCell>
-                <TableCell>{row.initial}</TableCell>
+                <TableCell className="whitespace-nowrap">
+                  {(() => {
+                    const rk = riskBoardKeyFromTitle(row.title)
+                    const initialShown =
+                      liveInitialByKey[rk] ?? row.initial
+                    const parsed = parseRiskLevelCode(initialShown)
+                    if (!parsed) {
+                      return (
+                        <span className="text-sm text-foreground">
+                          {initialShown}
+                        </span>
+                      )
+                    }
+                    const tone = riskMatrixToneFromSelection(
+                      parsed.probability,
+                      parsed.severity
+                    )
+                    return (
+                      <span
+                        className={cn(
+                          "inline-flex rounded-md border px-2 py-0.5 text-xs font-semibold tabular-nums",
+                          firstAssessmentCellClass(tone)
+                        )}
+                      >
+                        {formatRiskAssessmentWithBand(
+                          parsed.probability,
+                          parsed.severity
+                        )}
+                      </span>
+                    )
+                  })()}
+                </TableCell>
                 <TableCell>{row.final}</TableCell>
                 <TableCell className="max-w-[140px] whitespace-normal text-sm">
                   {row.field}

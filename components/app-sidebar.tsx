@@ -99,7 +99,7 @@ const correspondencesSubItems = [
   { title: "Outgoing Correspondences", url: "/correspondences/outgoing" },
 ]
 
-const safetyManagementSubItems = [{ title: "Task Board", url: "/safety/risk-board" }]
+const safetyManagementSubItems = [{ title: "Risk Board", url: "/safety/risk-board" }]
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   user: User
