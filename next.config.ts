@@ -43,6 +43,7 @@ const nextConfig: NextConfig = {
     "pg",
     "@prisma/adapter-pg",
     "pdf-parse",
+    "officeparser",
   ],
 };
 

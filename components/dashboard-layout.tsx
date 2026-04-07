@@ -21,20 +21,24 @@ interface User {
 interface DashboardLayoutProps {
   children: React.ReactNode
   user: User
+  /** Üst başlık; verilmezse WorkspacePageTitle bağlamı kullanılır */
+  headerTitle?: string
 }
 
 /** Rota değişince başlık state'i yeniden mount ile sıfırlanır (useInsertionEffect/setState yasak). */
 function WorkspaceInsetWithTitle({
   user,
   children,
+  headerTitle,
 }: {
   user: User
   children: React.ReactNode
+  headerTitle?: string
 }) {
   const pathname = usePathname()
   return (
     <WorkspacePageTitleProvider key={pathname}>
-      <SiteHeader user={user} />
+      <SiteHeader user={user} title={headerTitle} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="@container/main flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-y-contain">
           {children}
@@ -44,7 +48,11 @@ function WorkspaceInsetWithTitle({
   )
 }
 
-export function DashboardLayout({ children, user }: DashboardLayoutProps) {
+export function DashboardLayout({
+  children,
+  user,
+  headerTitle,
+}: DashboardLayoutProps) {
   return (
     <SidebarProvider
       className="h-dvh max-h-dvh min-h-0 overflow-hidden"
@@ -58,7 +66,9 @@ export function DashboardLayout({ children, user }: DashboardLayoutProps) {
       <DmInboxProvider>
         <AppSidebar variant="inset" user={user} />
         <SidebarInset className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <WorkspaceInsetWithTitle user={user}>{children}</WorkspaceInsetWithTitle>
+          <WorkspaceInsetWithTitle user={user} headerTitle={headerTitle}>
+            {children}
+          </WorkspaceInsetWithTitle>
         </SidebarInset>
       </DmInboxProvider>
     </SidebarProvider>
