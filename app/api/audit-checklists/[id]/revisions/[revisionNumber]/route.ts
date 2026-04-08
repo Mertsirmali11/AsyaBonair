@@ -1,23 +1,13 @@
 import { NextResponse } from "next/server"
-import { defaultChecklistNumber, formatYmdUtc } from "@/lib/audit-checklist-helpers"
+import {
+  defaultChecklistNumber,
+  formatYmdUtc,
+  serializeAuditChecklistItemRow,
+} from "@/lib/audit-checklist-helpers"
 import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import { prisma } from "@/lib/prisma-server"
 
 type Ctx = { params: Promise<{ id: string; revisionNumber: string }> }
-
-function serializeRevisionItem(it: {
-  id: number
-  label: string
-  sortOrder: number
-  isRequired: boolean
-}) {
-  return {
-    id: it.id,
-    label: it.label,
-    sortOrder: it.sortOrder,
-    isRequired: it.isRequired,
-  }
-}
 
 export async function GET(_req: Request, ctx: Ctx) {
   const session = await requireAuditPlanSession()
@@ -40,6 +30,8 @@ export async function GET(_req: Request, ctx: Ctx) {
     id: checklist.id,
     title: checklist.title,
     checklistNumber: checklist.checklistNumber ?? defaultChecklistNumber(checklist.id),
+    latestRevisionNumber: checklist.latestRevisionNumber,
+    isActive: checklist.isActive,
   }
 
   const stored = await prisma.auditChecklistRevision.findUnique({
@@ -63,8 +55,31 @@ export async function GET(_req: Request, ctx: Ctx) {
         revisionDate: formatYmdUtc(stored.revisionDate),
         title: stored.title,
         description: stored.description,
-        items: stored.items.map(serializeRevisionItem),
+        items: stored.items.map(serializeAuditChecklistItemRow),
         synthetic: false,
+        missingSnapshot: false,
+      },
+    })
+  }
+
+  if (
+    revNo >= checklist.initialRevisionNumber &&
+    revNo < checklist.latestRevisionNumber
+  ) {
+    return NextResponse.json({
+      checklist: checklistMeta,
+      revision: {
+        id: null,
+        revisionNumber: revNo,
+        revisionDate:
+          revNo === checklist.initialRevisionNumber
+            ? formatYmdUtc(checklist.initialRevisionDate)
+            : "—",
+        title: checklist.title,
+        description: checklist.description,
+        items: [],
+        synthetic: true,
+        missingSnapshot: true,
       },
     })
   }
@@ -91,8 +106,9 @@ export async function GET(_req: Request, ctx: Ctx) {
       revisionDate: formatYmdUtc(full.latestRevisionDate),
       title: full.title,
       description: full.description,
-      items: full.items.map(serializeRevisionItem),
+      items: full.items.map(serializeAuditChecklistItemRow),
       synthetic: true,
+      missingSnapshot: false,
     },
   })
 }

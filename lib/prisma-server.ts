@@ -4,8 +4,12 @@ import { PrismaClient } from "@prisma/client"
 import { Pool } from "pg"
 import { PrismaPg } from "@prisma/adapter-pg"
 
+/** Şemada alan/model değişince artırın; dev’de global’deki eski PrismaClient’ı atar. */
+const PRISMA_CLIENT_CACHE_REVISION = 2
+
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
+  __prismaClientCacheRevision?: number
 }
 
 /** Supabase: 5432 = session pooler (çok düşük eşzamanlı bağlantı); 6543 = transaction (PgBouncer). */
@@ -84,8 +88,10 @@ function prismaHasExpectedDelegates(client: PrismaClient): boolean {
 }
 
 function getOrCreatePrisma(): PrismaClient {
+  const cacheOk =
+    globalForPrisma.__prismaClientCacheRevision === PRISMA_CLIENT_CACHE_REVISION
   const cached = globalForPrisma.prisma
-  if (cached && prismaHasExpectedDelegates(cached)) {
+  if (cached && prismaHasExpectedDelegates(cached) && cacheOk) {
     return cached
   }
   if (cached) {
@@ -94,6 +100,7 @@ function getOrCreatePrisma(): PrismaClient {
   }
   const created = createPrismaClient()
   globalForPrisma.prisma = created
+  globalForPrisma.__prismaClientCacheRevision = PRISMA_CLIENT_CACHE_REVISION
   return created
 }
 

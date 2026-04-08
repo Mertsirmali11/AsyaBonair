@@ -1,23 +1,13 @@
 import { NextResponse } from "next/server"
-import { defaultChecklistNumber, formatYmdUtc } from "@/lib/audit-checklist-helpers"
+import {
+  defaultChecklistNumber,
+  formatYmdUtc,
+  serializeAuditChecklistItemRow,
+} from "@/lib/audit-checklist-helpers"
 import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import { prisma } from "@/lib/prisma-server"
 
 type Ctx = { params: Promise<{ id: string }> }
-
-function serializeRevisionItem(it: {
-  id: number
-  label: string
-  sortOrder: number
-  isRequired: boolean
-}) {
-  return {
-    id: it.id,
-    label: it.label,
-    sortOrder: it.sortOrder,
-    isRequired: it.isRequired,
-  }
-}
 
 export async function GET(_req: Request, ctx: Ctx) {
   const session = await requireAuditPlanSession()
@@ -59,33 +49,75 @@ export async function GET(_req: Request, ctx: Ctx) {
     },
   })
 
-  if (stored.length > 0) {
+  const byNumber = new Map(stored.map((r) => [r.revisionNumber, r]))
+
+  const fromRev = checklist.initialRevisionNumber
+  const toRev = checklist.latestRevisionNumber
+
+  if (stored.length === 0) {
+    const revisions = []
+    for (let n = fromRev; n <= toRev; n++) {
+      if (n === toRev) {
+        revisions.push({
+          id: null,
+          revisionNumber: n,
+          revisionDate: formatYmdUtc(checklist.latestRevisionDate),
+          title: checklist.title,
+          description: checklist.description,
+          items: checklist.items.map(serializeAuditChecklistItemRow),
+          synthetic: true,
+          missingSnapshot: false,
+        })
+      } else {
+        revisions.push({
+          id: null,
+          revisionNumber: n,
+          revisionDate:
+            n === fromRev ? formatYmdUtc(checklist.initialRevisionDate) : "—",
+          title: checklist.title,
+          description: checklist.description,
+          items: [],
+          synthetic: true,
+          missingSnapshot: true,
+        })
+      }
+    }
     return NextResponse.json({
       checklist: checklistMeta,
-      revisions: stored.map((r) => ({
-        id: r.id,
-        revisionNumber: r.revisionNumber,
-        revisionDate: formatYmdUtc(r.revisionDate),
-        title: r.title,
-        description: r.description,
-        items: r.items.map(serializeRevisionItem),
-        synthetic: false,
-      })),
+      revisions,
     })
+  }
+
+  const revisions = []
+  for (let n = fromRev; n <= toRev; n++) {
+    const row = byNumber.get(n)
+    if (row) {
+      revisions.push({
+        id: row.id,
+        revisionNumber: row.revisionNumber,
+        revisionDate: formatYmdUtc(row.revisionDate),
+        title: row.title,
+        description: row.description,
+        items: row.items.map(serializeAuditChecklistItemRow),
+        synthetic: false,
+        missingSnapshot: false,
+      })
+    } else {
+      revisions.push({
+        id: null,
+        revisionNumber: n,
+        revisionDate: n === fromRev ? formatYmdUtc(checklist.initialRevisionDate) : "—",
+        title: checklist.title,
+        description: checklist.description,
+        items: [],
+        synthetic: true,
+        missingSnapshot: true,
+      })
+    }
   }
 
   return NextResponse.json({
     checklist: checklistMeta,
-    revisions: [
-      {
-        id: null,
-        revisionNumber: checklist.latestRevisionNumber,
-        revisionDate: formatYmdUtc(checklist.latestRevisionDate),
-        title: checklist.title,
-        description: checklist.description,
-        items: checklist.items.map(serializeRevisionItem),
-        synthetic: true,
-      },
-    ],
+    revisions,
   })
 }

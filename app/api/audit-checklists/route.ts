@@ -3,6 +3,7 @@ import {
   defaultChecklistNumber,
   parseOptionalDateYmd,
 } from "@/lib/audit-checklist-helpers"
+import { parseAuditChecklistItemsFromBody } from "@/lib/audit-checklist-items-parse"
 import { mapSnapshotItems } from "@/lib/audit-checklist-revision-snapshot"
 import { parseDdMmYyyyToUtcDate } from "@/lib/correspondence-date"
 import { requireAuditPlanSession } from "@/lib/audit-plan-session"
@@ -92,20 +93,7 @@ export async function POST(req: Request) {
   const description =
     typeof b.description === "string" && b.description.trim() ? b.description.trim() : null
 
-  const itemsRaw = Array.isArray(b.items) ? b.items : []
-  const items = itemsRaw
-    .map((row, idx) => {
-      if (!row || typeof row !== "object") return null
-      const r = row as Record<string, unknown>
-      const label = typeof r.label === "string" ? r.label.trim() : ""
-      if (!label) return null
-      const sortOrder =
-        typeof r.sortOrder === "number" && Number.isFinite(r.sortOrder)
-          ? Math.trunc(r.sortOrder)
-          : idx
-      return { label: label.slice(0, 8000), sortOrder }
-    })
-    .filter(Boolean) as { label: string; sortOrder: number }[]
+  const items = parseAuditChecklistItemsFromBody(b.items)
 
   const maxSort = await prisma.auditChecklist.aggregate({ _max: { sortOrder: true } })
   const nextOrder = (maxSort._max.sortOrder ?? -1) + 1
@@ -129,6 +117,8 @@ export async function POST(req: Request) {
               label: it.label,
               sortOrder: it.sortOrder,
               isRequired: true,
+              reference: it.reference,
+              section: it.section,
             })),
           },
         },

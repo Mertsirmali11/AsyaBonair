@@ -665,6 +665,10 @@ model AuditChecklistRevisionItem {
   id         Int      @id @default(autoincrement())
   revisionId Int      @map("audit_checklist_revision_id")
   label      String   @db.Text
+  /// Regülasyon / doküman referansı (örn. SHT-17.3 Md.5)
+  reference  String?  @db.VarChar(500) @map("reference")
+  /// Bölüm başlığı; ardışık aynı değer tek başlık satırında gösterilir
+  section    String?  @db.VarChar(400) @map("section")
   sortOrder  Int      @default(0) @map("sort_order")
   isRequired Boolean  @default(true) @map("is_required")
   createdAt  DateTime @default(now()) @map("created_at")
@@ -680,6 +684,8 @@ model AuditChecklistItem {
   id               Int      @id @default(autoincrement())
   auditChecklistId Int      @map("audit_checklist_id")
   label            String   @db.Text
+  reference        String?  @db.VarChar(500) @map("reference")
+  section          String?  @db.VarChar(400) @map("section")
   sortOrder        Int      @default(0) @map("sort_order")
   isRequired       Boolean  @default(true) @map("is_required")
   createdAt        DateTime @default(now()) @map("created_at")

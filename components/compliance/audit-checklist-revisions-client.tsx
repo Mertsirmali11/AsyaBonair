@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, HelpCircle } from "lucide-react"
+import { ArrowLeft, HelpCircle, PlusCircle } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
@@ -31,6 +31,7 @@ type RevisionRow = {
   description: string | null
   items: { id: number; label: string; sortOrder: number; isRequired: boolean }[]
   synthetic: boolean
+  missingSnapshot?: boolean
 }
 
 type RevisionsPayload = {
@@ -65,6 +66,7 @@ export function AuditChecklistRevisionsClient({ checklistId }: { checklistId: nu
   const router = useRouter()
   const [data, setData] = React.useState<RevisionsPayload | null>(null)
   const [loading, setLoading] = React.useState(true)
+  const [creatingNext, setCreatingNext] = React.useState(false)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -93,12 +95,51 @@ export function AuditChecklistRevisionsClient({ checklistId }: { checklistId: nu
 
   const title = data?.checklist.title ?? "Checklist"
 
+  const createNextRevision = React.useCallback(async () => {
+    setCreatingNext(true)
+    try {
+      const res = await fetch(`/api/audit-checklists/${checklistId}/revisions/create-next`, {
+        method: "POST",
+      })
+      const raw = await parseJson(res)
+      if (!res.ok) {
+        const msg =
+          raw && typeof raw === "object" && "error" in raw && typeof raw.error === "string"
+            ? raw.error
+            : "Yeni revizyon oluşturulamadı."
+        toast.error(msg)
+        return
+      }
+      const rev =
+        raw && typeof raw === "object" && "revisionNumber" in raw
+          ? Number((raw as { revisionNumber: unknown }).revisionNumber)
+          : NaN
+      if (!Number.isInteger(rev)) {
+        toast.error("Yanıt geçersiz.")
+        return
+      }
+      const count =
+        raw && typeof raw === "object" && "itemCount" in raw
+          ? Number((raw as { itemCount: unknown }).itemCount)
+          : 0
+      toast.success(
+        `Revizyon #${rev} oluşturuldu${count > 0 ? ` · ${count} madde kopyalandı` : ""}.`
+      )
+      await load()
+      router.push(`/compliance/checklists/${checklistId}/revisions/${rev}`)
+    } catch {
+      toast.error("Bağlantı hatası.")
+    } finally {
+      setCreatingNext(false)
+    }
+  }, [checklistId, load, router])
+
   return (
     <TooltipProvider>
       <SetWorkspacePageTitle title={`${title} — Revizyonlar`} />
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 md:p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex min-w-0 flex-1 flex-col gap-3">
+          <div className="flex min-w-0 flex-1 flex-col gap-3 sm:pr-4">
             <Breadcrumb className="text-xs sm:text-sm">
               <BreadcrumbList>
                 <BreadcrumbItem>
@@ -160,12 +201,25 @@ export function AuditChecklistRevisionsClient({ checklistId }: { checklistId: nu
                   </button>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs" side="bottom">
-                  Her satır, kayıtlı bir revizyon anlık görüntüsüdür. «Checklist Builder» ile o
-                  sürümdeki maddeleri görüntüleyebilirsiniz.
+                  Her satır kayıtlı bir revizyon anlık görüntüsüdür. Builder’da «Kaydet» revizyon
+                  numarasını değiştirmez (ara verirken güvenle kullanın). Yeni numara için burada
+                  «Yeni revizyon» kullanın.
                 </TooltipContent>
               </Tooltip>
             </div>
           </div>
+          {!loading && data ? (
+            <Button
+              type="button"
+              size="sm"
+              className="shrink-0 gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+              disabled={creatingNext}
+              onClick={() => void createNextRevision()}
+            >
+              <PlusCircle className="size-4" />
+              {creatingNext ? "Oluşturuluyor…" : "Yeni revizyon"}
+            </Button>
+          ) : null}
         </div>
 
         {loading ? (
@@ -175,8 +229,11 @@ export function AuditChecklistRevisionsClient({ checklistId }: { checklistId: nu
         ) : (
           <div className="flex flex-col gap-3">
             <p className="text-muted-foreground text-sm">
-              Toplam {data.revisions.length} revizyon
-              {data.revisions.some((r) => r.synthetic) ? " (eski kayıtlar için özet görünüm)" : ""}
+              Rev. #{data.checklist.initialRevisionNumber}–#{data.checklist.latestRevisionNumber}{" "}
+              arası {data.revisions.length} kayıt
+              {data.revisions.some((r) => r.missingSnapshot)
+                ? " · Sarı uyarılı satırlarda arşiv anlık görüntüsü yok."
+                : ""}
             </p>
             <ul className="flex flex-col gap-2">
               {data.revisions.map((r) => (
@@ -196,9 +253,18 @@ export function AuditChecklistRevisionsClient({ checklistId }: { checklistId: nu
                       </p>
                     ) : null}
                     <p className="text-muted-foreground mt-1 text-xs">
-                      {r.items.length} madde
-                      {r.synthetic ? " · Geçmiş revizyonlar için tam arşiv, ilk kayıttan sonra oluşur." : ""}
+                      {r.missingSnapshot
+                        ? "Arşiv anlık görüntüsü yok"
+                        : `${r.items.length} madde`}
+                      {r.synthetic && !r.missingSnapshot
+                        ? " · Canlı özet (kayıtlı arşiv satırı yoksa)."
+                        : ""}
                     </p>
+                    {r.missingSnapshot ? (
+                      <p className="text-amber-800 dark:text-amber-200 mt-1 text-xs font-medium">
+                        Bu numara listede; içerik veritabanında saklanmamış.
+                      </p>
+                    ) : null}
                   </div>
                   <Button
                     type="button"

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { defaultChecklistNumber } from "@/lib/audit-checklist-helpers"
+import { parseAuditChecklistItemsFromBody } from "@/lib/audit-checklist-items-parse"
 import { mapSnapshotItems } from "@/lib/audit-checklist-revision-snapshot"
 import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import { prisma } from "@/lib/prisma-server"
@@ -77,6 +79,13 @@ export async function PATCH(req: Request, ctx: Ctx) {
       ? b.checklistNumber.trim().slice(0, 100)
       : null
 
+  const resolvedChecklistNumber = (() => {
+    if (customNumber) return customNumber
+    const ex = existing.checklistNumber?.trim()
+    if (ex) return ex.slice(0, 100)
+    return defaultChecklistNumber(id)
+  })()
+
   const description =
     typeof b.description === "string" && b.description.trim() ? b.description.trim() : null
 
@@ -84,40 +93,35 @@ export async function PATCH(req: Request, ctx: Ctx) {
 
   const bumpRevision = b.bumpRevision !== false
 
-  const itemsRaw = Array.isArray(b.items) ? b.items : []
-  const items = itemsRaw
-    .map((row, idx) => {
-      if (!row || typeof row !== "object") return null
-      const r = row as Record<string, unknown>
-      const label = typeof r.label === "string" ? r.label.trim() : ""
-      if (!label) return null
-      const sortOrder =
-        typeof r.sortOrder === "number" && Number.isFinite(r.sortOrder)
-          ? Math.trunc(r.sortOrder)
-          : idx
-      return { label: label.slice(0, 8000), sortOrder }
-    })
-    .filter(Boolean) as { label: string; sortOrder: number }[]
+  const items = parseAuditChecklistItemsFromBody(b.items)
 
   const now = new Date()
-  const nextLatestRev = bumpRevision
-    ? existing.latestRevisionNumber + 1
-    : existing.latestRevisionNumber
 
   const snapshotItems = mapSnapshotItems(items)
 
   try {
     await prisma.$transaction(async (tx) => {
       await tx.auditChecklistItem.deleteMany({ where: { auditChecklistId: id } })
+
+      let nextLatestRev: number | null = null
+      if (bumpRevision) {
+        const agg = await tx.auditChecklistRevision.aggregate({
+          where: { auditChecklistId: id },
+          _max: { revisionNumber: true },
+        })
+        const maxStored = agg._max.revisionNumber ?? -1
+        nextLatestRev = Math.max(existing.latestRevisionNumber, maxStored) + 1
+      }
+
       await tx.auditChecklist.update({
         where: { id },
         data: {
           title: title.slice(0, 400),
           checklistType,
-          checklistNumber: customNumber ?? existing.checklistNumber ?? defaultChecklistNumber(id),
+          checklistNumber: resolvedChecklistNumber,
           description,
           isActive,
-          ...(bumpRevision
+          ...(bumpRevision && nextLatestRev !== null
             ? {
                 latestRevisionNumber: nextLatestRev,
                 latestRevisionDate: now,
@@ -132,11 +136,13 @@ export async function PATCH(req: Request, ctx: Ctx) {
             label: it.label,
             sortOrder: it.sortOrder,
             isRequired: true,
+            reference: it.reference,
+            section: it.section,
           })),
         })
       }
 
-      if (bumpRevision) {
+      if (bumpRevision && nextLatestRev !== null) {
         await tx.auditChecklistRevision.create({
           data: {
             auditChecklistId: id,
@@ -175,6 +181,8 @@ export async function PATCH(req: Request, ctx: Ctx) {
                 label: it.label,
                 sortOrder: it.sortOrder,
                 isRequired: it.isRequired,
+                reference: it.reference,
+                section: it.section,
               })),
             })
           }
@@ -203,8 +211,42 @@ export async function PATCH(req: Request, ctx: Ctx) {
     return NextResponse.json(updated)
   } catch (e) {
     console.error("[audit-checklists PATCH]", e)
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      const target = Array.isArray(e.meta?.target)
+        ? e.meta.target.join(", ")
+        : String(e.meta?.target ?? "benzersiz alan")
+      return NextResponse.json(
+        {
+          error: `Bu değer zaten kullanılıyor (${target}). Checklist numarası veya revizyon çakışması olabilir.`,
+        },
+        { status: 409 }
+      )
+    }
+    const isValidation =
+      e instanceof Prisma.PrismaClientValidationError ||
+      (typeof e === "object" &&
+        e !== null &&
+        "name" in e &&
+        (e as { name: string }).name === "PrismaClientValidationError")
+    if (isValidation) {
+      const msg = e instanceof Error ? e.message : String(e)
+      const stale =
+        msg.includes("Unknown argument") &&
+        (msg.includes("reference") || msg.includes("section"))
+      return NextResponse.json(
+        {
+          error: stale
+            ? "Prisma istemcisi güncel değil. Terminalde: pnpm exec prisma generate — ardından pnpm dev’i durdurup yeniden başlatın."
+            : "Kayıt doğrulanamadı. Alan eşlemesini kontrol edin.",
+          ...(process.env.NODE_ENV === "development"
+            ? { details: msg.slice(0, 800) }
+            : {}),
+        },
+        { status: 500 }
+      )
+    }
     return NextResponse.json(
-      { error: "Could not update checklist (number may be in use)." },
+      { error: "Checklist güncellenemedi. Sunucu günlüğüne bakın veya destek ile iletişime geçin." },
       { status: 500 }
     )
   }

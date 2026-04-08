@@ -76,10 +76,22 @@ export type AuditChecklistListRow = {
   _count: { items: number; assignments: number }
 }
 
-type ChecklistItemRow = { label: string; sortOrder: number }
+type ChecklistItemRow = {
+  label: string
+  sortOrder: number
+  reference: string
+  section: string
+}
 
 type ChecklistDetail = AuditChecklistListRow & {
-  items: { id: number; label: string; sortOrder: number; isRequired: boolean }[]
+  items: {
+    id: number
+    label: string
+    sortOrder: number
+    isRequired: boolean
+    reference?: string | null
+    section?: string | null
+  }[]
 }
 
 /** API / veritabanı için sabit tip (arayüzde gösterilmez) */
@@ -122,7 +134,9 @@ export function AuditChecklistsClient() {
   const [initialRevDate, setInitialRevDate] = React.useState(todayLocalDdMmYyyy())
   const [description, setDescription] = React.useState("")
   const [isActive, setIsActive] = React.useState(true)
-  const [itemRows, setItemRows] = React.useState<ChecklistItemRow[]>([{ label: "", sortOrder: 0 }])
+  const [itemRows, setItemRows] = React.useState<ChecklistItemRow[]>([
+    { label: "", sortOrder: 0, reference: "", section: "" },
+  ])
   const [saving, setSaving] = React.useState(false)
 
   const [deleteTarget, setDeleteTarget] = React.useState<AuditChecklistListRow | null>(null)
@@ -171,7 +185,7 @@ export function AuditChecklistsClient() {
     setInitialRevDate(todayLocalDdMmYyyy())
     setDescription("")
     setIsActive(true)
-    setItemRows([{ label: "", sortOrder: 0 }])
+    setItemRows([{ label: "", sortOrder: 0, reference: "", section: "" }])
     setFormOpen(true)
   }
 
@@ -191,18 +205,23 @@ export function AuditChecklistsClient() {
       const data = await parseJson(res)
       if (!res.ok || !data || typeof data !== "object") {
         toast.error("Detay yüklenemedi.")
-        setItemRows([{ label: "", sortOrder: 0 }])
+        setItemRows([{ label: "", sortOrder: 0, reference: "", section: "" }])
         return
       }
       const d = data as ChecklistDetail
       const items = Array.isArray(d.items) ? d.items : []
       setItemRows(
         items.length > 0
-          ? items.map((it, i) => ({ label: it.label, sortOrder: it.sortOrder ?? i }))
-          : [{ label: "", sortOrder: 0 }]
+          ? items.map((it, i) => ({
+              label: it.label,
+              sortOrder: it.sortOrder ?? i,
+              reference: it.reference ?? "",
+              section: it.section ?? "",
+            }))
+          : [{ label: "", sortOrder: 0, reference: "", section: "" }]
       )
     } catch {
-      setItemRows([{ label: "", sortOrder: 0 }])
+      setItemRows([{ label: "", sortOrder: 0, reference: "", section: "" }])
     }
   }, [])
 
@@ -221,49 +240,63 @@ export function AuditChecklistsClient() {
     }
   }, [loading, rows, openEdit])
 
-  const submitForm = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const buildItemsPayload = React.useCallback(() => {
+    return itemRows
+      .map((row, idx) => ({
+        label: row.label.trim(),
+        sortOrder: row.sortOrder ?? idx,
+        reference: row.reference.trim() || undefined,
+        section: row.section.trim() || undefined,
+      }))
+      .filter((row) => row.label.length > 0)
+  }, [itemRows])
+
+  const createChecklist = async () => {
     const t = title.trim()
     if (!t) {
       toast.error("Checklist adı gerekli.")
       return
     }
-    const items =
-      editingId === null
-        ? []
-        : itemRows
-            .map((row, idx) => ({
-              label: row.label.trim(),
-              sortOrder: row.sortOrder ?? idx,
-            }))
-            .filter((row) => row.label.length > 0)
-
+    const items = buildItemsPayload()
     setSaving(true)
     try {
-      if (editingId === null) {
-        const res = await fetch("/api/audit-checklists", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title: t,
-            checklistNumber: checklistNumber.trim() || undefined,
-            checklistType: DEFAULT_CHECKLIST_TYPE,
-            initialRevisionNumber: Number(initialRev) || 0,
-            initialRevisionDate: initialRevDate.trim(),
-            items,
-          }),
-        })
-        const data = await parseJson(res)
-        if (!res.ok) {
-          toast.error(errMsg(data, "Oluşturulamadı."))
-          return
-        }
-        toast.success("Checklist oluşturuldu.")
-        setFormOpen(false)
-        await load()
+      const res = await fetch("/api/audit-checklists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: t,
+          checklistNumber: checklistNumber.trim() || undefined,
+          checklistType: DEFAULT_CHECKLIST_TYPE,
+          initialRevisionNumber: Number(initialRev) || 0,
+          initialRevisionDate: initialRevDate.trim(),
+          items,
+        }),
+      })
+      const data = await parseJson(res)
+      if (!res.ok) {
+        toast.error(errMsg(data, "Oluşturulamadı."))
         return
       }
+      toast.success("Checklist oluşturuldu.")
+      setFormOpen(false)
+      await load()
+    } catch {
+      toast.error("Bağlantı hatası.")
+    } finally {
+      setSaving(false)
+    }
+  }
 
+  const patchChecklist = async () => {
+    if (editingId === null) return
+    const t = title.trim()
+    if (!t) {
+      toast.error("Checklist adı gerekli.")
+      return
+    }
+    const items = buildItemsPayload()
+    setSaving(true)
+    try {
       const res = await fetch(`/api/audit-checklists/${editingId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -274,7 +307,7 @@ export function AuditChecklistsClient() {
           description: description.trim() || undefined,
           isActive,
           items,
-          bumpRevision: true,
+          bumpRevision: false,
         }),
       })
       const data = await parseJson(res)
@@ -282,14 +315,39 @@ export function AuditChecklistsClient() {
         toast.error(errMsg(data, "Kaydedilemedi."))
         return
       }
-      toast.success("Kaydedildi.")
-      setFormOpen(false)
+      toast.success("Kaydedildi. Revizyon numarası değişmedi.")
       await load()
+      try {
+        const detailRes = await fetch(`/api/audit-checklists/${editingId}`, { cache: "no-store" })
+        const detail = await parseJson(detailRes)
+        if (detailRes.ok && detail && typeof detail === "object") {
+          const d = detail as ChecklistDetail
+          const listItems = Array.isArray(d.items) ? d.items : []
+          setItemRows(
+            listItems.length > 0
+              ? listItems.map((it, i) => ({
+                  label: it.label,
+                  sortOrder: it.sortOrder ?? i,
+                  reference: it.reference ?? "",
+                  section: it.section ?? "",
+                }))
+              : [{ label: "", sortOrder: 0, reference: "", section: "" }]
+          )
+        }
+      } catch {
+        /* ignore */
+      }
     } catch {
       toast.error("Bağlantı hatası.")
     } finally {
       setSaving(false)
     }
+  }
+
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (editingId === null) void createChecklist()
+    else void patchChecklist()
   }
 
   const confirmDelete = async () => {
@@ -313,11 +371,14 @@ export function AuditChecklistsClient() {
   }
 
   const addItemRow = () => {
-    setItemRows((prev) => [...prev, { label: "", sortOrder: prev.length }])
+    setItemRows((prev) => [
+      ...prev,
+      { label: "", sortOrder: prev.length, reference: "", section: "" },
+    ])
   }
 
-  const updateItemRow = (index: number, label: string) => {
-    setItemRows((prev) => prev.map((r, i) => (i === index ? { ...r, label } : r)))
+  const patchItemRow = (index: number, patch: Partial<ChecklistItemRow>) => {
+    setItemRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)))
   }
 
   const removeItemRow = (index: number) => {
@@ -528,7 +589,7 @@ export function AuditChecklistsClient() {
             </DialogTitle>
           </DialogHeader>
           <form
-            onSubmit={submitForm}
+            onSubmit={handleFormSubmit}
             className="flex min-h-0 flex-1 flex-col overflow-hidden"
           >
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 pb-2 pt-2">
@@ -580,11 +641,9 @@ export function AuditChecklistsClient() {
                       value={checklistNumber}
                       onChange={(e) => setChecklistNumber(e.target.value)}
                       placeholder="Boş bırakılırsa otomatik (örn. BON-CMM-CL-010)"
-                      disabled
-                      className="bg-muted"
                     />
                     <p className="text-muted-foreground text-xs">
-                      Numara oluşturulduktan sonra değiştirilemez.
+                      Benzersiz olmalı; başka bir checklist ile aynı numara kaydedilemez.
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -622,20 +681,37 @@ export function AuditChecklistsClient() {
                         Satır ekle
                       </Button>
                     </div>
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-3">
                       {itemRows.map((row, idx) => (
-                        <div key={idx} className="flex gap-2">
-                          <Input
-                            value={row.label}
-                            onChange={(e) => updateItemRow(idx, e.target.value)}
-                            placeholder={`Madde ${idx + 1}`}
-                            className="flex-1"
-                          />
+                        <div
+                          key={idx}
+                          className="bg-muted/30 flex flex-col gap-2 rounded-md border p-2 sm:flex-row sm:flex-wrap sm:items-start"
+                        >
+                          <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-1">
+                            <Input
+                              value={row.section}
+                              onChange={(e) => patchItemRow(idx, { section: e.target.value })}
+                              placeholder="Bölüm (isteğe bağlı)"
+                              className="text-sm"
+                            />
+                            <Input
+                              value={row.reference}
+                              onChange={(e) => patchItemRow(idx, { reference: e.target.value })}
+                              placeholder="Referans (örn. SHT-17.3 Md.5)"
+                              className="text-sm"
+                            />
+                            <Input
+                              value={row.label}
+                              onChange={(e) => patchItemRow(idx, { label: e.target.value })}
+                              placeholder={`Madde ${idx + 1}`}
+                              className="text-sm"
+                            />
+                          </div>
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="shrink-0 text-destructive"
+                            className="shrink-0 self-end text-destructive sm:self-start"
                             title="Kaldır"
                             onClick={() => removeItemRow(idx)}
                           >
@@ -648,15 +724,21 @@ export function AuditChecklistsClient() {
                 </>
               )}
             </div>
-            <DialogFooter className="mt-auto shrink-0 gap-2 border-t border-border px-6 py-4 sm:justify-end">
+            <DialogFooter className="mt-auto shrink-0 flex-col gap-2 border-t border-border px-6 py-4 sm:flex-row sm:items-center sm:justify-end">
+              {editingId !== null ? (
+                <p className="text-muted-foreground w-full text-xs sm:mr-auto sm:max-w-[260px]">
+                  Kaydet revizyon numarasını değiştirmez. Yeni numara için Compliance → Checklists →
+                  ilgili satır → Revizyon → «Yeni revizyon».
+                </p>
+              ) : null}
               <Button type="submit" disabled={saving} className="bg-emerald-600 hover:bg-emerald-700">
-                {saving
-                  ? editingId
+                {saving && editingId === null
+                  ? "Oluşturuluyor…"
+                  : saving
                     ? "Kaydediliyor…"
-                    : "Creating…"
-                  : editingId
-                    ? "Kaydet"
-                    : "Create"}
+                    : editingId === null
+                      ? "Create"
+                      : "Kaydet"}
               </Button>
             </DialogFooter>
           </form>

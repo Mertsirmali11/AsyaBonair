@@ -17,6 +17,24 @@ export function formatYmdUtc(d: Date | null | undefined): string {
   return `${y}-${m}-${day}`
 }
 
+export function serializeAuditChecklistItemRow(it: {
+  id: number
+  label: string
+  sortOrder: number
+  isRequired: boolean
+  reference: string | null
+  section: string | null
+}) {
+  return {
+    id: it.id,
+    label: it.label,
+    sortOrder: it.sortOrder,
+    isRequired: it.isRequired,
+    reference: it.reference ?? "",
+    section: it.section ?? "",
+  }
+}
+
 export function revisionCell(
   rev: number,
   d: Date | string | null | undefined
