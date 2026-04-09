@@ -37,6 +37,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   Select,
   SelectContent,
@@ -630,59 +631,88 @@ export function AuditPlanClient() {
     <>
       <SetWorkspacePageTitle title="Audit Plan" />
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 md:p-6">
-        <div className="flex flex-col gap-3 border-b border-border pb-4">
-          <p className="text-muted-foreground text-sm">
-            Denetim planı — yalnızca yöneticiler görür. Kategoriler{" "}
-            <Link
-              href="/configurations/audit-settings"
-              className="text-foreground underline underline-offset-2 hover:no-underline"
-            >
-              Configurations → Audit Settings
-            </Link>{" "}
-            üzerinden yönetilir (HR / Quality).
-          </p>
-
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-              <Button type="button" variant="outline" size="icon" title="Gelişmiş filtre (yakında)">
-                <Filter className="size-4" />
-              </Button>
-              <div className="relative min-w-[200px] max-w-md flex-1">
-                <Search className="text-muted-foreground pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2" />
-                <Input
-                  value={keyword}
-                  onChange={(e) => setKeyword(e.target.value)}
-                  placeholder="Anahtar kelime ile süz…"
-                  className="h-9 pl-9"
-                />
+        <div className="sticky top-0 z-20 -mx-4 border-b border-border bg-background/85 px-4 pb-4 pt-3 backdrop-blur md:-mx-6 md:px-6">
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h1 className="text-xl font-semibold tracking-tight">Audit Plan</h1>
+                <div className="text-muted-foreground text-xs">
+                  {filtered.length.toLocaleString("tr-TR")} / {rows.length.toLocaleString("tr-TR")} kayıt
+                </div>
               </div>
+              <p className="text-muted-foreground text-sm">
+                Denetim planı — yalnızca yöneticiler görür. Kategoriler{" "}
+                <Link
+                  href="/configurations/audit-settings"
+                  className="text-foreground underline underline-offset-2 hover:no-underline"
+                >
+                  Configurations → Audit Settings
+                </Link>{" "}
+                üzerinden yönetilir (HR / Quality).
+              </p>
             </div>
 
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Button type="button" variant="secondary" size="sm" disabled title="Yakında">
-                <Share2 className="mr-1.5 size-4" />
-                Share Page
-              </Button>
-              <Button type="button" variant="default" size="sm" className="bg-sky-700 hover:bg-sky-800" disabled title="Yakında">
-                <CalendarRange className="mr-1.5 size-4" />
-                Monthly Audit Plan
-              </Button>
-              <Button type="button" variant="secondary" size="sm" className="bg-violet-600 text-white hover:bg-violet-700" disabled title="Yakında">
-                <List className="mr-1.5 size-4" />
-                Consolidated List
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                className="bg-emerald-600 hover:bg-emerald-700"
-                onClick={() => {
-                  setEditingEntryId(null)
-                  setAuditFormOpen(true)
-                }}
-              >
-                <Plus className="mr-1.5 size-4" />
-                New Audit
-              </Button>
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9"
+                  title="Gelişmiş filtre (yakında)"
+                  disabled
+                >
+                  <Filter className="size-4" />
+                </Button>
+                <div className="relative min-w-[220px] max-w-lg flex-1">
+                  <Search className="text-muted-foreground pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2" />
+                  <Input
+                    value={keyword}
+                    onChange={(e) => setKeyword(e.target.value)}
+                    placeholder="Anahtar kelime ile süz…"
+                    className="h-9 pl-9"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Button type="button" variant="outline" size="sm" disabled title="Yakında">
+                  <Share2 className="mr-1.5 size-4" />
+                  Share Page
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled
+                  title="Yakında"
+                >
+                  <CalendarRange className="mr-1.5 size-4" />
+                  Monthly
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled
+                  title="Yakında"
+                >
+                  <List className="mr-1.5 size-4" />
+                  Consolidated
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700"
+                  onClick={() => {
+                    setEditingEntryId(null)
+                    setAuditFormOpen(true)
+                  }}
+                >
+                  <Plus className="mr-1.5 size-4" />
+                  New Audit
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -691,7 +721,7 @@ export function AuditPlanClient() {
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-muted/50 hover:bg-muted/50">
+                <TableRow className="bg-muted/40 hover:bg-muted/40">
                   <TableHead className="w-10 px-2 text-center" />
                   <TableHead className="whitespace-nowrap">Date (Planned)</TableHead>
                   <TableHead className="whitespace-nowrap">Date (Postponed)</TableHead>
@@ -720,7 +750,7 @@ export function AuditPlanClient() {
                   </TableRow>
                 ) : (
                   filtered.map((row) => (
-                    <TableRow key={row.id}>
+                    <TableRow key={row.id} className="hover:bg-muted/30">
                       <TableCell className="w-10 px-1 align-middle">
                         <Button
                           type="button"
@@ -746,7 +776,22 @@ export function AuditPlanClient() {
                       <TableCell className="font-mono text-sm">{row.auditNumber}</TableCell>
                       <TableCell className="max-w-[240px] text-sm">{row.field}</TableCell>
                       <TableCell className="text-center font-mono text-sm">{row.ct}</TableCell>
-                      <TableCell className="max-w-[200px] text-sm">{row.auditors}</TableCell>
+                      <TableCell className="max-w-[240px] text-sm">
+                        {row.auditors?.trim() ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="block truncate" title={row.auditors}>
+                                {row.auditors}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" sideOffset={6} className="max-w-[420px]">
+                              <span className="whitespace-pre-wrap">{row.auditors}</span>
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right">
                         <span
                           className={cn(
