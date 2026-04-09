@@ -116,7 +116,7 @@ export function AircraftDetailClient({
     formData.append("docType", docType)
     if (validFrom) formData.append("validFrom", validFrom)
     if (validUntil) formData.append("validUntil", validUntil)
-    formData.append("uploadedBy", String(currentUserId))
+    if (currentUserId > 0) formData.append("uploadedBy", String(currentUserId))
 
     const res = await fetch(`/api/aircraft/${aircraft.id}/documents`, {
       method: "POST",

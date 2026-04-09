@@ -90,7 +90,6 @@ const configurationsSubItems: {
   },
   { title: "Announcements", url: "/configurations/announcements" },
   { title: "Audit Settings", url: "/configurations/audit-settings" },
-  { title: "AI manuals", url: "/configurations/manuals" },
 ]
 
 const controlledDocumentsSubItems: {
@@ -98,7 +97,7 @@ const controlledDocumentsSubItems: {
   url: string
   configurationsOnly?: boolean
 }[] = [
-  { title: "Documents", url: "/documents" },
+  { title: "Manuals", url: "/documents" },
   { title: "Aircraft Settings", url: "/documents/aircraft-settings", configurationsOnly: true },
 ]
 

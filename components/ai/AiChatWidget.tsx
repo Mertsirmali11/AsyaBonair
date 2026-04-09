@@ -255,10 +255,10 @@ export default function AiChatWidget() {
               <p className="text-[10px] text-gray-600 leading-snug border-t border-gray-100 pt-1.5 mt-0.5">
                 Bu menüde yalnızca{" "}
                 <Link
-                  href="/configurations/manuals"
+                  href="/documents"
                   className="text-sky-700 underline font-medium"
                 >
-                  Configurations → AI manuals
+                  Controlled Documents → Manuals
                 </Link>{" "}
                 sayfasına kaydedilen PDF’ler listelenir. AI Report Creator’daki
                 geçici PDF yüklemeleri burada görünmez — kalıcı eklemek için

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 
 import { auth } from "@/auth"
+import { ConfigManualsClient } from "@/components/config-manuals-client"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 
 export default async function ControlledDocumentsPage() {
@@ -9,12 +10,9 @@ export default async function ControlledDocumentsPage() {
 
   return (
     <>
-      <SetWorkspacePageTitle title="Controlled Documents" />
+      <SetWorkspacePageTitle title="Controlled Documents · Manuals" />
       <div className="flex flex-1 flex-col gap-4 p-6">
-        <p className="text-muted-foreground text-sm">
-          Manage controlled documentation from this section. Use Aircraft Settings below for
-          aircraft certificates and manuals.
-        </p>
+        <ConfigManualsClient />
       </div>
     </>
   )

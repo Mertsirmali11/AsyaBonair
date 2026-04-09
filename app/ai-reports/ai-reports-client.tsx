@@ -399,7 +399,7 @@ export function AiReportsClient() {
               Kayıtlı şirket manueli
             </div>
             <p className="text-xs text-gray-500">
-              Configurations → AI manuals ile eklenen PDF’ler. İşaretleyip{" "}
+              Controlled Documents → Manuals ile eklenen PDF’ler. İşaretleyip{" "}
               <strong>metne ekle</strong> deyin.
             </p>
             {manuals.length === 0 ? (

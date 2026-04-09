@@ -136,7 +136,8 @@ export async function POST(
     let uploadedBy: number | null = null
     if (uploadedByStr) {
       const u = parseInt(uploadedByStr, 10)
-      if (!Number.isNaN(u)) uploadedBy = u
+      // 0 = client fallback when no Calisan row; must not be written (FK to calisan.id)
+      if (!Number.isNaN(u) && u > 0) uploadedBy = u
     }
 
     const created = await prisma.aircraftDocument.create({
