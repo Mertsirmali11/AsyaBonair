@@ -1,5 +1,12 @@
 "use client"
-import { useState, useEffect, useCallback, useRef, useMemo } from "react"
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
@@ -12,8 +19,10 @@ import {
   ArrowRight,
   ClipboardList,
   FileWarning,
+  ChevronDown,
 } from "lucide-react"
 import { formatDateOnlyIstanbul, formatDateTimeIstanbul } from "@/lib/date-format"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
   Table,
@@ -29,6 +38,11 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 
 type DashboardUser = {
   name: string
@@ -92,6 +106,8 @@ interface CertificateExpiryAlert {
 
 const SUMMARY_RETRIES = 3
 const SUMMARY_RETRY_MS = 400
+/** Duyuru gövdesi kaydırmasında “sona gelindi” toleransı (px) */
+const ANNOUNCEMENT_SCROLL_END_PX = 16
 
 export function DashboardHome({ user }: { user: DashboardUser }) {
   const pathname = usePathname()
@@ -114,6 +130,14 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [ackingId, setAckingId] = useState<number | null>(null)
+  const [openAnnouncementId, setOpenAnnouncementId] = useState<number | null>(
+    null
+  )
+  /** Metin alanı sonuna gelinmeden onay yok (id → hazır) */
+  const [ackScrollReady, setAckScrollReady] = useState<Record<number, boolean>>(
+    {}
+  )
+  const announcementScrollBodyRef = useRef<HTMLDivElement | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -236,6 +260,54 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
       setDeletingId(null)
     }
   }
+
+  const updateAckReadinessFromEl = useCallback(
+    (id: number, el: HTMLDivElement | null) => {
+      if (!el) return
+      const t = ANNOUNCEMENT_SCROLL_END_PX
+      const { scrollTop, scrollHeight, clientHeight } = el
+      const fitsEntirely = scrollHeight <= clientHeight + t
+      const atBottom = scrollTop + clientHeight >= scrollHeight - t
+      const ready = fitsEntirely || atBottom
+      setAckScrollReady((prev) =>
+        prev[id] === ready ? prev : { ...prev, [id]: ready }
+      )
+    },
+    []
+  )
+
+  useLayoutEffect(() => {
+    if (openAnnouncementId == null) return
+    const id = openAnnouncementId
+    setAckScrollReady((prev) => ({ ...prev, [id]: false }))
+    let cancelled = false
+    const measure = () => {
+      if (cancelled) return
+      const el = announcementScrollBodyRef.current
+      if (el) updateAckReadinessFromEl(id, el)
+    }
+    let innerRaf = 0
+    const outerRaf = requestAnimationFrame(() => {
+      innerRaf = requestAnimationFrame(measure)
+    })
+    const timeoutId = window.setTimeout(measure, 100)
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(outerRaf)
+      cancelAnimationFrame(innerRaf)
+      window.clearTimeout(timeoutId)
+    }
+  }, [openAnnouncementId, announcements, updateAckReadinessFromEl])
+
+  useLayoutEffect(() => {
+    if (openAnnouncementId == null) return
+    const el = announcementScrollBodyRef.current
+    if (!el) return
+    const id = openAnnouncementId
+    const ro = new ResizeObserver(() => updateAckReadinessFromEl(id, el))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [openAnnouncementId, announcements, updateAckReadinessFromEl])
 
   const canOpenMeetingsPage = user.departman === "Quality"
 
@@ -390,55 +462,149 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                 <div className="rounded-lg border bg-card p-6 text-center text-muted-foreground">
                   No announcements yet.
                 </div>
-              ) : announcements.map(a => (
-                <div key={a.id} className="rounded-lg border bg-card p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <h3 className="font-semibold text-sm">{a.title}</h3>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {formatDateOnlyIstanbul(a.createdAt)}
-                    </span>
-                  </div>
-                  <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{a.content}</p>
-                  {a.creator && (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      — {a.creator.isim} {a.creator.soyisim} ({a.creator.departman})
-                    </p>
-                  )}
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {a.acknowledgedByMe ? (
-                        <span className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">
-                          I have read and understood (acknowledged)
-                        </span>
-                      ) : (
-                        <Button
+              ) : announcements.map((a) => {
+                const expanded = openAnnouncementId === a.id
+                return (
+                  <div
+                    key={a.id}
+                    className="rounded-lg border border-border bg-card"
+                  >
+                    <Collapsible
+                      open={expanded}
+                      onOpenChange={(open) =>
+                        setOpenAnnouncementId(open ? a.id : null)
+                      }
+                    >
+                      <CollapsibleTrigger asChild>
+                        <button
                           type="button"
-                          size="sm"
-                          variant="default"
-                          className="h-8"
-                          disabled={ackingId === a.id}
-                          onClick={() => void handleAckAnnouncement(a.id)}
+                          className="flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-muted/45"
                         >
-                          {ackingId === a.id ? "Saving…" : "I have read and understood"}
-                        </Button>
-                      )}
-                    </div>
-                    {canAnnounce && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10"
-                        disabled={deletingId === a.id}
-                        onClick={() => handleDeleteAnnouncement(a.id)}
-                      >
-                        <Trash2 className="size-3.5" />
-                        {deletingId === a.id ? "Deleting…" : "Delete"}
-                      </Button>
-                    )}
+                          <h3 className="min-w-0 flex-1 font-semibold text-sm leading-snug">
+                            {a.title}
+                          </h3>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <span className="text-xs text-muted-foreground tabular-nums">
+                              {formatDateOnlyIstanbul(a.createdAt)}
+                            </span>
+                            <ChevronDown
+                              className={cn(
+                                "size-4 shrink-0 text-muted-foreground transition-transform duration-200",
+                                expanded && "rotate-180"
+                              )}
+                              aria-hidden
+                            />
+                          </div>
+                        </button>
+                      </CollapsibleTrigger>
+                      {/* Body only inside Radix; ack bar below avoids CollapsibleContent clipping */}
+                      <CollapsibleContent>
+                        <div className="border-t border-border">
+                          <div
+                            ref={expanded ? announcementScrollBodyRef : undefined}
+                            className="max-h-[min(320px,48dvh)] min-h-0 overflow-y-auto overscroll-y-contain px-4 pt-3 pb-3 [-webkit-overflow-scrolling:touch] [overflow-anchor:none]"
+                            tabIndex={0}
+                            aria-label="Duyuru metni"
+                            onScroll={(e) =>
+                              updateAckReadinessFromEl(a.id, e.currentTarget)
+                            }
+                            onWheel={(e) => {
+                              const el = e.currentTarget
+                              const { scrollTop, scrollHeight, clientHeight } = el
+                              const delta = e.deltaY
+                              const canScrollUp = scrollTop > 0
+                              const canScrollDown =
+                                scrollTop + clientHeight < scrollHeight - 1
+                              if (
+                                (delta < 0 && canScrollUp) ||
+                                (delta > 0 && canScrollDown)
+                              ) {
+                                e.stopPropagation()
+                              }
+                            }}
+                          >
+                            <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+                              {a.content}
+                            </p>
+                            {a.creator && (
+                              <p className="mt-3 border-t border-border/60 pt-3 text-xs text-muted-foreground">
+                                — {a.creator.isim} {a.creator.soyisim} (
+                                {a.creator.departman})
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                    {expanded ? (
+                      <div className="border-t border-border bg-muted/50 px-4 py-3 dark:bg-muted/40">
+                        {!a.acknowledgedByMe ? (
+                          <p
+                            className={cn(
+                              "mb-2 text-xs",
+                              ackScrollReady[a.id]
+                                ? "text-muted-foreground"
+                                : "font-medium text-amber-800 dark:text-amber-200"
+                            )}
+                          >
+                            {ackScrollReady[a.id]
+                              ? "Metni inceledikten sonra onaylayabilirsiniz."
+                              : "Önce duyurunun tamamını aşağı kaydırarak okuyun; ardından «Okudum, anladım» etkinleşir."}
+                          </p>
+                        ) : (
+                          <p className="mb-2 text-xs text-muted-foreground">
+                            Bu duyuruyu onayladınız.
+                          </p>
+                        )}
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {a.acknowledgedByMe ? (
+                              <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                Okudum, anladım (onaylandı)
+                              </span>
+                            ) : (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="default"
+                                className="h-8"
+                                title={
+                                  ackScrollReady[a.id]
+                                    ? undefined
+                                    : "Metnin tamamını görüntüleyin"
+                                }
+                                disabled={
+                                  ackingId === a.id || !ackScrollReady[a.id]
+                                }
+                                onClick={() =>
+                                  void handleAckAnnouncement(a.id)
+                                }
+                              >
+                                {ackingId === a.id
+                                  ? "Kaydediliyor…"
+                                  : "Okudum, anladım"}
+                              </Button>
+                            )}
+                          </div>
+                          {canAnnounce && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              disabled={deletingId === a.id}
+                              onClick={() => handleDeleteAnnouncement(a.id)}
+                            >
+                              <Trash2 className="size-3.5" />
+                              {deletingId === a.id ? "Siliniyor…" : "Sil"}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
 

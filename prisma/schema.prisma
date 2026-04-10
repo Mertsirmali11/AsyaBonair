@@ -101,6 +101,7 @@ model Calisan {
   taskAttachmentsUploaded TaskAttachment[]
   dmMessagesSent DmMessage[]      @relation("DmMessageSender")
   dmReadStates   DmReadState[]
+  dmConversationMembers DmConversationMember[]
   workerRegistrationsReviewed WorkerRegistrationRequest[] @relation("WorkerRegistrationReviewedBy")
   announcementAcknowledgments AnnouncementAcknowledgment[]
   companyManuals CompanyManual[]
@@ -163,21 +164,39 @@ model WorkerRegistrationRequest {
   @@map("worker_registration_requests")
 }
 
-// Çalışanlar arası doğrudan mesajlaşma (1:1)
+// Çalışanlar arası mesajlaşma: 1:1 (lower/higher) veya grup (üyeler + groupTitle)
 model DmConversation {
   id           Int      @id @default(autoincrement())
-  lowerUserId  Int      @map("lower_user_id")
-  higherUserId Int      @map("higher_user_id")
+  isGroup      Boolean  @default(false) @map("is_group")
+  groupTitle   String?  @map("group_title") @db.VarChar(200)
+  lowerUserId  Int?     @map("lower_user_id")
+  higherUserId Int?     @map("higher_user_id")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   messages   DmMessage[]
   readStates DmReadState[]
+  members    DmConversationMember[]
 
   @@unique([lowerUserId, higherUserId])
   @@index([lowerUserId])
   @@index([higherUserId])
   @@index([updatedAt(sort: Desc)])
+  @@index([isGroup])
   @@map("dm_conversations")
+}
+
+model DmConversationMember {
+  id               Int      @id @default(autoincrement())
+  conversationId   Int      @map("conversation_id")
+  calisanId        Int      @map("calisan_id")
+  joinedAt         DateTime @default(now()) @map("joined_at")
+
+  conversation DmConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  calisan      Calisan        @relation(fields: [calisanId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, calisanId])
+  @@index([calisanId])
+  @@map("dm_conversation_members")
 }
 
 model DmMessage {
@@ -280,6 +299,8 @@ model IncomingPaper {
 model OutgoingCorrespondence {
   id              Int       @id @default(autoincrement())
   paperNo         String?   @unique @map("paper_no") @db.VarChar(50)
+  /// outgoing-correspondence-departments.ts içindeki key (oc, sms, cmm, …)
+  departmentKey   String?   @map("department_key") @db.VarChar(40)
   to              String?   @db.VarChar(255)
   subject         String?   @db.VarChar(500)
   date            DateTime  @map("date") @db.Date
@@ -296,7 +317,43 @@ model OutgoingCorrespondence {
 
   @@index([createdAt(sort: Desc)])
   @@index([createdBy])
+  @@index([departmentKey])
   @@map("outgoing_correspondences")
+}
+
+/// Giden yazışma departman tipi + yazı no öneki (Configurations → Correspondences)
+model OutgoingCorrespondenceDeptConfig {
+  id                   Int      @id @default(autoincrement())
+  key                  String   @unique @db.VarChar(40)
+  label                String   @db.VarChar(200)
+  paperPrefix          String   @unique @map("paper_prefix") @db.VarChar(50)
+  /// true → BON-CMM-2026-001 (yıl İstanbul takvim yılı)
+  includeYearInPaperNo Boolean  @default(false) @map("include_year_in_paper_no")
+  sortOrder            Int      @default(0) @map("sort_order")
+  isActive             Boolean  @default(true) @map("is_active")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  releasedSlots OutgoingCorrespondenceReleasedSlot[]
+
+  @@index([isActive, sortOrder])
+  @@map("outgoing_correspondence_dept_configs")
+}
+
+/// Silinen yazı numaraları — yeni yazıda önce buradan en küçük sıra verilir
+model OutgoingCorrespondenceReleasedSlot {
+  id            Int      @id @default(autoincrement())
+  departmentKey String   @map("department_key") @db.VarChar(40)
+  /// Yıl yok formatında 0; BON-CMM-2026-001 için 2026
+  calendarYear  Int      @default(0) @map("calendar_year")
+  sequence      Int
+  releasedAt    DateTime @default(now()) @map("released_at")
+
+  config OutgoingCorrespondenceDeptConfig @relation(fields: [departmentKey], references: [key], onDelete: Cascade)
+
+  @@unique([departmentKey, sequence, calendarYear])
+  @@index([departmentKey, calendarYear, sequence])
+  @@map("outgoing_correspondence_released_slots")
 }
 
 // Uçaklar Tablosu
@@ -414,6 +471,8 @@ model Announcement {
   id          Int       @id @default(autoincrement())
   title       String    @db.VarChar(500)
   content     String    @db.Text
+  /// false = pasif; dashboard’ta yalnızca aktif duyurular listelenir
+  isActive    Boolean   @default(true) @map("is_active")
   createdBy   Int?      @map("created_by")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
@@ -423,6 +482,7 @@ model Announcement {
 
   @@index([createdAt(sort: Desc)])
   @@index([createdBy])
+  @@index([isActive])
   @@map("announcements")
 }
 

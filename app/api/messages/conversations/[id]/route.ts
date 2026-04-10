@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
-import { broadcastDmInboxBoth } from "@/lib/dm-broadcast"
+import { isDmMember } from "@/lib/dm"
+import { broadcastDmInboxMany } from "@/lib/dm-broadcast"
 
 export async function DELETE(
   _request: Request,
@@ -25,22 +26,36 @@ export async function DELETE(
 
     const conv = await prisma.dmConversation.findUnique({
       where: { id: conversationId },
-      select: { id: true, lowerUserId: true, higherUserId: true },
+      select: {
+        id: true,
+        isGroup: true,
+        lowerUserId: true,
+        higherUserId: true,
+        members: { select: { calisanId: true } },
+      },
     })
     if (!conv) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
-    if (conv.lowerUserId !== calisanId && conv.higherUserId !== calisanId) {
+    if (!isDmMember(
+      {
+        isGroup: conv.isGroup,
+        lowerUserId: conv.lowerUserId,
+        higherUserId: conv.higherUserId,
+        members: conv.members,
+      },
+      calisanId
+    )) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
+    const targets = conv.isGroup
+      ? conv.members.map((m) => m.calisanId)
+      : [conv.lowerUserId!, conv.higherUserId!]
+
     await prisma.dmConversation.delete({ where: { id: conversationId } })
 
-    await broadcastDmInboxBoth(
-      conversationId,
-      conv.lowerUserId,
-      conv.higherUserId
-    )
+    void broadcastDmInboxMany(conversationId, targets)
 
     return NextResponse.json({ ok: true })
   } catch (e) {

@@ -13,6 +13,7 @@ import {
   Search,
   SendHorizontal,
   Trash2,
+  UsersRound,
 } from "lucide-react"
 
 import { useDmInboxRealtime } from "@/hooks/use-dm-inbox-realtime"
@@ -30,7 +31,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 
 type Colleague = {
@@ -44,6 +47,7 @@ type Colleague = {
 
 type ConvRow = {
   id: number
+  isGroup: boolean
   updatedAt: string
   other: {
     id: number
@@ -78,6 +82,7 @@ type ChatMessage = {
   fromMe: boolean
   readByOther: boolean
   attachment: ChatAttachment | null
+  senderDisplayName?: string
 }
 
 /** Proje primary (slate) ile uyumlu başlık */
@@ -162,6 +167,11 @@ export function MessagesClient({
   const [listQuery, setListQuery] = useState("")
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerQuery, setPickerQuery] = useState("")
+  const [groupDialogOpen, setGroupDialogOpen] = useState(false)
+  const [groupTitle, setGroupTitle] = useState("")
+  const [groupMemberIds, setGroupMemberIds] = useState<number[]>([])
+  const [groupPickerQuery, setGroupPickerQuery] = useState("")
+  const [creatingGroup, setCreatingGroup] = useState(false)
   const [startingChatWithId, setStartingChatWithId] = useState<number | null>(
     null
   )
@@ -451,6 +461,49 @@ export function MessagesClient({
     [loadConversations, openConversation]
   )
 
+  const createGroup = useCallback(async () => {
+    const title = groupTitle.trim()
+    if (title.length < 1 || groupMemberIds.length < 1 || creatingGroup) return
+    setCreatingGroup(true)
+    try {
+      const res = await fetch("/api/messages/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          isGroup: true,
+          title,
+          memberCalisanIds: groupMemberIds,
+        }),
+      })
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string
+        conversation?: { id: number }
+      }
+      if (!res.ok) {
+        toast.error(data.error ?? `Grup oluşturulamadı (${res.status}).`)
+        return
+      }
+      setGroupDialogOpen(false)
+      setGroupTitle("")
+      setGroupMemberIds([])
+      setGroupPickerQuery("")
+      await loadConversations()
+      const cid = data.conversation?.id
+      if (typeof cid === "number") openConversation(cid)
+      else toast.error("Sunucu yanıtı geçersiz.")
+    } catch {
+      toast.error("Bağlantı hatası.")
+    } finally {
+      setCreatingGroup(false)
+    }
+  }, [
+    groupTitle,
+    groupMemberIds,
+    creatingGroup,
+    loadConversations,
+    openConversation,
+  ])
+
   const sendMessage = useCallback(async () => {
     const cid = selectedId
     if (cid == null || sending) return
@@ -558,6 +611,17 @@ export function MessagesClient({
     })
   }, [colleagues, pickerQuery, currentCalisanId])
 
+  const filteredForGroup = useMemo(() => {
+    const others = colleagues.filter((c) => c.id !== currentCalisanId)
+    const q = groupPickerQuery.trim().toLowerCase()
+    if (!q) return others
+    return others.filter((c) => {
+      const name = c.displayName.toLowerCase()
+      const dep = (c.departman ?? "").toLowerCase()
+      return name.includes(q) || dep.includes(q)
+    })
+  }, [colleagues, groupPickerQuery, currentCalisanId])
+
   const showList = !isMobile || !mobileChatOpen
   const showChatPane = !isMobile || mobileChatOpen
 
@@ -594,16 +658,28 @@ export function MessagesClient({
                   Live
                 </span>
               )}
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className="ml-auto size-9 shrink-0 text-white hover:bg-white/10"
-                onClick={() => setPickerOpen(true)}
-                aria-label="New chat"
-              >
-                <MessageCirclePlus className="size-5" />
-              </Button>
+              <div className="ml-auto flex shrink-0 items-center gap-0.5">
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="size-9 shrink-0 text-white hover:bg-white/10"
+                  onClick={() => setGroupDialogOpen(true)}
+                  aria-label="Yeni grup"
+                >
+                  <UsersRound className="size-5" />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="size-9 shrink-0 text-white hover:bg-white/10"
+                  onClick={() => setPickerOpen(true)}
+                  aria-label="New chat"
+                >
+                  <MessageCirclePlus className="size-5" />
+                </Button>
+              </div>
             </div>
             <div className="shrink-0 border-b border-border bg-muted/30 px-2.5 py-2">
               <div className="relative">
@@ -624,7 +700,8 @@ export function MessagesClient({
                   </p>
                 ) : filteredConversations.length === 0 ? (
                   <p className="px-4 py-8 text-center text-sm leading-relaxed text-muted-foreground">
-                    No chats yet. Select an employee with +.
+                    No chats yet. Start a 1:1 with + or a group with the people
+                    icon.
                   </p>
                 ) : (
                   filteredConversations.map((c) => {
@@ -754,7 +831,9 @@ export function MessagesClient({
                     {selectedConv.other.displayName}
                   </p>
                   <p className="truncate text-xs text-white/80">
-                    {selectedConv.other.departman ?? "No department"}
+                    {selectedConv.isGroup
+                      ? selectedConv.other.departman ?? "Grup"
+                      : selectedConv.other.departman ?? "No department"}
                   </p>
                 </div>
               </div>
@@ -785,12 +864,23 @@ export function MessagesClient({
                       const otherInit = initialsFromDisplayName(
                         selectedConv.other.displayName
                       )
+                      const peerInit =
+                        selectedConv.isGroup && m.senderDisplayName
+                          ? initialsFromDisplayName(m.senderDisplayName)
+                          : otherInit
                       const myInit = initialsFromDisplayName(
                         currentUserName || "Ben"
                       )
                       return (
+                      <div key={m.id} className="flex w-full min-w-0 flex-col gap-0.5">
+                        {selectedConv.isGroup &&
+                          !m.fromMe &&
+                          m.senderDisplayName && (
+                            <p className="pl-12 text-[11px] font-semibold text-muted-foreground">
+                              {m.senderDisplayName}
+                            </p>
+                          )}
                       <div
-                        key={m.id}
                         className={cn(
                           "flex w-full min-w-0 items-end gap-2",
                           m.fromMe ? "justify-end pr-0 pl-4" : "justify-start pr-4 pl-0"
@@ -807,7 +897,7 @@ export function MessagesClient({
                               alt=""
                             />
                             <AvatarFallback className="bg-muted text-[10px] font-semibold">
-                              {otherInit}
+                              {peerInit}
                             </AvatarFallback>
                           </Avatar>
                         )}
@@ -862,7 +952,7 @@ export function MessagesClient({
                             <span className="tabular-nums text-[11px]">
                               {formatTimeOnlyIstanbul(m.createdAt).slice(0, 5)}
                             </span>
-                            {m.fromMe && (
+                            {m.fromMe && !selectedConv.isGroup && (
                               <span
                                 className="inline-flex shrink-0 items-center"
                                 title={
@@ -904,6 +994,7 @@ export function MessagesClient({
                             </AvatarFallback>
                           </Avatar>
                         )}
+                      </div>
                       </div>
                     )
                   })}
@@ -1014,13 +1105,27 @@ export function MessagesClient({
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Sohbeti sil?</DialogTitle>
+            <DialogTitle>
+              {deleteTarget?.isGroup ? "Grubu sil?" : "Sohbeti sil?"}
+            </DialogTitle>
             <DialogDescription>
-              <span className="font-medium text-foreground">
-                {deleteTarget?.other.displayName}
-              </span>{" "}
-              ile olan bu sohbet ve tüm mesajlar kalıcı olarak silinir. Karşı
-              tarafta da görünmez.
+              {deleteTarget?.isGroup ? (
+                <>
+                  <span className="font-medium text-foreground">
+                    {deleteTarget.other.displayName}
+                  </span>{" "}
+                  grubu ve tüm mesajlar kalıcı olarak silinir. Üyelerin
+                  listesinde de görünmez.
+                </>
+              ) : (
+                <>
+                  <span className="font-medium text-foreground">
+                    {deleteTarget?.other.displayName}
+                  </span>{" "}
+                  ile olan bu sohbet ve tüm mesajlar kalıcı olarak silinir. Karşı
+                  tarafta da görünmez.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">
@@ -1104,6 +1209,126 @@ export function MessagesClient({
               )}
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={groupDialogOpen}
+        onOpenChange={(open) => {
+          setGroupDialogOpen(open)
+          if (!open) {
+            setGroupTitle("")
+            setGroupMemberIds([])
+            setGroupPickerQuery("")
+          }
+        }}
+      >
+        <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Yeni grup</DialogTitle>
+            <DialogDescription>
+              Gruba bir ad verin ve katılmasını istediğiniz kişileri işaretleyin
+              (en fazla 200 kişi).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="group-title">Grup adı</Label>
+              <Input
+                id="group-title"
+                value={groupTitle}
+                onChange={(e) => setGroupTitle(e.target.value)}
+                placeholder="Örn. Kalite ekibi"
+                className="mt-1.5"
+                maxLength={200}
+              />
+            </div>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={groupPickerQuery}
+                onChange={(e) => setGroupPickerQuery(e.target.value)}
+                placeholder="İsim veya departman ile ara…"
+                className="pl-9"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Seçili: {groupMemberIds.length} kişi (kendiniz otomatik dahil)
+            </p>
+            <div className="max-h-[min(280px,40vh)] overflow-y-auto overflow-x-hidden pr-1 [-webkit-overflow-scrolling:touch]">
+              <div className="flex flex-col gap-1">
+                {filteredForGroup.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">
+                    Sonuç yok
+                  </p>
+                ) : (
+                  filteredForGroup.map((c) => {
+                    const checked = groupMemberIds.includes(c.id)
+                    return (
+                      <label
+                        key={c.id}
+                        className="flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 transition-colors hover:bg-muted"
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={() => {
+                            setGroupMemberIds((prev) =>
+                              prev.includes(c.id)
+                                ? prev.filter((x) => x !== c.id)
+                                : [...prev, c.id]
+                            )
+                          }}
+                          aria-label={c.displayName}
+                        />
+                        <Avatar className="size-9 shrink-0 ring-2 ring-border">
+                          <AvatarImage src={c.avatarUrl ?? undefined} alt="" />
+                          <AvatarFallback className="bg-muted text-xs font-semibold">
+                            {initialsFromDisplayName(c.displayName)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-foreground">
+                            {c.displayName}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {c.departman ?? "—"}
+                          </p>
+                        </div>
+                      </label>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setGroupDialogOpen(false)}
+              disabled={creatingGroup}
+            >
+              İptal
+            </Button>
+            <Button
+              type="button"
+              disabled={
+                creatingGroup ||
+                groupTitle.trim().length < 1 ||
+                groupMemberIds.length < 1
+              }
+              onClick={() => void createGroup()}
+            >
+              {creatingGroup ? (
+                <>
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                  Oluşturuluyor…
+                </>
+              ) : (
+                "Grubu oluştur"
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

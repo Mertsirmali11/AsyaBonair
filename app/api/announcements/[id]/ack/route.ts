@@ -26,12 +26,18 @@ export async function POST(
       return NextResponse.json({ error: "Employee record not found" }, { status: 403 })
     }
 
-    const exists = await prisma.announcement.findUnique({
+    const ann = await prisma.announcement.findUnique({
       where: { id: announcementId },
-      select: { id: true },
+      select: { id: true, isActive: true },
     })
-    if (!exists) {
+    if (!ann) {
       return NextResponse.json({ error: "Announcement not found" }, { status: 404 })
+    }
+    if (!ann.isActive) {
+      return NextResponse.json(
+        { error: "This announcement is not active" },
+        { status: 403 }
+      )
     }
 
     await prisma.announcementAcknowledgment.upsert({

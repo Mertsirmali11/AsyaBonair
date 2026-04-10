@@ -110,6 +110,7 @@ export async function GET() {
         take: 100,
       }),
       prisma.announcement.findMany({
+        where: { isActive: true },
         orderBy: { createdAt: "desc" },
         take: ANNOUNCEMENTS_DASHBOARD_LIMIT,
         select: {

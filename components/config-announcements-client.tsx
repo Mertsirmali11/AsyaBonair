@@ -2,6 +2,8 @@
 
 import * as React from "react"
 import {
+  IconDownload,
+  IconFileTypePdf,
   IconMailForward,
   IconPencil,
   IconPlus,
@@ -9,7 +11,12 @@ import {
   IconTrash,
 } from "@tabler/icons-react"
 
+import {
+  downloadAnnouncementReportPdf,
+  downloadAnnouncementReportXlsx,
+} from "@/lib/announcement-report-download"
 import { formatDateTimeIstanbul } from "@/lib/date-format"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import {
@@ -24,6 +31,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 
 type Creator = {
@@ -36,6 +44,7 @@ export type ConfigAnnouncement = {
   id: number
   title: string
   content: string
+  isActive: boolean
   createdAt: string
   creator: Creator
   acknowledgedCount?: number
@@ -80,7 +89,10 @@ export function ConfigAnnouncementsClient({
   const [createOpen, setCreateOpen] = React.useState(false)
   const [newTitle, setNewTitle] = React.useState("")
   const [newContent, setNewContent] = React.useState("")
+  /** false = taslak; dashboard’ta görünmez, e-posta gönderilmez */
+  const [newActive, setNewActive] = React.useState(true)
   const [creating, setCreating] = React.useState(false)
+  const [togglingActiveId, setTogglingActiveId] = React.useState<number | null>(null)
 
   const [deleteTarget, setDeleteTarget] = React.useState<ConfigAnnouncement | null>(null)
   const [deleting, setDeleting] = React.useState(false)
@@ -88,6 +100,7 @@ export function ConfigAnnouncementsClient({
   const [ackStats, setAckStats] = React.useState<AckStatsPayload | null>(null)
   const [ackStatsLoading, setAckStatsLoading] = React.useState(false)
   const [emailReportSending, setEmailReportSending] = React.useState(false)
+  const [exportingKey, setExportingKey] = React.useState<string | null>(null)
 
   const [banner, setBanner] = React.useState<{
     type: "ok" | "err"
@@ -109,7 +122,14 @@ export function ConfigAnnouncementsClient({
         throw new Error(err.error || "Could not load announcements")
       }
       const data = (await res.json()) as ConfigAnnouncement[]
-      setItems(Array.isArray(data) ? data : [])
+      setItems(
+        Array.isArray(data)
+          ? data.map((x) => ({
+              ...x,
+              isActive: typeof x.isActive === "boolean" ? x.isActive : true,
+            }))
+          : []
+      )
     } catch (e) {
       setBanner({
         type: "err",
@@ -165,6 +185,90 @@ export function ConfigAnnouncementsClient({
       cancelled = true
     }
   }, [detailAnnouncementId])
+
+  const setAnnouncementActive = async (a: ConfigAnnouncement, next: boolean) => {
+    setTogglingActiveId(a.id)
+    try {
+      const res = await fetch(`/api/announcements/${a.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: next }),
+      })
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as {
+          error?: string
+          detail?: string
+        }
+        const msg = [err.error, err.detail].filter(Boolean).join(" — ")
+        throw new Error(msg || "Could not update status")
+      }
+      const updated = (await res.json()) as ConfigAnnouncement & {
+        acknowledgedCount?: number
+        totalStaff?: number
+      }
+      setItems((prev) =>
+        prev.map((x) => (x.id === updated.id ? { ...x, ...updated } : x))
+      )
+      setReadItem((prev) =>
+        prev && prev.id === updated.id ? { ...prev, ...updated } : prev
+      )
+      setBanner({
+        type: "ok",
+        text: next
+          ? "Announcement is active — visible on staff dashboards."
+          : "Announcement is inactive — hidden from staff dashboards.",
+      })
+    } catch (e) {
+      setBanner({
+        type: "err",
+        text: e instanceof Error ? e.message : "Could not update status",
+      })
+    } finally {
+      setTogglingActiveId(null)
+    }
+  }
+
+  const runExport = React.useCallback(
+    async (format: "pdf" | "xlsx", a: ConfigAnnouncement) => {
+      const key = `${a.id}-${format}`
+      setExportingKey(key)
+      try {
+        let stats: AckStatsPayload | null =
+          readItem?.id === a.id ? ackStats : null
+        if (!stats) {
+          const res = await fetch(`/api/announcements/${a.id}/ack-stats`, {
+            cache: "no-store",
+          })
+          const data = (await res.json().catch(() => null)) as AckStatsPayload | null
+          if (!res.ok || !data || typeof data.totalStaff !== "number") {
+            throw new Error("Could not load acknowledgment data for export.")
+          }
+          stats = data
+        }
+        const payload = {
+          id: a.id,
+          title: a.title,
+          content: a.content,
+          createdAt: a.createdAt,
+          creator: a.creator,
+          stats,
+        }
+        if (format === "pdf") {
+          downloadAnnouncementReportPdf(payload)
+        } else {
+          downloadAnnouncementReportXlsx(payload)
+        }
+      } catch (e) {
+        setBanner({
+          type: "err",
+          text: e instanceof Error ? e.message : "Could not export report.",
+        })
+      } finally {
+        setExportingKey(null)
+      }
+    },
+    [ackStats, readItem?.id]
+  )
 
   const sendAckReportEmail = async () => {
     if (!readItem) return
@@ -256,7 +360,7 @@ export function ConfigAnnouncementsClient({
       const res = await fetch("/api/announcements", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, content }),
+        body: JSON.stringify({ title, content, isActive: newActive }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -270,6 +374,7 @@ export function ConfigAnnouncementsClient({
           id: created.id,
           title: created.title,
           content: created.content,
+          isActive: typeof created.isActive === "boolean" ? created.isActive : newActive,
           createdAt: created.createdAt,
           creator: created.creator ?? null,
           acknowledgedCount: created.acknowledgedCount ?? 0,
@@ -280,7 +385,13 @@ export function ConfigAnnouncementsClient({
       setCreateOpen(false)
       setNewTitle("")
       setNewContent("")
-      setBanner({ type: "ok", text: "Announcement published. Staff were emailed where configured." })
+      setNewActive(true)
+      setBanner({
+        type: "ok",
+        text: newActive
+          ? "Announcement published. Staff were emailed where configured."
+          : "Announcement saved as inactive. It is not shown on dashboards until you activate it.",
+      })
     } catch (e) {
       setBanner({
         type: "err",
@@ -323,16 +434,17 @@ export function ConfigAnnouncementsClient({
           <div className="min-w-0 space-y-1.5">
             <h2 className="text-2xl font-bold tracking-tight">Announcements</h2>
             <p className="text-muted-foreground text-sm">
-              Create, view, edit, and delete announcements. New posts email all staff when Resend is
-              configured. Staff confirm on the dashboard with “I have read and understood”; here you
-              see counts and who is pending. Same permissions as the dashboard (Quality / Human
-              Resources).
+              Create, view, edit, and delete announcements. Active posts appear on every staff
+              dashboard (new employees see all current active items); inactive posts stay in this
+              admin list only and are hidden from dashboards until you turn them active again. New
+              active posts email all staff when Resend is configured. Staff confirm with “I have read
+              and understood”. Same permissions as the dashboard (Quality / Human Resources).
             </p>
           </div>
         )}
         {compactHeader && (
           <p className="text-muted-foreground min-w-0 max-w-3xl flex-1 text-left text-sm leading-relaxed">
-            Create and manage announcements; new posts email all staff when Resend is configured.
+            Active announcements appear on staff dashboards; inactive ones stay in this list only.
           </p>
         )}
         <Button
@@ -347,6 +459,7 @@ export function ConfigAnnouncementsClient({
             setCreateOpen(true)
             setNewTitle("")
             setNewContent("")
+            setNewActive(true)
           }}
           disabled={loading}
         >
@@ -400,7 +513,19 @@ export function ConfigAnnouncementsClient({
                     <Card className="transition-colors hover:bg-muted/30">
                       <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0 flex-1 space-y-1">
-                          <p className="font-semibold leading-tight">{a.title}</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-semibold leading-tight">{a.title}</p>
+                            <Badge
+                              variant={a.isActive ? "default" : "secondary"}
+                              className={
+                                a.isActive
+                                  ? "border-emerald-600/30 bg-emerald-600 text-white"
+                                  : "text-muted-foreground"
+                              }
+                            >
+                              {a.isActive ? "Active" : "Inactive"}
+                            </Badge>
+                          </div>
                           <p className="text-muted-foreground line-clamp-2 text-sm whitespace-pre-wrap">
                             {a.content}
                           </p>
@@ -421,9 +546,46 @@ export function ConfigAnnouncementsClient({
                             )}
                           </p>
                         </div>
-                        <div className="flex shrink-0 gap-2 sm:flex-col">
+                        <div className="flex shrink-0 flex-col gap-2">
+                          <div className="flex items-center justify-end gap-2 sm:justify-start">
+                            <Label
+                              htmlFor={`active-${a.id}`}
+                              className="text-muted-foreground text-xs whitespace-nowrap"
+                            >
+                              Active
+                            </Label>
+                            <Switch
+                              id={`active-${a.id}`}
+                              size="sm"
+                              checked={a.isActive}
+                              disabled={togglingActiveId === a.id}
+                              onCheckedChange={(v) => void setAnnouncementActive(a, v)}
+                            />
+                          </div>
                           <Button type="button" size="sm" onClick={() => openDetail(a)}>
                             Details
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="gap-1"
+                            disabled={!!exportingKey?.startsWith(`${a.id}-`)}
+                            onClick={() => void runExport("pdf", a)}
+                          >
+                            <IconFileTypePdf className="size-4 shrink-0" />
+                            PDF
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="gap-1"
+                            disabled={!!exportingKey?.startsWith(`${a.id}-`)}
+                            onClick={() => void runExport("xlsx", a)}
+                          >
+                            <IconDownload className="size-4 shrink-0" />
+                            Excel
                           </Button>
                           <Button
                             type="button"
@@ -465,7 +627,7 @@ export function ConfigAnnouncementsClient({
               {detailEditing ? "Edit announcement" : "Announcement"}
             </DialogTitle>
             <DialogDescription asChild>
-              <div className="text-muted-foreground space-y-1 text-left text-xs">
+              <div className="text-muted-foreground space-y-2 text-left text-xs">
                 {readItem && (
                   <>
                     <p>{formatDateTimeIstanbul(readItem.createdAt)}</p>
@@ -476,6 +638,35 @@ export function ConfigAnnouncementsClient({
                           ? ` · ${readItem.creator.departman}`
                           : ""}
                       </p>
+                    )}
+                    {!detailEditing && (
+                      <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-2">
+                        <Badge
+                          variant={readItem.isActive ? "default" : "secondary"}
+                          className={
+                            readItem.isActive
+                              ? "border-emerald-600/30 bg-emerald-600 text-white"
+                              : "text-muted-foreground"
+                          }
+                        >
+                          {readItem.isActive ? "Active" : "Inactive"}
+                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Label
+                            htmlFor={`detail-active-${readItem.id}`}
+                            className="text-foreground font-normal"
+                          >
+                            Show on staff dashboard
+                          </Label>
+                          <Switch
+                            id={`detail-active-${readItem.id}`}
+                            size="sm"
+                            checked={readItem.isActive}
+                            disabled={togglingActiveId === readItem.id}
+                            onCheckedChange={(v) => void setAnnouncementActive(readItem, v)}
+                          />
+                        </div>
+                      </div>
                     )}
                   </>
                 )}
@@ -523,19 +714,74 @@ export function ConfigAnnouncementsClient({
                           {ackStats.notAcknowledged.length} staff not yet acknowledged
                         </span>
                       </p>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="mt-2 gap-1.5"
-                        disabled={emailReportSending}
-                        onClick={() => void sendAckReportEmail()}
-                      >
-                        <IconMailForward className="size-4" />
-                        {emailReportSending
-                          ? "Sending…"
-                          : "Email me the full report"}
-                      </Button>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5"
+                          disabled={emailReportSending}
+                          onClick={() => void sendAckReportEmail()}
+                        >
+                          <IconMailForward className="size-4" />
+                          {emailReportSending
+                            ? "Sending…"
+                            : "Email me the full report"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5"
+                          disabled={!!exportingKey?.startsWith(`${readItem.id}-`)}
+                          onClick={() => void runExport("pdf", readItem)}
+                        >
+                          <IconFileTypePdf className="size-4" />
+                          {exportingKey === `${readItem.id}-pdf`
+                            ? "PDF…"
+                            : "Download PDF"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5"
+                          disabled={!!exportingKey?.startsWith(`${readItem.id}-`)}
+                          onClick={() => void runExport("xlsx", readItem)}
+                        >
+                          <IconDownload className="size-4" />
+                          {exportingKey === `${readItem.id}-xlsx`
+                            ? "Excel…"
+                            : "Download Excel"}
+                        </Button>
+                      </div>
+                      {(ackStats.acknowledged?.length ?? 0) > 0 && (
+                        <div className="mt-3 max-h-36 overflow-y-auto rounded border border-emerald-200/80 bg-emerald-50/50 p-2 text-xs dark:border-emerald-900/50 dark:bg-emerald-950/25">
+                          <p className="mb-1 font-medium text-emerald-800 dark:text-emerald-300">
+                            Acknowledged
+                          </p>
+                          <ul className="list-inside list-disc space-y-0.5">
+                            {ackStats.acknowledged.slice(0, 80).map((c) => (
+                              <li key={c.calisanId}>
+                                <span className="font-medium text-foreground">
+                                  {c.isim} {c.soyisim}
+                                </span>
+                                {c.departman ? ` · ${c.departman}` : ""} — {c.email}
+                                <span className="text-muted-foreground">
+                                  {" "}
+                                  · {formatDateTimeIstanbul(c.acknowledgedAt)}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                          {ackStats.acknowledged.length > 80 && (
+                            <p className="text-muted-foreground mt-1">
+                              … and {ackStats.acknowledged.length - 80} more (full list in
+                              email)
+                            </p>
+                          )}
+                        </div>
+                      )}
                       {ackStats.notAcknowledged.length > 0 && (
                         <div className="mt-3 max-h-36 overflow-y-auto rounded border bg-background p-2 text-xs">
                           <p className="mb-1 font-medium text-destructive">
@@ -625,13 +871,24 @@ export function ConfigAnnouncementsClient({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <Dialog
+        open={createOpen}
+        onOpenChange={(open) => {
+          setCreateOpen(open)
+          if (!open) {
+            setNewTitle("")
+            setNewContent("")
+            setNewActive(true)
+          }
+        }}
+      >
         <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>New announcement</DialogTitle>
             <DialogDescription>
-              This will be saved and emailed to all employee addresses on file when email is
-              configured.
+              Active posts appear on every staff dashboard (including new employees) and are emailed
+              to all addresses when Resend is configured. Turn off “Show on dashboard” to save as
+              inactive — no email, hidden from dashboards until you activate it later.
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4">
@@ -654,6 +911,22 @@ export function ConfigAnnouncementsClient({
                 className="min-h-40"
                 disabled={creating}
                 placeholder="Full message body"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 px-3 py-2">
+              <div className="space-y-0.5">
+                <Label htmlFor="new-active" className="text-sm font-medium">
+                  Show on dashboard (active)
+                </Label>
+                <p className="text-muted-foreground text-xs">
+                  Inactive saves the announcement here only; staff will not see it yet.
+                </p>
+              </div>
+              <Switch
+                id="new-active"
+                checked={newActive}
+                onCheckedChange={setNewActive}
+                disabled={creating}
               />
             </div>
           </div>

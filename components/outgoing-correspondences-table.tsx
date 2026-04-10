@@ -46,6 +46,8 @@ import {
 interface OutgoingCorrespondence {
   id: number
   paperNo: string | null
+  departmentKey?: string | null
+  departmentLabel?: string | null
   to: string | null
   subject: string | null
   date: string
@@ -80,6 +82,12 @@ const columns: ColumnDef[] = [
     label: "Correspondence no",
     sortKey: "paperNo",
     getValue: (c) => c.paperNo || "-",
+  },
+  {
+    key: "department",
+    label: "Department",
+    sortKey: "departmentLabel",
+    getValue: (c) => c.departmentLabel || "—",
   },
   { key: "to", label: "To", sortKey: "to", getValue: (c) => c.to || "-" },
   { key: "subject", label: "Subject", sortKey: "subject", getValue: (c) => c.subject || "-" },
@@ -183,6 +191,8 @@ export function OutgoingCorrespondencesTable({ userId }: { userId: string }) {
       data = data.filter((correspondence) => {
         const searchableFields = [
           correspondence.paperNo,
+          correspondence.departmentLabel,
+          correspondence.departmentKey,
           correspondence.to,
           correspondence.subject,
           formatDate(correspondence.date),
@@ -295,7 +305,12 @@ export function OutgoingCorrespondencesTable({ userId }: { userId: string }) {
                 {columns.map((column) => (
                   <TableHead 
                     key={column.key}
-                    className="font-semibold text-slate-700 whitespace-nowrap cursor-pointer hover:bg-slate-200 select-none border-r border-gray-300 last:border-r-0"
+                    className={
+                      "font-semibold text-slate-700 cursor-pointer hover:bg-slate-200 select-none border-r border-gray-300 last:border-r-0 " +
+                      (column.key === "department"
+                        ? "min-w-[12rem] max-w-[16rem]"
+                        : "whitespace-nowrap")
+                    }
                     onClick={() => handleSort(column.sortKey || null)}
                   >
                     <div className="flex items-center gap-1">
@@ -329,6 +344,11 @@ export function OutgoingCorrespondencesTable({ userId }: { userId: string }) {
                     <TableRow key={correspondence.id} className="hover:bg-slate-50 border-b border-gray-300">
                       <TableCell className="whitespace-nowrap border-r border-gray-200 font-mono text-sm">
                         {correspondence.paperNo || "—"}
+                      </TableCell>
+                      <TableCell className="align-top border-r border-gray-200 text-sm">
+                        <div className="max-w-[12rem] min-w-0 break-words sm:max-w-[16rem]">
+                          {correspondence.departmentLabel || "—"}
+                        </div>
                       </TableCell>
                       <TableCell className="whitespace-nowrap border-r border-gray-200">
                         {correspondence.to || "-"}

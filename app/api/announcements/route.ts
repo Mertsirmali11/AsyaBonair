@@ -126,6 +126,8 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const title = typeof body.title === "string" ? body.title.trim() : ""
   const content = typeof body.content === "string" ? body.content.trim() : ""
+  const isActive =
+    typeof body.isActive === "boolean" ? body.isActive : true
 
   if (!title || !content) {
     return NextResponse.json(
@@ -138,6 +140,7 @@ export async function POST(req: NextRequest) {
     data: {
       title,
       content,
+      isActive,
       createdBy: calisan.id,
     },
     include: {
@@ -157,7 +160,12 @@ export async function POST(req: NextRequest) {
     | { sent: number; failed: number; errors: string[] }
     | undefined
 
-  if (emails.length === 0) {
+  if (!isActive) {
+    emailDelivery = {
+      skipped: true,
+      reason: "Announcement saved as inactive — no email sent",
+    }
+  } else if (emails.length === 0) {
     emailDelivery = { skipped: true, reason: "No recipient emails in database" }
   } else if (!resend) {
     console.warn(

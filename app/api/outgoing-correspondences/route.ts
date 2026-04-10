@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma-server"
 import { auth } from "@/auth"
 import { canAccessConfigurationsArea } from "@/lib/department-access"
@@ -13,6 +14,11 @@ import {
 } from "@/lib/outgoing-correspondence-attachments"
 import { setOutgoingPdfAttachmentsJsonb } from "@/lib/persist-correspondence-pdf-jsonb"
 import { deletePdfFromStorage, uploadPdfToStorage } from "@/lib/supabase-storage"
+import { matchDepartmentKeyFromPaperNo } from "@/lib/outgoing-correspondence-departments"
+import {
+  allocateOutgoingPaperNo,
+  releaseOutgoingPaperSlot,
+} from "@/lib/outgoing-correspondence-numbering-server"
 
 export const dynamic = "force-dynamic"
 
@@ -31,23 +37,37 @@ export async function GET() {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    const correspondences = await prisma.outgoingCorrespondence.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 300,
-      include: {
-        creator: {
-          select: {
-            id: true,
-            isim: true,
-            soyisim: true,
-            email: true,
-            departman: true,
+    const [correspondences, deptConfigs] = await Promise.all([
+      prisma.outgoingCorrespondence.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 300,
+        include: {
+          creator: {
+            select: {
+              id: true,
+              isim: true,
+              soyisim: true,
+              email: true,
+              departman: true,
+            },
           },
         },
-      },
+      }),
+      prisma.outgoingCorrespondenceDeptConfig.findMany({
+        orderBy: [{ sortOrder: "asc" }, { key: "asc" }],
+        select: { key: true, label: true, paperPrefix: true },
+      }),
+    ])
+
+    const enriched = correspondences.map((c) => {
+      const inferred =
+        c.departmentKey ?? matchDepartmentKeyFromPaperNo(c.paperNo, deptConfigs)
+      const departmentLabel =
+        deptConfigs.find((x) => x.key === inferred)?.label ?? null
+      return { ...c, departmentLabel }
     })
 
-    return NextResponse.json(correspondences)
+    return NextResponse.json(enriched)
   } catch (error) {
     console.error("Error fetching outgoing correspondences:", error)
     return NextResponse.json(
@@ -79,7 +99,7 @@ export async function POST(request: Request) {
     const dateStr = formData.get("date") as string
     const content = formData.get("content") as string
     const createdBy = formData.get("createdBy") as string
-    const paperNoManual = String(formData.get("paperNo") ?? "").trim()
+    const departmentKeyRaw = String(formData.get("departmentKey") ?? "").trim()
     const pdfFiles = formData
       .getAll("pdf")
       .filter((f): f is File => f instanceof File && f.size > 0)
@@ -91,6 +111,19 @@ export async function POST(request: Request) {
       )
     }
 
+    const deptConfig = await prisma.outgoingCorrespondenceDeptConfig.findFirst({
+      where: { key: departmentKeyRaw, isActive: true },
+    })
+    if (!deptConfig) {
+      return NextResponse.json(
+        {
+          error:
+            "Unknown or inactive department. Add or enable it under Configurations → Correspondences.",
+        },
+        { status: 400 }
+      )
+    }
+
     const date = new Date(dateStr)
     if (isNaN(date.getTime())) {
       return NextResponse.json(
@@ -98,48 +131,6 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
-
-    let paperNo: string
-    if (paperNoManual) {
-      if (paperNoManual.length > 50) {
-        return NextResponse.json(
-          { error: "Correspondence number must be at most 50 characters" },
-          { status: 400 }
-        )
-      }
-      const clash = await prisma.outgoingCorrespondence.findUnique({
-        where: { paperNo: paperNoManual },
-      })
-      if (clash) {
-        return NextResponse.json(
-          { error: "This correspondence number is already in use" },
-          { status: 400 }
-        )
-      }
-      paperNo = paperNoManual
-    } else {
-      const lastCorrespondence = await prisma.outgoingCorrespondence.findFirst({
-        orderBy: { id: "desc" },
-        select: { paperNo: true },
-      })
-
-      if (lastCorrespondence && lastCorrespondence.paperNo) {
-        const match = lastCorrespondence.paperNo.match(/BON-OC-(\d+)/)
-        if (match) {
-          const lastNumber = parseInt(match[1], 10)
-          const nextNumber = lastNumber + 1
-          paperNo = `BON-OC-${String(nextNumber).padStart(3, "0")}`
-        } else {
-          paperNo = "BON-OC-001"
-        }
-      } else {
-        paperNo = "BON-OC-001"
-      }
-    }
-
-    let pdfPath: string | null = null
-    let pdfFileName: string | null = null
-    let pdfAttachments: OutgoingStoredAttachment[] | null = null
 
     if (pdfFiles.length > 0) {
       const totalBytes = pdfFiles.reduce((s, f) => s + f.size, 0)
@@ -154,7 +145,43 @@ export async function POST(request: Request) {
           return NextResponse.json({ error: ALLOWED_DOCUMENTS_ERROR_EN }, { status: 400 })
         }
       }
+    }
 
+    let paperNo: string
+    try {
+      paperNo = await prisma.$transaction(
+        async (tx) =>
+          allocateOutgoingPaperNo(tx, departmentKeyRaw, {
+            paperPrefix: deptConfig.paperPrefix,
+            includeYearInPaperNo: deptConfig.includeYearInPaperNo,
+          }),
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          maxWait: 10_000,
+          timeout: 15_000,
+        }
+      )
+    } catch (e) {
+      console.error("allocateOutgoingPaperNo:", e)
+      return NextResponse.json(
+        { error: "Could not assign correspondence number" },
+        { status: 500 }
+      )
+    }
+
+    const releaseAllocatedNumber = async () => {
+      await releaseOutgoingPaperSlot(prisma, {
+        departmentKey: departmentKeyRaw,
+        paperNo,
+        paperPrefix: deptConfig.paperPrefix,
+      })
+    }
+
+    let pdfPath: string | null = null
+    let pdfFileName: string | null = null
+    let pdfAttachments: OutgoingStoredAttachment[] | null = null
+
+    if (pdfFiles.length > 0) {
       const storageNames = assignUniquePdfStorageNames(pdfFiles)
       const uploaded: OutgoingStoredAttachment[] = []
       const folderPrefix = `outgoing/${paperNo}`
@@ -168,6 +195,7 @@ export async function POST(request: Request) {
             for (const a of uploaded) {
               await deletePdfFromStorage(a.path)
             }
+            await releaseAllocatedNumber()
             return NextResponse.json(
               {
                 error: `Dosya yüklenemedi (${pdfFiles[i].name}): ${uploadResult.message}`,
@@ -179,6 +207,7 @@ export async function POST(request: Request) {
         }
       } catch (fileError: unknown) {
         console.error("File upload error:", fileError)
+        await releaseAllocatedNumber()
         const msg = fileError instanceof Error ? fileError.message : "Unknown error"
         return NextResponse.json(
           { error: `File upload failed: ${msg}` },
@@ -191,32 +220,49 @@ export async function POST(request: Request) {
       pdfFileName = uploaded[0]?.fileName ?? null
     }
 
-    const correspondence = await prisma.outgoingCorrespondence.create({
-      data: {
-        paperNo: paperNo,
-        to: to,
-        subject: subject,
-        date: date,
-        content: content || null,
-        pdfPath: pdfPath,
-        pdfFileName: pdfFileName,
-        createdBy: createdBy ? parseInt(createdBy) : null,
-      },
-      include: {
-        creator: {
-          select: {
-            id: true,
-            isim: true,
-            soyisim: true,
-            email: true,
-            departman: true,
+    let correspondence
+    try {
+      correspondence = await prisma.outgoingCorrespondence.create({
+        data: {
+          paperNo: paperNo,
+          departmentKey: departmentKeyRaw,
+          to: to,
+          subject: subject,
+          date: date,
+          content: content || null,
+          pdfPath: pdfPath,
+          pdfFileName: pdfFileName,
+          createdBy: createdBy ? parseInt(createdBy) : null,
+        },
+        include: {
+          creator: {
+            select: {
+              id: true,
+              isim: true,
+              soyisim: true,
+              email: true,
+              departman: true,
+            },
           },
         },
-      },
-    })
+      })
+    } catch (createErr: unknown) {
+      await releaseAllocatedNumber()
+      throw createErr
+    }
 
     if (pdfAttachments?.length) {
-      await setOutgoingPdfAttachmentsJsonb(correspondence.id, pdfAttachments)
+      try {
+        await setOutgoingPdfAttachmentsJsonb(correspondence.id, pdfAttachments)
+      } catch (jsonbErr) {
+        console.error("setOutgoingPdfAttachmentsJsonb:", jsonbErr)
+        await prisma.outgoingCorrespondence.delete({ where: { id: correspondence.id } })
+        await releaseAllocatedNumber()
+        return NextResponse.json(
+          { error: "Could not save attachment metadata" },
+          { status: 500 }
+        )
+      }
     }
 
     const full = await prisma.outgoingCorrespondence.findUnique({
@@ -234,7 +280,19 @@ export async function POST(request: Request) {
       },
     })
 
-    return NextResponse.json(full ?? correspondence, { status: 201 })
+    const deptConfigs = await prisma.outgoingCorrespondenceDeptConfig.findMany({
+      select: { key: true, label: true, paperPrefix: true },
+    })
+    const inferred =
+      full?.departmentKey ??
+      matchDepartmentKeyFromPaperNo(full?.paperNo ?? null, deptConfigs)
+    const departmentLabel =
+      deptConfigs.find((x) => x.key === inferred)?.label ?? null
+
+    return NextResponse.json(
+      { ...(full ?? correspondence), departmentLabel },
+      { status: 201 }
+    )
   } catch (error: unknown) {
     console.error("Error creating outgoing correspondence:", error)
     const err = error as { message?: string; code?: string; name?: string; stack?: string }

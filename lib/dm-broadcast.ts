@@ -64,3 +64,14 @@ export async function broadcastDmInboxBoth(
     broadcastDmInbox(higherUserId, conversationId),
   ])
 }
+
+/** Grup sohbetinde tüm üyelere (veya tekilleştirilmiş id listesine) yayın. */
+export async function broadcastDmInboxMany(
+  conversationId: number,
+  calisanIds: number[]
+): Promise<void> {
+  const unique = [...new Set(calisanIds)].filter((id) => id > 0)
+  await Promise.all(
+    unique.map((id) => broadcastDmInbox(id, conversationId))
+  )
+}

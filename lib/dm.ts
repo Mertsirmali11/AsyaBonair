@@ -12,10 +12,28 @@ export function dmParticipantPair(
 }
 
 export function otherParticipantId(
-  conversation: { lowerUserId: number; higherUserId: number },
+  conversation: { lowerUserId: number | null; higherUserId: number | null },
   me: number
 ): number {
-  return conversation.lowerUserId === me
-    ? conversation.higherUserId
-    : conversation.lowerUserId
+  const low = conversation.lowerUserId
+  const high = conversation.higherUserId
+  if (low == null || high == null) {
+    throw new Error("1:1 sohbet için lower/higher gerekli")
+  }
+  return low === me ? high : low
+}
+
+export function isDmMember(
+  conv: {
+    isGroup: boolean
+    lowerUserId: number | null
+    higherUserId: number | null
+    members: { calisanId: number }[]
+  },
+  calisanId: number
+): boolean {
+  if (conv.isGroup) {
+    return conv.members.some((m) => m.calisanId === calisanId)
+  }
+  return conv.lowerUserId === calisanId || conv.higherUserId === calisanId
 }

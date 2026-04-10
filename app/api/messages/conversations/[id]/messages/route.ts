@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { calisanAvatarPublicUrl } from "@/lib/calisan-avatar"
 import { prisma } from "@/lib/prisma-server"
-import { otherParticipantId } from "@/lib/dm"
-import { broadcastDmInboxBoth } from "@/lib/dm-broadcast"
+import { isDmMember, otherParticipantId } from "@/lib/dm"
+import { broadcastDmInboxMany } from "@/lib/dm-broadcast"
 import { uploadDmAttachmentToStorage } from "@/lib/supabase-storage"
 
 const MAX_BODY = 8000
@@ -35,9 +35,10 @@ type MsgRow = {
 function mapMessage(
   m: MsgRow,
   calisanId: number,
-  otherLastRead: number
+  otherLastRead: number,
+  senderDisplayName?: string
 ) {
-  return {
+  const base = {
     id: m.id,
     body: m.body,
     senderId: m.senderId,
@@ -53,6 +54,10 @@ function mapMessage(
         }
       : null,
   }
+  if (senderDisplayName !== undefined) {
+    return { ...base, senderDisplayName }
+  }
+  return base
 }
 
 async function avatarUrlsForDmParticipants(myId: number, otherId: number) {
@@ -103,11 +108,54 @@ async function getMe() {
 async function assertMember(conversationId: number, calisanId: number) {
   const c = await prisma.dmConversation.findUnique({
     where: { id: conversationId },
-    select: { id: true, lowerUserId: true, higherUserId: true },
+    select: {
+      id: true,
+      isGroup: true,
+      groupTitle: true,
+      lowerUserId: true,
+      higherUserId: true,
+      members: { select: { calisanId: true } },
+    },
   })
   if (!c) return null
-  if (c.lowerUserId !== calisanId && c.higherUserId !== calisanId) return null
+  if (!isDmMember(c, calisanId)) return null
   return c
+}
+
+async function buildListPayload(
+  rows: MsgRow[],
+  conv: NonNullable<Awaited<ReturnType<typeof assertMember>>>,
+  calisanId: number,
+  otherLastRead: number,
+  extra: Record<string, unknown>
+) {
+  if (!conv.isGroup) {
+    return NextResponse.json({
+      ...extra,
+      messages: rows.map((m) => mapMessage(m, calisanId, otherLastRead)),
+      otherLastReadMessageId: otherLastRead,
+    })
+  }
+
+  const senderIds = [...new Set(rows.map((r) => r.senderId))]
+  const senders = await prisma.calisan.findMany({
+    where: { id: { in: senderIds } },
+    select: { id: true, isim: true, soyisim: true },
+  })
+  const nameMap = new Map(
+    senders.map((s) => [
+      s.id,
+      [s.isim, s.soyisim].filter(Boolean).join(" ") || `Çalışan #${s.id}`,
+    ])
+  )
+
+  return NextResponse.json({
+    ...extra,
+    messages: rows.map((m) =>
+      mapMessage(m, calisanId, 0, nameMap.get(m.senderId) ?? `#${m.senderId}`)
+    ),
+    otherLastReadMessageId: 0,
+  })
 }
 
 export async function GET(
@@ -129,9 +177,23 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
 
-  const otherId = otherParticipantId(conv, calisanId)
-  const otherLastRead = await getOtherLastRead(conversationId, otherId)
-  const avatarPair = await avatarUrlsForDmParticipants(calisanId, otherId)
+  let otherLastRead = 0
+  let avatarPair: { myAvatarUrl: string | null; otherAvatarUrl: string | null }
+
+  if (!conv.isGroup) {
+    const otherId = otherParticipantId(conv, calisanId)
+    otherLastRead = await getOtherLastRead(conversationId, otherId)
+    avatarPair = await avatarUrlsForDmParticipants(calisanId, otherId)
+  } else {
+    const meRow = await prisma.calisan.findUnique({
+      where: { id: calisanId },
+      select: { profilFotoStoragePath: true },
+    })
+    avatarPair = {
+      myAvatarUrl: calisanAvatarPublicUrl(meRow?.profilFotoStoragePath),
+      otherAvatarUrl: null,
+    }
+  }
 
   const sp = request.nextUrl.searchParams
   const limitRaw = Number.parseInt(sp.get("limit") ?? "", 10)
@@ -141,6 +203,12 @@ export async function GET(
 
   const sinceRaw = sp.get("since")
   const beforeRaw = sp.get("before")
+
+  const commonExtra = {
+    isGroup: conv.isGroup,
+    groupTitle: conv.groupTitle,
+    ...avatarPair,
+  }
 
   if (sinceRaw !== null && sinceRaw !== "") {
     const sinceId = Number.parseInt(sinceRaw, 10)
@@ -153,11 +221,9 @@ export async function GET(
       take: 200,
       select: messageSelect,
     })
-    return NextResponse.json({
+    return buildListPayload(rows, conv, calisanId, otherLastRead, {
       mode: "since" as const,
-      messages: rows.map((m) => mapMessage(m, calisanId, otherLastRead)),
-      otherLastReadMessageId: otherLastRead,
-      ...avatarPair,
+      ...commonExtra,
     })
   }
 
@@ -175,12 +241,10 @@ export async function GET(
     const hasOlder = rows.length > limit
     const page = hasOlder ? rows.slice(0, limit) : rows
     const asc = [...page].reverse()
-    return NextResponse.json({
+    return buildListPayload(asc, conv, calisanId, otherLastRead, {
       mode: "older" as const,
-      messages: asc.map((m) => mapMessage(m, calisanId, otherLastRead)),
-      otherLastReadMessageId: otherLastRead,
       hasOlder,
-      ...avatarPair,
+      ...commonExtra,
     })
   }
 
@@ -194,12 +258,10 @@ export async function GET(
   const page = hasOlder ? rows.slice(0, limit) : rows
   const asc = [...page].reverse()
 
-  return NextResponse.json({
+  return buildListPayload(asc, conv, calisanId, otherLastRead, {
     mode: "latest" as const,
-    messages: asc.map((m) => mapMessage(m, calisanId, otherLastRead)),
-    otherLastReadMessageId: otherLastRead,
     hasOlder,
-    ...avatarPair,
+    ...commonExtra,
   })
 }
 
@@ -291,16 +353,31 @@ export async function POST(
     data: { updatedAt: new Date() },
   })
 
-  const otherId = otherParticipantId(conv, calisanId)
-  const otherLastRead = await getOtherLastRead(conversationId, otherId)
+  let otherLastRead = 0
+  if (!conv.isGroup) {
+    const otherId = otherParticipantId(conv, calisanId)
+    otherLastRead = await getOtherLastRead(conversationId, otherId)
+  }
 
-  void broadcastDmInboxBoth(
-    conversationId,
-    conv.lowerUserId,
-    conv.higherUserId
-  )
+  const targets = conv.isGroup
+    ? conv.members.map((m) => m.calisanId)
+    : [conv.lowerUserId!, conv.higherUserId!]
+
+  void broadcastDmInboxMany(conversationId, targets)
+
+  const senderRow = await prisma.calisan.findUnique({
+    where: { id: calisanId },
+    select: { isim: true, soyisim: true },
+  })
+  const senderDisplayName =
+    [senderRow?.isim, senderRow?.soyisim].filter(Boolean).join(" ") ||
+    `Çalışan #${calisanId}`
+
+  const messagePayload = conv.isGroup
+    ? mapMessage(msg, calisanId, 0, senderDisplayName)
+    : mapMessage(msg, calisanId, otherLastRead)
 
   return NextResponse.json({
-    message: mapMessage(msg, calisanId, otherLastRead),
+    message: messagePayload,
   })
 }

@@ -5,6 +5,9 @@ import { prisma } from "@/lib/prisma-server"
 import { dmParticipantPair, otherParticipantId } from "@/lib/dm"
 import { dmUnreadCountsByConversationIds } from "@/lib/dm-unread-batch"
 
+const MAX_GROUP_MEMBERS = 200
+const MAX_GROUP_TITLE = 200
+
 async function requireCalisanId() {
   const session = await auth()
   if (!session?.user?.id) {
@@ -25,7 +28,16 @@ export async function GET() {
 
     const conversations = await prisma.dmConversation.findMany({
       where: {
-        OR: [{ lowerUserId: calisanId }, { higherUserId: calisanId }],
+        OR: [
+          {
+            isGroup: false,
+            OR: [{ lowerUserId: calisanId }, { higherUserId: calisanId }],
+          },
+          {
+            isGroup: true,
+            members: { some: { calisanId } },
+          },
+        ],
       },
       orderBy: { updatedAt: "desc" },
       include: {
@@ -40,10 +52,12 @@ export async function GET() {
             attachmentFileName: true,
           },
         },
+        members: { select: { calisanId: true } },
       },
     })
 
-    const otherIds = conversations.map((c) => otherParticipantId(c, calisanId))
+    const directConvs = conversations.filter((c) => !c.isGroup)
+    const otherIds = directConvs.map((c) => otherParticipantId(c, calisanId))
     const others = await prisma.calisan.findMany({
       where: { id: { in: otherIds } },
       select: {
@@ -63,8 +77,6 @@ export async function GET() {
     )
 
     const payload = conversations.map((c) => {
-      const oid = otherParticipantId(c, calisanId)
-      const o = otherMap.get(oid)
       const last = c.messages[0]
       const lastPreview =
         last &&
@@ -73,8 +85,39 @@ export async function GET() {
           : last.attachmentFileName
             ? `📎 ${last.attachmentFileName}`
             : "📎 File")
+
+      if (c.isGroup) {
+        const n = c.members.length
+        return {
+          id: c.id,
+          isGroup: true as const,
+          updatedAt: c.updatedAt.toISOString(),
+          other: {
+            id: 0,
+            isim: null,
+            soyisim: null,
+            departman: `${n} kişi`,
+            displayName: (c.groupTitle ?? "").trim() || "Grup",
+            avatarUrl: null as string | null,
+          },
+          lastMessage: last
+            ? {
+                id: last.id,
+                body: lastPreview ?? "",
+                createdAt: last.createdAt.toISOString(),
+                senderId: last.senderId,
+                fromMe: last.senderId === calisanId,
+              }
+            : null,
+          unreadCount: unreadMap.get(c.id) ?? 0,
+        }
+      }
+
+      const oid = otherParticipantId(c, calisanId)
+      const o = otherMap.get(oid)
       return {
         id: c.id,
+        isGroup: false as const,
         updatedAt: c.updatedAt.toISOString(),
         other: {
           id: oid,
@@ -115,11 +158,102 @@ export async function POST(request: NextRequest) {
     if ("error" in gate) return gate.error
     const { calisanId } = gate
 
-    let body: { otherCalisanId?: number }
+    let body: {
+      otherCalisanId?: number
+      isGroup?: boolean
+      title?: string
+      memberCalisanIds?: unknown[]
+    }
     try {
       body = await request.json()
     } catch {
       return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
+    }
+
+    if (body.isGroup === true) {
+      const title = String(body.title ?? "").trim()
+      if (title.length < 1 || title.length > MAX_GROUP_TITLE) {
+        return NextResponse.json(
+          { error: "Grup adı 1–200 karakter olmalı." },
+          { status: 400 }
+        )
+      }
+
+      const raw = body.memberCalisanIds
+      if (!Array.isArray(raw)) {
+        return NextResponse.json(
+          { error: "memberCalisanIds bir dizi olmalı." },
+          { status: 400 }
+        )
+      }
+
+      const others = new Set<number>()
+      for (const x of raw) {
+        const id = typeof x === "number" ? x : Number.parseInt(String(x), 10)
+        if (!Number.isFinite(id) || id < 1 || id === calisanId) continue
+        others.add(id)
+      }
+
+      if (others.size < 1) {
+        return NextResponse.json(
+          { error: "Gruba en az bir kişi ekleyin (kendiniz otomatik dahil)." },
+          { status: 400 }
+        )
+      }
+
+      if (others.size > MAX_GROUP_MEMBERS) {
+        return NextResponse.json(
+          { error: `En fazla ${MAX_GROUP_MEMBERS} üye eklenebilir.` },
+          { status: 400 }
+        )
+      }
+
+      const memberIds = [calisanId, ...others]
+      const found = await prisma.calisan.findMany({
+        where: { id: { in: memberIds } },
+        select: { id: true },
+      })
+      if (found.length !== memberIds.length) {
+        return NextResponse.json(
+          { error: "Bazı kullanıcılar bulunamadı." },
+          { status: 404 }
+        )
+      }
+
+      const present = new Set(found.map((p) => p.id))
+      if (!present.has(calisanId)) {
+        return NextResponse.json(
+          {
+            error:
+              "Oturumunuz veritabanındaki çalışan kaydıyla eşleşmiyor. Çıkış yapıp tekrar giriş yapın.",
+          },
+          { status: 401 }
+        )
+      }
+
+      const conversation = await prisma.dmConversation.create({
+        data: {
+          isGroup: true,
+          groupTitle: title,
+          lowerUserId: null,
+          higherUserId: null,
+          members: {
+            create: memberIds.map((id) => ({ calisanId: id })),
+          },
+          readStates: {
+            create: memberIds.map((id) => ({ calisanId: id })),
+          },
+        },
+        select: { id: true },
+      })
+
+      return NextResponse.json({
+        conversation: {
+          id: conversation.id,
+          isGroup: true,
+          title,
+        },
+      })
     }
 
     const otherId = Number(body.otherCalisanId)
@@ -158,6 +292,7 @@ export async function POST(request: NextRequest) {
         lowerUserId_higherUserId: { lowerUserId, higherUserId },
       },
       create: {
+        isGroup: false,
         lowerUserId,
         higherUserId,
         readStates: {
@@ -186,6 +321,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       conversation: {
         id: conversation.id,
+        isGroup: false,
         other: {
           id: otherExists.id,
           isim: otherExists.isim,

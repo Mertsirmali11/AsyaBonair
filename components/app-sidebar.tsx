@@ -66,10 +66,9 @@ const menuItems = [
   { title: "Compliance Monitoring", url: "/compliance", icon: IconClipboardCheck },
   { title: "Emergency Response", url: "/emergency", icon: IconUrgent },
   { title: "FRMS", url: "/frms", icon: IconFileDescription },
-  { title: "Tasks & Actions", url: "/tasks", icon: IconChecklist },
   { title: "Meetings", url: "/meetings", icon: IconCalendarEvent },
+  { title: "Tasks & Actions", url: "/tasks", icon: IconChecklist },
   { title: "Performance Reports", url: "/reports", icon: IconChartBar },
-  { title: "Announcement System", url: "/announcements", icon: IconSpeakerphone },
   { title: "AI Report Creator", url: "/ai-reports", icon: IconRobot },
   { title: "Addons", url: "/addons", icon: IconPuzzle },
 ]
@@ -88,8 +87,21 @@ const configurationsSubItems: {
     url: "/configurations/safety-settings",
     qualityOrAdminOnly: true,
   },
-  { title: "Announcements", url: "/configurations/announcements" },
   { title: "Audit Settings", url: "/configurations/audit-settings" },
+  { title: "Correspondences", url: "/configurations/correspondences" },
+]
+
+const announcementSystemSubItems: {
+  title: string
+  url: string
+  configurationsOnly?: boolean
+}[] = [
+  { title: "View announcements", url: "/dashboard" },
+  {
+    title: "Manage announcements",
+    url: "/configurations/announcements",
+    configurationsOnly: true,
+  },
 ]
 
 const controlledDocumentsSubItems: {
@@ -152,6 +164,9 @@ export function AppSidebar({
   const [complianceMonitoringOpen, setComplianceMonitoringOpen] = React.useState(
     pathname?.startsWith("/compliance") || false
   )
+  const [announcementSystemOpen, setAnnouncementSystemOpen] = React.useState(
+    pathname?.startsWith("/configurations/announcements") || false
+  )
 
   const hasConfigurationsAccess = canAccessConfigurationsArea(user.departman)
   const canReviewRegistrations = canApproveWorkerRegistrations(user.departman)
@@ -180,6 +195,15 @@ export function AppSidebar({
         return true
       }),
     [showAuditPlanNav]
+  )
+
+  const visibleAnnouncementSystemSubItems = React.useMemo(
+    () =>
+      announcementSystemSubItems.filter((item) => {
+        if (item.configurationsOnly) return hasConfigurationsAccess
+        return true
+      }),
+    [hasConfigurationsAccess]
   )
 
   React.useEffect(() => {
@@ -215,6 +239,13 @@ export function AppSidebar({
     if (storedCompliance !== null) {
       setComplianceMonitoringOpen(storedCompliance === "true")
     }
+
+    const storedAnnouncement = window.localStorage.getItem(
+      "bonair.sidebar.announcementSystemOpen"
+    )
+    if (storedAnnouncement !== null) {
+      setAnnouncementSystemOpen(storedAnnouncement === "true")
+    }
   }, [])
 
   React.useEffect(() => {
@@ -232,6 +263,9 @@ export function AppSidebar({
     }
     if (pathname?.startsWith("/compliance")) {
       setComplianceMonitoringOpen(true)
+    }
+    if (pathname?.startsWith("/configurations/announcements")) {
+      setAnnouncementSystemOpen(true)
     }
   }, [pathname])
 
@@ -269,6 +303,13 @@ export function AppSidebar({
       complianceMonitoringOpen ? "true" : "false"
     )
   }, [complianceMonitoringOpen])
+
+  React.useEffect(() => {
+    window.localStorage.setItem(
+      "bonair.sidebar.announcementSystemOpen",
+      announcementSystemOpen ? "true" : "false"
+    )
+  }, [announcementSystemOpen])
 
   React.useEffect(() => {
     const el = sidebarContentRef.current
@@ -518,22 +559,89 @@ export function AppSidebar({
           </Collapsible>
 
           {menuItemsAfterControlledDocs.map((item) => {
-            const isActive = pathname === item.url || pathname?.startsWith(item.url + "/")
+            const isActive =
+              pathname === item.url || pathname?.startsWith(`${item.url}/`)
+            const announcementSystemNavActive =
+              pathname?.startsWith("/configurations/announcements") ||
+              pathname === "/dashboard"
+
             return (
-              <SidebarMenuItem key={item.title}>
-                <SidebarMenuButton
-                  asChild
-                  className={cn(
-                    "h-10 px-3 rounded-lg transition-colors",
-                    isActive && "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                  )}
-                >
-                  <Link href={item.url}>
-                    <item.icon className="size-5" />
-                    <span>{item.title}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              <React.Fragment key={item.title}>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    className={cn(
+                      "h-10 rounded-lg px-3 transition-colors",
+                      isActive &&
+                        "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                    )}
+                  >
+                    <Link href={item.url}>
+                      <item.icon className="size-5" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+
+                {item.url === "/reports" ? (
+                  <Collapsible
+                    open={announcementSystemOpen}
+                    onOpenChange={setAnnouncementSystemOpen}
+                    className="group/collapsible"
+                  >
+                    <SidebarMenuItem>
+                      <CollapsibleTrigger asChild>
+                        <SidebarMenuButton
+                          className={cn(
+                            "h-10 w-full justify-between rounded-lg px-3 transition-colors",
+                            announcementSystemNavActive &&
+                              "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                          )}
+                        >
+                          <div className="flex items-center gap-2">
+                            <IconSpeakerphone className="size-5" />
+                            <span>Announcement System</span>
+                          </div>
+                          <IconChevronDown
+                            className={cn(
+                              "size-4 transition-transform duration-200",
+                              announcementSystemOpen && "rotate-180"
+                            )}
+                          />
+                        </SidebarMenuButton>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <SidebarMenuSub>
+                          {visibleAnnouncementSystemSubItems.map((subItem) => {
+                            const isSubActive =
+                              subItem.url === "/dashboard"
+                                ? pathname === "/dashboard" ||
+                                  pathname === "/dashboard/"
+                                : pathname === subItem.url ||
+                                  !!pathname?.startsWith(`${subItem.url}/`)
+                            return (
+                              <SidebarMenuSubItem key={subItem.title}>
+                                <SidebarMenuSubButton
+                                  asChild
+                                  className={cn(
+                                    "h-9 pl-9",
+                                    isSubActive &&
+                                      "bg-sidebar-accent/50 font-medium"
+                                  )}
+                                >
+                                  <Link href={subItem.url}>
+                                    <span>{subItem.title}</span>
+                                  </Link>
+                                </SidebarMenuSubButton>
+                              </SidebarMenuSubItem>
+                            )
+                          })}
+                        </SidebarMenuSub>
+                      </CollapsibleContent>
+                    </SidebarMenuItem>
+                  </Collapsible>
+                ) : null}
+              </React.Fragment>
             )
           })}
 

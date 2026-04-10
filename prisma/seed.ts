@@ -56,6 +56,7 @@ async function clearAllData() {
     await tx.announcement.deleteMany()
     await tx.incomingPaper.deleteMany()
     await tx.outgoingCorrespondence.deleteMany()
+    await tx.outgoingCorrespondenceDeptConfig.deleteMany()
     await tx.ucaklar.deleteMany()
     await tx.meetingType.deleteMany()
     await tx.calisan.deleteMany()
@@ -304,6 +305,23 @@ async function main() {
       details: "Bakım bölgesi bir bölümünde yarıkaranlık. LED armatür eklenmesi önerildi.",
       reportedBy: mert.id,
     },
+  })
+
+  await prisma.outgoingCorrespondenceDeptConfig.createMany({
+    data: [
+      { key: "oc", label: "Genel / Ofis (OC)", paperPrefix: "BON-OC", sortOrder: 0 },
+      { key: "sms", label: "SMS / Kalite", paperPrefix: "BON-SMS", sortOrder: 1 },
+      {
+        key: "cmm",
+        label: "Uyumluluk (CMM)",
+        paperPrefix: "BON-CMM",
+        sortOrder: 2,
+        includeYearInPaperNo: true,
+      },
+      { key: "hr", label: "İnsan Kaynakları", paperPrefix: "BON-HR", sortOrder: 3 },
+      { key: "qc", label: "Quality", paperPrefix: "BON-QC", sortOrder: 4 },
+    ],
+    skipDuplicates: true,
   })
 
   await prisma.announcement.createMany({
