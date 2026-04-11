@@ -2,42 +2,26 @@ import { randomUUID } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
+import { effectiveEmployeeDepartman } from "@/lib/announcements-access"
+import { canEditDocumentProcedure } from "@/lib/document-procedure-access"
+import { DOCUMENT_PROCEDURE_SERIES_ID } from "@/lib/document-procedure-constants"
 import {
-  assertCanManageAnnouncements,
-  canManageAnnouncementsForDepartman,
-  effectiveEmployeeDepartman,
-} from "@/lib/announcements-access"
-import {
-  getOrganizationDepartmentOptions,
-  isOrganizationDepartment,
-  isValidCustomManualDepartment,
-} from "@/lib/organization-departments"
-import { isAllowedCorrespondenceDocumentFile } from "@/lib/allowed-document-uploads"
+  isAllowedCorrespondenceDocumentFile,
+  resolveDocumentMimeForUpload,
+} from "@/lib/allowed-document-uploads"
 import { slugifyManualTitle } from "@/lib/company-manual-slug"
-import { isAdminDepartment } from "@/lib/department-access"
 import { extractPlainTextFromUploadedDocument } from "@/lib/extract-uploaded-document-text"
+import { uploadPdfToStorage } from "@/lib/supabase-storage"
 
 export const runtime = "nodejs"
 
 const MAX_UPLOAD_BYTES = 32 * 1024 * 1024
 
-const manualSelect = {
-  id: true,
-  title: true,
-  slug: true,
-  createdAt: true,
-  updatedAt: true,
-  department: true,
-  revision: true,
-  seriesId: true,
-  isCurrent: true,
-  createdBy: true,
-  creator: {
-    select: {
-      isim: true,
-      soyisim: true,
-      email: true,
-    },
+const creatorSelect = {
+  select: {
+    isim: true,
+    soyisim: true,
+    email: true,
   },
 } as const
 
@@ -58,38 +42,83 @@ export async function GET() {
     calisan?.departman,
     session.user.departman
   )
+  const canEdit = canEditDocumentProcedure(departman)
 
-  const manuals = await prisma.companyManual.findMany({
-    where: { isCurrent: true },
-    orderBy: { title: "asc" },
-    select: manualSelect,
+  const current = await prisma.documentProcedureVersion.findFirst({
+    where: { seriesId: DOCUMENT_PROCEDURE_SERIES_ID, isCurrent: true },
+    select: {
+      id: true,
+      title: true,
+      slug: true,
+      revision: true,
+      contentText: true,
+      fileStoragePath: true,
+      originalFileName: true,
+      fileMimeType: true,
+      createdAt: true,
+      updatedAt: true,
+      creator: creatorSelect,
+    },
   })
 
-  const viewerIsAdminDepartment = isAdminDepartment(departman)
-  const canManageManuals = canManageAnnouncementsForDepartman(departman)
-  const departmentOptions = getOrganizationDepartmentOptions()
-
-  const historicManuals = viewerIsAdminDepartment
-    ? await prisma.companyManual.findMany({
-        where: { isCurrent: false },
-        orderBy: [{ seriesId: "asc" }, { revision: "desc" }],
-        select: manualSelect,
+  const historic = canEdit
+    ? await prisma.documentProcedureVersion.findMany({
+        where: { seriesId: DOCUMENT_PROCEDURE_SERIES_ID, isCurrent: false },
+        orderBy: { revision: "desc" },
+        select: {
+          id: true,
+          title: true,
+          slug: true,
+          revision: true,
+          seriesId: true,
+          isCurrent: true,
+          fileStoragePath: true,
+          originalFileName: true,
+          fileMimeType: true,
+          createdAt: true,
+          updatedAt: true,
+          createdBy: true,
+          creator: creatorSelect,
+        },
       })
-    : undefined
+    : []
 
   return NextResponse.json({
-    manuals,
-    historicManuals,
-    viewerIsAdminDepartment,
-    canManageManuals,
-    departmentOptions,
+    current: current
+      ? {
+          id: current.id,
+          title: current.title,
+          slug: current.slug,
+          revision: current.revision,
+          contentText: current.contentText,
+          hasFile: Boolean(current.fileStoragePath?.trim()),
+          originalFileName: current.originalFileName,
+          fileMimeType: current.fileMimeType,
+          createdAt: current.createdAt,
+          updatedAt: current.updatedAt,
+          creator: current.creator,
+        }
+      : null,
+    historicVersions: historic.map((h) => ({
+      id: h.id,
+      title: h.title,
+      slug: h.slug,
+      revision: h.revision,
+      seriesId: h.seriesId,
+      isCurrent: h.isCurrent,
+      hasFile: Boolean(h.fileStoragePath?.trim()),
+      originalFileName: h.originalFileName,
+      fileMimeType: h.fileMimeType,
+      createdAt: h.createdAt,
+      updatedAt: h.updatedAt,
+      createdBy: h.createdBy,
+      creator: h.creator,
+    })),
+    canEditDocumentProcedure: canEdit,
   })
 }
 
 export async function POST(req: NextRequest) {
-  const gate = await assertCanManageAnnouncements()
-  if (!gate.ok) return gate.response
-
   const session = await auth()
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -99,17 +128,25 @@ export async function POST(req: NextRequest) {
   const calisan = postEmail
     ? await prisma.calisan.findFirst({
         where: { email: { equals: postEmail, mode: "insensitive" } },
-        select: { id: true },
+        select: { id: true, departman: true },
       })
     : null
   if (!calisan) {
     return NextResponse.json({ error: "Employee not found" }, { status: 403 })
   }
 
+  const departman = effectiveEmployeeDepartman(
+    calisan.departman,
+    session.user.departman
+  )
+  if (!canEditDocumentProcedure(departman)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
   const contentType = req.headers.get("content-type") || ""
   if (!contentType.includes("multipart/form-data")) {
     return NextResponse.json(
-      { error: "multipart/form-data bekleniyor (title + department + file)." },
+      { error: "multipart/form-data bekleniyor (title + file; isteğe bağlı revision alanları)." },
       { status: 400 }
     )
   }
@@ -117,15 +154,9 @@ export async function POST(req: NextRequest) {
   const form = await req.formData()
   const titleRaw = form.get("title")
   const title =
-    typeof titleRaw === "string" ? titleRaw.trim().slice(0, 300) : ""
-  const deptRaw = form.get("department")
-  const department =
-    typeof deptRaw === "string" ? deptRaw.trim() : ""
-  const deptModeRaw = form.get("departmentMode")
-  const departmentMode =
-    typeof deptModeRaw === "string" && deptModeRaw.trim().toLowerCase() === "custom"
-      ? "custom"
-      : "list"
+    typeof titleRaw === "string" && titleRaw.trim()
+      ? titleRaw.trim().slice(0, 300)
+      : "Document Procedure"
   const revRaw = form.get("revision")
   const revisionNum =
     typeof revRaw === "string" && revRaw.trim()
@@ -138,22 +169,6 @@ export async function POST(req: NextRequest) {
       ? Number.parseInt(supersedesRaw.trim(), 10)
       : Number.NaN
 
-  if (!title) {
-    return NextResponse.json({ error: "Başlık gerekli." }, { status: 400 })
-  }
-  if (departmentMode === "custom") {
-    if (!isValidCustomManualDepartment(department)) {
-      return NextResponse.json(
-        {
-          error:
-            "Özel departman 1–100 karakter olmalı; boş veya geçersiz karakter kullanılamaz.",
-        },
-        { status: 400 }
-      )
-    }
-  } else if (!isOrganizationDepartment(department)) {
-    return NextResponse.json({ error: "Geçerli bir departman seçin." }, { status: 400 })
-  }
   if (!Number.isFinite(revisionNum) || revisionNum < 1 || revisionNum > 999999) {
     return NextResponse.json(
       { error: "Revizyon numarası 1–999999 arasında tam sayı olmalıdır." },
@@ -183,7 +198,7 @@ export async function POST(req: NextRequest) {
     const extracted = await extractPlainTextFromUploadedDocument(buf, file.name)
     contentText = extracted.text
   } catch (e) {
-    console.error("[manuals] extract:", e)
+    console.error("[document-procedure] extract:", e)
     return NextResponse.json(
       {
         error:
@@ -203,26 +218,72 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const baseSlug = slugifyManualTitle(title)
+  const baseSlug = slugifyManualTitle(`document-procedure-${title}`)
   let slug = baseSlug
   let n = 0
-  while (await prisma.companyManual.findUnique({ where: { slug } })) {
+  while (await prisma.documentProcedureVersion.findUnique({ where: { slug } })) {
     n += 1
     slug = `${baseSlug}-${n}`.slice(0, 160)
   }
 
+  const existingCurrent = await prisma.documentProcedureVersion.findFirst({
+    where: { seriesId: DOCUMENT_PROCEDURE_SERIES_ID, isCurrent: true },
+    select: { id: true },
+  })
+
   const isRevision =
     Number.isFinite(supersedesId) && !Number.isNaN(supersedesId) && supersedesId > 0
+
+  if (existingCurrent && !isRevision) {
+    return NextResponse.json(
+      {
+        error:
+          "Belge zaten mevcut. Yeni sürüm için formda «Mevcut belgenin yeni revizyonu» seçip güncel satırı işaretleyin.",
+      },
+      { status: 400 }
+    )
+  }
+
+  if (!existingCurrent && isRevision) {
+    return NextResponse.json(
+      { error: "İlk yükleme için «Yeni belge» akışını kullanın (henüz kayıt yok)." },
+      { status: 400 }
+    )
+  }
+
+  const folder = `document-procedure/${DOCUMENT_PROCEDURE_SERIES_ID}`
+  const safeFile =
+    file.name
+      .replace(/[^a-zA-Z0-9._-]/g, "_")
+      .replace(/\.\./g, "_")
+      .replace(/\s+/g, "_") || "document"
+  const storageFileName = `${randomUUID()}_${safeFile}`.slice(0, 200)
+  const uploaded = await uploadPdfToStorage(file, folder, {
+    storageFileName,
+    upsert: false,
+  })
+  if (!uploaded.ok) {
+    return NextResponse.json(
+      { error: uploaded.message || "Dosya depoya yüklenemedi." },
+      { status: 400 }
+    )
+  }
+  const fileMimeType = resolveDocumentMimeForUpload(file)
+  const originalFileName = file.name.trim().slice(0, 280) || safeFile
 
   if (isRevision) {
     let duplicateRevision = false
     const created = await prisma.$transaction(async (tx) => {
-      const prior = await tx.companyManual.findFirst({
-        where: { id: supersedesId, isCurrent: true },
+      const prior = await tx.documentProcedureVersion.findFirst({
+        where: {
+          id: supersedesId,
+          isCurrent: true,
+          seriesId: DOCUMENT_PROCEDURE_SERIES_ID,
+        },
         select: { id: true, seriesId: true },
       })
       if (!prior) return null
-      const clash = await tx.companyManual.findFirst({
+      const clash = await tx.documentProcedureVersion.findFirst({
         where: { seriesId: prior.seriesId, revision: revisionNum },
         select: { id: true },
       })
@@ -230,18 +291,20 @@ export async function POST(req: NextRequest) {
         duplicateRevision = true
         return null
       }
-      await tx.companyManual.updateMany({
+      await tx.documentProcedureVersion.updateMany({
         where: { seriesId: prior.seriesId, isCurrent: true },
         data: { isCurrent: false },
       })
-      return tx.companyManual.create({
+      return tx.documentProcedureVersion.create({
         data: {
           title,
           slug,
           contentText,
+          fileStoragePath: uploaded.path,
+          originalFileName,
+          fileMimeType,
           createdBy: calisan.id,
-          department,
-          seriesId: prior.seriesId,
+          seriesId: DOCUMENT_PROCEDURE_SERIES_ID,
           revision: revisionNum,
           isCurrent: true,
         },
@@ -251,7 +314,6 @@ export async function POST(req: NextRequest) {
           slug: true,
           createdAt: true,
           updatedAt: true,
-          department: true,
           revision: true,
           seriesId: true,
           isCurrent: true,
@@ -269,21 +331,23 @@ export async function POST(req: NextRequest) {
     }
     if (!created) {
       return NextResponse.json(
-        { error: "Yeni revizyon için seçilen manuel bulunamadı veya güncel değil." },
+        { error: "Yeni revizyon için seçilen kayıt bulunamadı veya güncel değil." },
         { status: 400 }
       )
     }
     return NextResponse.json(created)
   }
 
-  const manual = await prisma.companyManual.create({
+  const row = await prisma.documentProcedureVersion.create({
     data: {
       title,
       slug,
       contentText,
+      fileStoragePath: uploaded.path,
+      originalFileName,
+      fileMimeType,
       createdBy: calisan.id,
-      department,
-      seriesId: randomUUID(),
+      seriesId: DOCUMENT_PROCEDURE_SERIES_ID,
       revision: revisionNum,
       isCurrent: true,
     },
@@ -293,12 +357,11 @@ export async function POST(req: NextRequest) {
       slug: true,
       createdAt: true,
       updatedAt: true,
-      department: true,
       revision: true,
       seriesId: true,
       isCurrent: true,
     },
   })
 
-  return NextResponse.json(manual)
+  return NextResponse.json(row)
 }

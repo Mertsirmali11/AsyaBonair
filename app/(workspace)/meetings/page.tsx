@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
+import { isAdminDepartment } from "@/lib/department-access"
 import { prisma } from "@/lib/prisma-server"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { MeetingsClient } from "./meetings-client"
@@ -9,7 +10,7 @@ export default async function MeetingsPage() {
   if (!session) redirect("/login")
 
   const userDepartman = session.user?.departman
-  if (userDepartman !== "Quality") {
+  if (userDepartman !== "Quality" && !isAdminDepartment(userDepartman)) {
     redirect("/dashboard")
   }
 

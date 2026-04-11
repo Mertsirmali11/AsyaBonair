@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
 import { assertCanManageAnnouncements } from "@/lib/announcements-access"
+import { isAdminDepartment } from "@/lib/department-access"
 
 export async function GET(
   _request: Request,
@@ -20,14 +21,24 @@ export async function GET(
 
   const manual = await prisma.companyManual.findUnique({
     where: { id: numericId },
-    select: { id: true, title: true, contentText: true },
+    select: { id: true, title: true, contentText: true, isCurrent: true },
   })
 
   if (!manual) {
     return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
 
-  return NextResponse.json({ manual })
+  if (!manual.isCurrent && !isAdminDepartment(session.user.departman)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
+  }
+
+  return NextResponse.json({
+    manual: {
+      id: manual.id,
+      title: manual.title,
+      contentText: manual.contentText,
+    },
+  })
 }
 
 export async function DELETE(
@@ -44,13 +55,33 @@ export async function DELETE(
   }
 
   try {
-    await prisma.companyManual.delete({ where: { id: numericId } })
-    return NextResponse.json({ success: true })
-  } catch (e: unknown) {
-    const code = (e as { code?: string })?.code
-    if (code === "P2025") {
+    const outcome = await prisma.$transaction(async (tx) => {
+      const row = await tx.companyManual.findUnique({
+        where: { id: numericId },
+        select: { id: true, seriesId: true, isCurrent: true },
+      })
+      if (!row) return { deleted: false as const }
+      await tx.companyManual.delete({ where: { id: numericId } })
+      if (row.isCurrent) {
+        const promoted = await tx.companyManual.findFirst({
+          where: { seriesId: row.seriesId },
+          orderBy: { revision: "desc" },
+          select: { id: true },
+        })
+        if (promoted) {
+          await tx.companyManual.update({
+            where: { id: promoted.id },
+            data: { isCurrent: true },
+          })
+        }
+      }
+      return { deleted: true as const }
+    })
+    if (!outcome.deleted) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
+    return NextResponse.json({ success: true })
+  } catch (e: unknown) {
     console.error("DELETE manual:", e)
     return NextResponse.json({ error: "Silinemedi." }, { status: 500 })
   }

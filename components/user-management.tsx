@@ -33,6 +33,7 @@ import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { DatePicker } from "@/components/ui/date-picker"
 import { ProfilePhotoCropDialog } from "@/components/profile-photo-crop-dialog"
+import { ORGANIZATION_DEPARTMENTS } from "@/lib/organization-departments"
 
 interface Calisan {
   id: number
@@ -723,20 +724,11 @@ export function UserManagement({
                               <SelectValue placeholder="Select department" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="Maintenance">Maintenance</SelectItem>
-                              <SelectItem value="Human Resources">Human Resources</SelectItem>
-                              <SelectItem value="Handling">Handling</SelectItem>
-                              <SelectItem value="Camo">Camo</SelectItem>
-                              <SelectItem value="Engineering">Engineering</SelectItem>
-                              <SelectItem value="Kitchen & Cleaning Staff">Kitchen & Cleaning Staff</SelectItem>
-                              <SelectItem value="Supply">Supply</SelectItem>
-                              <SelectItem value="Accounting">Accounting</SelectItem>
-                              <SelectItem value="Quality">Quality</SelectItem>
-                              <SelectItem value="Admin">Admin</SelectItem>
-                              <SelectItem value="Administrative Affairs">Administrative Affairs</SelectItem>
-                              <SelectItem value="IT">IT</SelectItem>
-                              <SelectItem value="Planning">Planning</SelectItem>
-                              <SelectItem value="Pilot">Pilot</SelectItem>
+                              {ORGANIZATION_DEPARTMENTS.map((d) => (
+                                <SelectItem key={d} value={d}>
+                                  {d}
+                                </SelectItem>
+                              ))}
                             </SelectContent>
                           </Select>
                         </div>

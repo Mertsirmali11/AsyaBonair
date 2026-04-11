@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
+import { isAdminDepartment } from "@/lib/department-access"
 import { TasksDashboard } from "./tasks-dashboard"
 
 export default async function TasksPage() {
@@ -7,7 +8,7 @@ export default async function TasksPage() {
   if (!session) redirect("/login")
 
   const userDepartman = session.user?.departman
-  if (userDepartman !== "Quality") {
+  if (userDepartman !== "Quality" && !isAdminDepartment(userDepartman)) {
     redirect("/dashboard")
   }
 

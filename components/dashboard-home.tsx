@@ -22,6 +22,7 @@ import {
   ChevronDown,
 } from "lucide-react"
 import { formatDateOnlyIstanbul, formatDateTimeIstanbul } from "@/lib/date-format"
+import { isAdminDepartment } from "@/lib/department-access"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -141,7 +142,10 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  const canAnnounce = user.departman === "Quality" || user.departman === "Human Resources"
+  const canAnnounce =
+    user.departman === "Quality" ||
+    user.departman === "Human Resources" ||
+    isAdminDepartment(user.departman)
 
   const fetchAll = useCallback(async (mode: "initial" | "refresh" = "initial") => {
     const silent = mode === "refresh" && hasLoadedOnceRef.current
@@ -309,7 +313,8 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
     return () => ro.disconnect()
   }, [openAnnouncementId, announcements, updateAckReadinessFromEl])
 
-  const canOpenMeetingsPage = user.departman === "Quality"
+  const canOpenMeetingsPage =
+    user.departman === "Quality" || isAdminDepartment(user.departman)
 
   const meetingTasksTableRows = useMemo(() => {
     const today = tasksDueToday.map((t) => ({ ...t, bucket: "today" as const }))

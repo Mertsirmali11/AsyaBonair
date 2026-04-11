@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
+import { isAdminDepartment } from "@/lib/department-access"
 
 export async function POST(
   req: NextRequest,
@@ -11,7 +12,10 @@ export async function POST(
     if (!session?.user?.email) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-    if (session.user.departman !== "Quality") {
+    if (
+      session.user.departman !== "Quality" &&
+      !isAdminDepartment(session.user.departman)
+    ) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
 import { auth } from "@/auth"
+import { isAdminDepartment } from "@/lib/department-access"
 import { createHazardReportRecord } from "@/lib/hazard-report-create"
 import { persistHazardFilesFromUploads } from "@/lib/hazard-attachments-db"
 
@@ -46,18 +47,16 @@ export async function GET() {
     const userDepartman = session.user?.departman
     const userId = await resolveReporterCalisanId(session)
 
-    if (
-      userDepartman !== "Quality" &&
-      userDepartman !== "Human Resources" &&
-      userId == null
-    ) {
+    const isElevated =
+      userDepartman === "Quality" ||
+      userDepartman === "Human Resources" ||
+      isAdminDepartment(userDepartman)
+
+    if (!isElevated && userId == null) {
       return NextResponse.json([])
     }
 
-    const whereClause =
-      userDepartman === "Quality" || userDepartman === "Human Resources"
-        ? {}
-        : { reportedBy: userId! }
+    const whereClause = isElevated ? {} : { reportedBy: userId! }
 
     const reports = await prisma.hazardReport.findMany({
       where: whereClause,

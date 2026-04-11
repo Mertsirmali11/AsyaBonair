@@ -1,9 +1,15 @@
+import { isAdminDepartment } from "@/lib/department-access"
+
 export function canAccessHazardReport(
   userId: number,
   userDepartman: string | null | undefined,
   report: { reportedBy: number | null }
 ): boolean {
-  if (userDepartman === "Quality" || userDepartman === "Human Resources") {
+  if (
+    userDepartman === "Quality" ||
+    userDepartman === "Human Resources" ||
+    isAdminDepartment(userDepartman)
+  ) {
     return true
   }
   if (report.reportedBy !== null && report.reportedBy === userId) {
@@ -17,7 +23,11 @@ export function canUploadHazardAttachments(
   userDepartman: string | null | undefined,
   report: { reportedBy: number | null; isAnonymous: boolean }
 ): boolean {
-  if (userDepartman === "Quality" || userDepartman === "Human Resources") {
+  if (
+    userDepartman === "Quality" ||
+    userDepartman === "Human Resources" ||
+    isAdminDepartment(userDepartman)
+  ) {
     return true
   }
   if (report.isAnonymous) {

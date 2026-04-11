@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
 import { auth } from "@/auth"
-import { assertCanManageAnnouncements } from "@/lib/announcements-access"
+import {
+  assertCanManageAnnouncements,
+  canManageAnnouncementsForDepartman,
+} from "@/lib/announcements-access"
 import { getAppPublicUrl } from "@/lib/app-public-url"
 import { Resend } from "resend"
 
@@ -119,7 +122,7 @@ export async function POST(req: NextRequest) {
     select: { id: true, departman: true },
   })
 
-  if (!calisan || !["Quality", "Human Resources"].includes(calisan.departman ?? "")) {
+  if (!calisan || !canManageAnnouncementsForDepartman(calisan.departman)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 

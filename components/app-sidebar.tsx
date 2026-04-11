@@ -110,6 +110,8 @@ const controlledDocumentsSubItems: {
   configurationsOnly?: boolean
 }[] = [
   { title: "Manuals", url: "/documents" },
+  { title: "Forms", url: "/documents/forms" },
+  { title: "Document Procedure", url: "/documents/document-procedure" },
   { title: "Aircraft Settings", url: "/documents/aircraft-settings", configurationsOnly: true },
 ]
 

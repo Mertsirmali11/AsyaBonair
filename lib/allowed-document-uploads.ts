@@ -39,6 +39,33 @@ const EXT_TO_MIME: Record<string, string> = {
 const ALLOWED_EXT = new Set<string>(EXTENSIONS)
 const ALLOWED_MIME = new Set<string>(MIME_TYPES)
 
+/** Departman formları — yalnızca Word, PDF, Excel (PowerPoint yok). */
+const DEPARTMENT_FORM_EXTENSIONS = [
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+] as const
+
+const DEPARTMENT_FORM_EXT = new Set<string>(DEPARTMENT_FORM_EXTENSIONS)
+
+const DEPARTMENT_FORM_MIME = new Set<string>(
+  [
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ].filter((m) => ALLOWED_MIME.has(m))
+)
+
+/** `input[type=file]` için `accept` özniteliği. */
+export const DEPARTMENT_FORM_ACCEPT = [...DEPARTMENT_FORM_EXTENSIONS].join(",")
+
+export const DEPARTMENT_FORM_TYPES_USER_MESSAGE =
+  "PDF, Word (.doc, .docx) veya Excel (.xls, .xlsx)"
+
 export const DOCUMENT_ACCEPT_HTML = [
   ...EXTENSIONS,
   ...MIME_TYPES,
@@ -62,6 +89,13 @@ export function isAllowedCorrespondenceDocumentFile(file: File): boolean {
   if (mime && ALLOWED_MIME.has(mime)) return true
   const ext = lowerExtension(file.name)
   return ext !== null && ALLOWED_EXT.has(ext)
+}
+
+export function isAllowedDepartmentFormFile(file: File): boolean {
+  const mime = (file.type || "").trim().toLowerCase()
+  if (mime && DEPARTMENT_FORM_MIME.has(mime)) return true
+  const ext = lowerExtension(file.name)
+  return ext !== null && DEPARTMENT_FORM_EXT.has(ext)
 }
 
 /**

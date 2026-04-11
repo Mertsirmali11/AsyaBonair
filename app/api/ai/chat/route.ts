@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
+import { isAdminDepartment } from "@/lib/department-access"
 import { groqChatCompletion, type GroqChatMessage } from "@/lib/groq-chat"
 import { userFacingGroqError } from "@/lib/groq-user-errors"
 import { GROQ_MANUAL_CONTEXT_MAX_CHARS } from "@/lib/groq-truncate"
@@ -70,14 +72,21 @@ export async function POST(req: NextRequest) {
           ? mid
           : Number.parseInt(String(mid), 10)
       if (!Number.isNaN(id)) {
+        const session = await auth()
         const row = await prisma.companyManual.findUnique({
           where: { id },
-          select: { title: true, contentText: true },
+          select: { title: true, contentText: true, isCurrent: true },
         })
         if (!row) {
           return NextResponse.json({ error: "Manuel bulunamadı." }, { status: 404 })
         }
-        manual = row
+        if (
+          !row.isCurrent &&
+          !isAdminDepartment(session?.user?.departman)
+        ) {
+          return NextResponse.json({ error: "Manuel bulunamadı." }, { status: 404 })
+        }
+        manual = { title: row.title, contentText: row.contentText }
       }
     }
 

@@ -3,25 +3,21 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
 import {
-  assertCanManageAnnouncements,
-  canManageAnnouncementsForDepartman,
-  effectiveEmployeeDepartman,
-} from "@/lib/announcements-access"
-import {
-  getOrganizationDepartmentOptions,
-  isOrganizationDepartment,
-  isValidCustomManualDepartment,
-} from "@/lib/organization-departments"
-import { isAllowedCorrespondenceDocumentFile } from "@/lib/allowed-document-uploads"
+  canManageAllDepartmentForms,
+  canViewDepartmentFormRow,
+  effectiveDepartmanForDepartmentForms,
+  normalizeDeptLabel,
+} from "@/lib/department-form-access"
+import { getOrganizationDepartmentOptions, isOrganizationDepartment } from "@/lib/organization-departments"
+import { isAllowedDepartmentFormFile } from "@/lib/allowed-document-uploads"
 import { slugifyManualTitle } from "@/lib/company-manual-slug"
-import { isAdminDepartment } from "@/lib/department-access"
 import { extractPlainTextFromUploadedDocument } from "@/lib/extract-uploaded-document-text"
 
 export const runtime = "nodejs"
 
 const MAX_UPLOAD_BYTES = 32 * 1024 * 1024
 
-const manualSelect = {
+const formSelect = {
   id: true,
   title: true,
   slug: true,
@@ -42,54 +38,72 @@ const manualSelect = {
 } as const
 
 export async function GET() {
-  const session = await auth()
-  if (!session?.user?.email) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  try {
+    const session = await auth()
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const email = (session.user.email ?? "").trim()
+    const calisan = email
+      ? await prisma.calisan.findFirst({
+          where: { email: { equals: email, mode: "insensitive" } },
+          select: { departman: true },
+        })
+      : null
+    const departman = effectiveDepartmanForDepartmentForms(
+      calisan?.departman,
+      session.user.departman
+    )
+    const manageAll = canManageAllDepartmentForms(departman)
+
+    const currentWhere = manageAll
+      ? { isCurrent: true }
+      : {
+          isCurrent: true,
+          department: normalizeDeptLabel(departman) || "__none__",
+        }
+
+    const forms = await prisma.departmentForm.findMany({
+      where: currentWhere,
+      orderBy: [{ department: "asc" }, { title: "asc" }],
+      select: formSelect,
+    })
+
+    const historicWhere = manageAll
+      ? { isCurrent: false }
+      : {
+          isCurrent: false,
+          department: normalizeDeptLabel(departman) || "__none__",
+        }
+
+    const historicForms = await prisma.departmentForm.findMany({
+      where: historicWhere,
+      orderBy: [{ seriesId: "asc" }, { revision: "desc" }],
+      select: formSelect,
+    })
+
+    return NextResponse.json({
+      forms: manageAll || normalizeDeptLabel(departman) ? forms : [],
+      historicForms:
+        manageAll || normalizeDeptLabel(departman) ? historicForms : [],
+      canManageAllDepartmentForms: manageAll,
+      viewerDepartman: departman,
+      departmentOptions: getOrganizationDepartmentOptions(),
+    })
+  } catch (e) {
+    console.error("[department-forms] GET:", e)
+    return NextResponse.json(
+      {
+        error:
+          "Form listesi alınamadı. Oturumu yenileyin veya veritabanı şemasının güncel olduğundan emin olun.",
+      },
+      { status: 500 }
+    )
   }
-
-  const email = (session.user.email ?? "").trim()
-  const calisan = email
-    ? await prisma.calisan.findFirst({
-        where: { email: { equals: email, mode: "insensitive" } },
-        select: { departman: true },
-      })
-    : null
-  const departman = effectiveEmployeeDepartman(
-    calisan?.departman,
-    session.user.departman
-  )
-
-  const manuals = await prisma.companyManual.findMany({
-    where: { isCurrent: true },
-    orderBy: { title: "asc" },
-    select: manualSelect,
-  })
-
-  const viewerIsAdminDepartment = isAdminDepartment(departman)
-  const canManageManuals = canManageAnnouncementsForDepartman(departman)
-  const departmentOptions = getOrganizationDepartmentOptions()
-
-  const historicManuals = viewerIsAdminDepartment
-    ? await prisma.companyManual.findMany({
-        where: { isCurrent: false },
-        orderBy: [{ seriesId: "asc" }, { revision: "desc" }],
-        select: manualSelect,
-      })
-    : undefined
-
-  return NextResponse.json({
-    manuals,
-    historicManuals,
-    viewerIsAdminDepartment,
-    canManageManuals,
-    departmentOptions,
-  })
 }
 
 export async function POST(req: NextRequest) {
-  const gate = await assertCanManageAnnouncements()
-  if (!gate.ok) return gate.response
-
   const session = await auth()
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -99,12 +113,18 @@ export async function POST(req: NextRequest) {
   const calisan = postEmail
     ? await prisma.calisan.findFirst({
         where: { email: { equals: postEmail, mode: "insensitive" } },
-        select: { id: true },
+        select: { id: true, departman: true },
       })
     : null
   if (!calisan) {
     return NextResponse.json({ error: "Employee not found" }, { status: 403 })
   }
+
+  const departman = effectiveDepartmanForDepartmentForms(
+    calisan.departman,
+    session.user.departman
+  )
+  const manageAll = canManageAllDepartmentForms(departman)
 
   const contentType = req.headers.get("content-type") || ""
   if (!contentType.includes("multipart/form-data")) {
@@ -121,11 +141,6 @@ export async function POST(req: NextRequest) {
   const deptRaw = form.get("department")
   const department =
     typeof deptRaw === "string" ? deptRaw.trim() : ""
-  const deptModeRaw = form.get("departmentMode")
-  const departmentMode =
-    typeof deptModeRaw === "string" && deptModeRaw.trim().toLowerCase() === "custom"
-      ? "custom"
-      : "list"
   const revRaw = form.get("revision")
   const revisionNum =
     typeof revRaw === "string" && revRaw.trim()
@@ -141,18 +156,22 @@ export async function POST(req: NextRequest) {
   if (!title) {
     return NextResponse.json({ error: "Başlık gerekli." }, { status: 400 })
   }
-  if (departmentMode === "custom") {
-    if (!isValidCustomManualDepartment(department)) {
+  if (!isOrganizationDepartment(department)) {
+    return NextResponse.json({ error: "Geçerli bir departman seçin." }, { status: 400 })
+  }
+  if (!manageAll) {
+    if (!normalizeDeptLabel(departman)) {
       return NextResponse.json(
-        {
-          error:
-            "Özel departman 1–100 karakter olmalı; boş veya geçersiz karakter kullanılamaz.",
-        },
-        { status: 400 }
+        { error: "Departman atanmamış hesaplar form yükleyemez." },
+        { status: 403 }
       )
     }
-  } else if (!isOrganizationDepartment(department)) {
-    return NextResponse.json({ error: "Geçerli bir departman seçin." }, { status: 400 })
+    if (normalizeDeptLabel(departman) !== normalizeDeptLabel(department)) {
+      return NextResponse.json(
+        { error: "Yalnızca kendi departmanınızın formlarını yükleyebilirsiniz." },
+        { status: 403 }
+      )
+    }
   }
   if (!Number.isFinite(revisionNum) || revisionNum < 1 || revisionNum > 999999) {
     return NextResponse.json(
@@ -170,9 +189,12 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  if (!isAllowedCorrespondenceDocumentFile(file)) {
+  if (!isAllowedDepartmentFormFile(file)) {
     return NextResponse.json(
-      { error: "Yalnızca PDF, Word, Excel veya PowerPoint kabul edilir." },
+      {
+        error:
+          "Departman formları için yalnızca PDF, Word (.doc, .docx) veya Excel (.xls, .xlsx) kabul edilir.",
+      },
       { status: 400 }
     )
   }
@@ -183,7 +205,7 @@ export async function POST(req: NextRequest) {
     const extracted = await extractPlainTextFromUploadedDocument(buf, file.name)
     contentText = extracted.text
   } catch (e) {
-    console.error("[manuals] extract:", e)
+    console.error("[department-forms] extract:", e)
     return NextResponse.json(
       {
         error:
@@ -203,10 +225,10 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const baseSlug = slugifyManualTitle(title)
+  const baseSlug = slugifyManualTitle(`${department}-${title}`)
   let slug = baseSlug
   let n = 0
-  while (await prisma.companyManual.findUnique({ where: { slug } })) {
+  while (await prisma.departmentForm.findUnique({ where: { slug } })) {
     n += 1
     slug = `${baseSlug}-${n}`.slice(0, 160)
   }
@@ -217,12 +239,13 @@ export async function POST(req: NextRequest) {
   if (isRevision) {
     let duplicateRevision = false
     const created = await prisma.$transaction(async (tx) => {
-      const prior = await tx.companyManual.findFirst({
+      const prior = await tx.departmentForm.findFirst({
         where: { id: supersedesId, isCurrent: true },
-        select: { id: true, seriesId: true },
+        select: { id: true, seriesId: true, department: true },
       })
       if (!prior) return null
-      const clash = await tx.companyManual.findFirst({
+      if (!canViewDepartmentFormRow(departman, prior.department)) return null
+      const clash = await tx.departmentForm.findFirst({
         where: { seriesId: prior.seriesId, revision: revisionNum },
         select: { id: true },
       })
@@ -230,17 +253,17 @@ export async function POST(req: NextRequest) {
         duplicateRevision = true
         return null
       }
-      await tx.companyManual.updateMany({
+      await tx.departmentForm.updateMany({
         where: { seriesId: prior.seriesId, isCurrent: true },
         data: { isCurrent: false },
       })
-      return tx.companyManual.create({
+      return tx.departmentForm.create({
         data: {
           title,
           slug,
           contentText,
           createdBy: calisan.id,
-          department,
+          department: prior.department,
           seriesId: prior.seriesId,
           revision: revisionNum,
           isCurrent: true,
@@ -269,14 +292,14 @@ export async function POST(req: NextRequest) {
     }
     if (!created) {
       return NextResponse.json(
-        { error: "Yeni revizyon için seçilen manuel bulunamadı veya güncel değil." },
+        { error: "Yeni revizyon için seçilen form bulunamadı, güncel değil veya erişiminiz yok." },
         { status: 400 }
       )
     }
     return NextResponse.json(created)
   }
 
-  const manual = await prisma.companyManual.create({
+  const row = await prisma.departmentForm.create({
     data: {
       title,
       slug,
@@ -300,5 +323,5 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  return NextResponse.json(manual)
+  return NextResponse.json(row)
 }

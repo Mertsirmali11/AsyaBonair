@@ -105,6 +105,8 @@ model Calisan {
   workerRegistrationsReviewed WorkerRegistrationRequest[] @relation("WorkerRegistrationReviewedBy")
   announcementAcknowledgments AnnouncementAcknowledgment[]
   companyManuals CompanyManual[]
+  departmentFormsCreated    DepartmentForm[]           @relation("DepartmentFormCreator")
+  documentProcedureVersions DocumentProcedureVersion[] @relation("DocumentProcedureCreator")
   safetyRiskBoardsUpdated   SafetyRiskBoard[] @relation("SafetyRiskBoardUpdatedBy")
   auditPlanAuditors AuditPlanAuditor[] @relation("AuditPlanAuditorCalisan")
   auditPlanAuditees AuditPlanAuditee[] @relation("AuditPlanAuditeeCalisan")
@@ -508,14 +510,70 @@ model CompanyManual {
   title       String   @db.VarChar(300)
   slug        String   @unique @db.VarChar(160)
   contentText String   @map("content_text") @db.Text
+  /// Manuelin ait olduğu kurum departmanı (`lib/organization-departments` ile User Management aynı liste)
+  department  String?  @db.VarChar(100) @map("department")
+  /// Aynı mantıksal kitabın tüm revizyonları ortak seri kimliğini paylaşır
+  seriesId    String   @default(dbgenerated("(gen_random_uuid())::text")) @map("series_id") @db.VarChar(36)
+  revision    Int      @default(1)
+  /// Seride kullanıcıya / AI seçicisinde gösterilen güncel kayıt (yalnızca biri true)
+  isCurrent   Boolean  @default(true) @map("is_current")
   createdBy   Int?     @map("created_by")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   creator Calisan? @relation(fields: [createdBy], references: [id], onDelete: SetNull)
 
+  @@unique([seriesId, revision], map: "company_manuals_series_revision_uniq")
   @@index([title])
+  @@index([seriesId])
+  @@index([isCurrent])
   @@map("company_manuals")
+}
+
+/// Kontrollü evrak — departman formları (revizyon serisi; Quality/Admin tümünü yönetir)
+model DepartmentForm {
+  id          Int      @id @default(autoincrement())
+  title       String   @db.VarChar(300)
+  slug        String   @unique @db.VarChar(160)
+  department  String   @db.VarChar(100) @map("department")
+  contentText String   @map("content_text") @db.Text
+  seriesId    String   @default(dbgenerated("(gen_random_uuid())::text")) @map("series_id") @db.VarChar(36)
+  revision    Int      @default(1)
+  isCurrent   Boolean  @default(true) @map("is_current")
+  createdBy   Int?     @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  creator Calisan? @relation("DepartmentFormCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@unique([seriesId, revision], map: "department_forms_series_revision_uniq")
+  @@index([department])
+  @@index([isCurrent])
+  @@map("department_forms")
+}
+
+/// Tek kurumsal Document Procedure — tüm sürümler aynı seriesId ile (sabit UUID uygulama kodunda)
+model DocumentProcedureVersion {
+  id          Int      @id @default(autoincrement())
+  title       String   @default("Document Procedure") @db.VarChar(300)
+  slug        String   @unique @db.VarChar(160)
+  contentText String   @map("content_text") @db.Text
+  /// Supabase bucket-relative path (incoming-papers vb.)
+  fileStoragePath  String? @map("file_storage_path") @db.Text
+  originalFileName String? @map("original_file_name") @db.VarChar(280)
+  fileMimeType     String? @map("file_mime_type") @db.VarChar(120)
+  seriesId    String   @map("series_id") @db.VarChar(36)
+  revision    Int
+  isCurrent   Boolean  @default(true) @map("is_current")
+  createdBy   Int?     @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  creator Calisan? @relation("DocumentProcedureCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@unique([seriesId, revision], map: "document_procedure_series_revision_uniq")
+  @@index([isCurrent])
+  @@map("document_procedure_versions")
 }
 
 model TaskMessage {
