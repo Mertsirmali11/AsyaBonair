@@ -533,10 +533,16 @@ model CompanyManual {
 /// Kontrollü evrak — departman formları (revizyon serisi; Quality/Admin tümünü yönetir)
 model DepartmentForm {
   id          Int      @id @default(autoincrement())
+  /// Kurumsal form numarası (örn. FRM-001) — serideki revizyonlarda aynı kalabilir
+  formNumber  String   @default("") @map("form_number") @db.VarChar(80)
   title       String   @db.VarChar(300)
   slug        String   @unique @db.VarChar(160)
   department  String   @db.VarChar(100) @map("department")
   contentText String   @map("content_text") @db.Text
+  /// Supabase bucket-relative path (orijinal dosya — Aç ile yeni sekmede)
+  fileStoragePath  String? @map("file_storage_path") @db.Text
+  originalFileName String? @map("original_file_name") @db.VarChar(280)
+  fileMimeType     String? @map("file_mime_type") @db.VarChar(120)
   seriesId    String   @default(dbgenerated("(gen_random_uuid())::text")) @map("series_id") @db.VarChar(36)
   revision    Int      @default(1)
   isCurrent   Boolean  @default(true) @map("is_current")

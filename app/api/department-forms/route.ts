@@ -9,9 +9,14 @@ import {
   normalizeDeptLabel,
 } from "@/lib/department-form-access"
 import { getOrganizationDepartmentOptions, isOrganizationDepartment } from "@/lib/organization-departments"
-import { isAllowedDepartmentFormFile } from "@/lib/allowed-document-uploads"
+import {
+  isAllowedDepartmentFormFile,
+  lowerExtension,
+  resolveDocumentMimeForUpload,
+} from "@/lib/allowed-document-uploads"
 import { slugifyManualTitle } from "@/lib/company-manual-slug"
 import { extractPlainTextFromUploadedDocument } from "@/lib/extract-uploaded-document-text"
+import { deletePdfFromStorage, uploadPdfToStorage } from "@/lib/supabase-storage"
 
 export const runtime = "nodejs"
 
@@ -19,6 +24,7 @@ const MAX_UPLOAD_BYTES = 32 * 1024 * 1024
 
 const formSelect = {
   id: true,
+  formNumber: true,
   title: true,
   slug: true,
   createdAt: true,
@@ -28,6 +34,7 @@ const formSelect = {
   seriesId: true,
   isCurrent: true,
   createdBy: true,
+  fileStoragePath: true,
   creator: {
     select: {
       isim: true,
@@ -36,6 +43,34 @@ const formSelect = {
     },
   },
 } as const
+
+function mapFormRowToClient(
+  r: {
+    fileStoragePath: string | null
+    formNumber: string
+    id: number
+    title: string
+    slug: string
+    createdAt: Date
+    updatedAt: Date
+    department: string
+    revision: number
+    seriesId: string
+    isCurrent: boolean
+    createdBy: number | null
+    creator: {
+      isim: string | null
+      soyisim: string | null
+      email: string
+    } | null
+  }
+) {
+  const { fileStoragePath, ...rest } = r
+  return {
+    ...rest,
+    hasOriginalFile: Boolean(fileStoragePath?.trim()),
+  }
+}
 
 export async function GET() {
   try {
@@ -83,10 +118,16 @@ export async function GET() {
       select: formSelect,
     })
 
+    const mapList = (rows: typeof forms) =>
+      rows.map((row) => mapFormRowToClient(row))
+
     return NextResponse.json({
-      forms: manageAll || normalizeDeptLabel(departman) ? forms : [],
+      forms:
+        manageAll || normalizeDeptLabel(departman) ? mapList(forms) : [],
       historicForms:
-        manageAll || normalizeDeptLabel(departman) ? historicForms : [],
+        manageAll || normalizeDeptLabel(departman)
+          ? mapList(historicForms)
+          : [],
       canManageAllDepartmentForms: manageAll,
       viewerDepartman: departman,
       departmentOptions: getOrganizationDepartmentOptions(),
@@ -152,6 +193,19 @@ export async function POST(req: NextRequest) {
     typeof supersedesRaw === "string" && supersedesRaw.trim()
       ? Number.parseInt(supersedesRaw.trim(), 10)
       : Number.NaN
+  const formNumberRaw = form.get("formNumber")
+  const formNumberInput =
+    typeof formNumberRaw === "string" ? formNumberRaw.trim().slice(0, 80) : ""
+
+  const isRevisionPost =
+    Number.isFinite(supersedesId) && !Number.isNaN(supersedesId) && supersedesId > 0
+
+  if (!isRevisionPost && !formNumberInput) {
+    return NextResponse.json(
+      { error: "Form numarası gerekli (yeni form serisi)." },
+      { status: 400 }
+    )
+  }
 
   if (!title) {
     return NextResponse.json({ error: "Başlık gerekli." }, { status: 400 })
@@ -201,28 +255,26 @@ export async function POST(req: NextRequest) {
 
   const buf = Buffer.from(await file.arrayBuffer())
   let contentText: string
+  let textExtractionFallback = false
   try {
     const extracted = await extractPlainTextFromUploadedDocument(buf, file.name)
     contentText = extracted.text
   } catch (e) {
     console.error("[department-forms] extract:", e)
-    return NextResponse.json(
-      {
-        error:
-          "Dosya metne çevrilemedi. .docx / .xlsx / .pptx veya PDF deneyin; eski .doc için dosyayı PDF veya .docx olarak kaydedin.",
-      },
-      { status: 400 }
-    )
+    contentText = ""
+    textExtractionFallback = true
   }
 
   if (!contentText.trim()) {
-    return NextResponse.json(
-      {
-        error:
-          "Dosyada metin bulunamadı (taranmış PDF veya boş dosya olabilir).",
-      },
-      { status: 400 }
-    )
+    textExtractionFallback = true
+    contentText = [
+      "[Metin otomatik çıkarılamadı — form dosyası ve kayıt yine de saklanır.]",
+      `Başlık: ${title.trim()}`,
+      formNumberInput ? `Form no: ${formNumberInput}` : "",
+      `Kaynak dosya: ${file.name}`,
+    ]
+      .filter((line) => line.length > 0)
+      .join("\n")
   }
 
   const baseSlug = slugifyManualTitle(`${department}-${title}`)
@@ -233,55 +285,39 @@ export async function POST(req: NextRequest) {
     slug = `${baseSlug}-${n}`.slice(0, 160)
   }
 
-  const isRevision =
-    Number.isFinite(supersedesId) && !Number.isNaN(supersedesId) && supersedesId > 0
+  const isRevision = isRevisionPost
+
+  const origName = file.name.trim().slice(0, 280) || "document"
+  const mime = resolveDocumentMimeForUpload(file)
+  const ext = lowerExtension(file.name) || ""
+  const storageLeaf = `rev${revisionNum}-${randomUUID().slice(0, 10)}${ext || ".bin"}`
+
+  let seriesIdForUpload: string
+
+  let formNumberResolved = formNumberInput
 
   if (isRevision) {
-    let duplicateRevision = false
-    const created = await prisma.$transaction(async (tx) => {
-      const prior = await tx.departmentForm.findFirst({
-        where: { id: supersedesId, isCurrent: true },
-        select: { id: true, seriesId: true, department: true },
-      })
-      if (!prior) return null
-      if (!canViewDepartmentFormRow(departman, prior.department)) return null
-      const clash = await tx.departmentForm.findFirst({
-        where: { seriesId: prior.seriesId, revision: revisionNum },
-        select: { id: true },
-      })
-      if (clash) {
-        duplicateRevision = true
-        return null
-      }
-      await tx.departmentForm.updateMany({
-        where: { seriesId: prior.seriesId, isCurrent: true },
-        data: { isCurrent: false },
-      })
-      return tx.departmentForm.create({
-        data: {
-          title,
-          slug,
-          contentText,
-          createdBy: calisan.id,
-          department: prior.department,
-          seriesId: prior.seriesId,
-          revision: revisionNum,
-          isCurrent: true,
-        },
-        select: {
-          id: true,
-          title: true,
-          slug: true,
-          createdAt: true,
-          updatedAt: true,
-          department: true,
-          revision: true,
-          seriesId: true,
-          isCurrent: true,
-        },
-      })
+    const priorCheck = await prisma.departmentForm.findFirst({
+      where: { id: supersedesId, isCurrent: true },
+      select: { id: true, seriesId: true, department: true, formNumber: true },
     })
-    if (duplicateRevision) {
+    if (!priorCheck) {
+      return NextResponse.json(
+        {
+          error:
+            "Yeni revizyon için seçilen form bulunamadı, güncel değil veya erişiminiz yok.",
+        },
+        { status: 400 }
+      )
+    }
+    if (!canViewDepartmentFormRow(departman, priorCheck.department)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+    const clash = await prisma.departmentForm.findFirst({
+      where: { seriesId: priorCheck.seriesId, revision: revisionNum },
+      select: { id: true },
+    })
+    if (clash) {
       return NextResponse.json(
         {
           error:
@@ -290,38 +326,141 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       )
     }
-    if (!created) {
-      return NextResponse.json(
-        { error: "Yeni revizyon için seçilen form bulunamadı, güncel değil veya erişiminiz yok." },
-        { status: 400 }
-      )
+    seriesIdForUpload = priorCheck.seriesId
+    if (!formNumberResolved) {
+      formNumberResolved = (priorCheck.formNumber ?? "").trim().slice(0, 80)
     }
-    return NextResponse.json(created)
+  } else {
+    seriesIdForUpload = randomUUID()
   }
 
-  const row = await prisma.departmentForm.create({
-    data: {
-      title,
-      slug,
-      contentText,
-      createdBy: calisan.id,
-      department,
-      seriesId: randomUUID(),
-      revision: revisionNum,
-      isCurrent: true,
-    },
-    select: {
-      id: true,
-      title: true,
-      slug: true,
-      createdAt: true,
-      updatedAt: true,
-      department: true,
-      revision: true,
-      seriesId: true,
-      isCurrent: true,
-    },
+  const uploadRes = await uploadPdfToStorage(file, `department-forms/${seriesIdForUpload}`, {
+    storageFileName: storageLeaf,
   })
+  if (!uploadRes.ok) {
+    return NextResponse.json(
+      {
+        error:
+          uploadRes.message ||
+          "Dosya depoya yüklenemedi. Supabase bucket ve ortam değişkenlerini kontrol edin.",
+      },
+      { status: 500 }
+    )
+  }
 
-  return NextResponse.json(row)
+  const fileFields = {
+    fileStoragePath: uploadRes.path,
+    originalFileName: origName,
+    fileMimeType: mime,
+  }
+
+  const createdSelect = {
+    id: true,
+    formNumber: true,
+    title: true,
+    slug: true,
+    createdAt: true,
+    updatedAt: true,
+    department: true,
+    revision: true,
+    seriesId: true,
+    isCurrent: true,
+    fileStoragePath: true,
+  } as const
+
+  const toClientJson = (
+    row: { fileStoragePath: string | null },
+    opts?: { textExtractionFallback?: boolean }
+  ) => {
+    const { fileStoragePath: path, ...rest } = row
+    return {
+      ...rest,
+      hasOriginalFile: Boolean(path?.trim()),
+      ...(opts?.textExtractionFallback ? { textExtractionFallback: true as const } : {}),
+    }
+  }
+
+  try {
+    if (isRevision) {
+      let duplicateRevision = false
+      const created = await prisma.$transaction(async (tx) => {
+        const prior = await tx.departmentForm.findFirst({
+          where: { id: supersedesId, isCurrent: true },
+          select: { id: true, seriesId: true, department: true },
+        })
+        if (!prior || prior.seriesId !== seriesIdForUpload) return null
+        const clashInTx = await tx.departmentForm.findFirst({
+          where: { seriesId: prior.seriesId, revision: revisionNum },
+          select: { id: true },
+        })
+        if (clashInTx) {
+          duplicateRevision = true
+          return null
+        }
+        await tx.departmentForm.updateMany({
+          where: { seriesId: prior.seriesId, isCurrent: true },
+          data: { isCurrent: false },
+        })
+        return tx.departmentForm.create({
+          data: {
+            formNumber: formNumberResolved,
+            title,
+            slug,
+            contentText,
+            createdBy: calisan.id,
+            department: prior.department,
+            seriesId: prior.seriesId,
+            revision: revisionNum,
+            isCurrent: true,
+            ...fileFields,
+          },
+          select: createdSelect,
+        })
+      })
+      if (duplicateRevision) {
+        await deletePdfFromStorage(uploadRes.path)
+        return NextResponse.json(
+          {
+            error:
+              "Bu seri için aynı revizyon numarası zaten kullanılmış. Farklı bir numara girin.",
+          },
+          { status: 400 }
+        )
+      }
+      if (!created) {
+        await deletePdfFromStorage(uploadRes.path)
+        return NextResponse.json(
+          {
+            error:
+              "Yeni revizyon için seçilen form bulunamadı, güncel değil veya erişiminiz yok.",
+          },
+          { status: 400 }
+        )
+      }
+      return NextResponse.json(
+        toClientJson(created, { textExtractionFallback })
+      )
+    }
+
+    const row = await prisma.departmentForm.create({
+      data: {
+        formNumber: formNumberResolved,
+        title,
+        slug,
+        contentText,
+        createdBy: calisan.id,
+        department,
+        seriesId: seriesIdForUpload,
+        revision: revisionNum,
+        isCurrent: true,
+        ...fileFields,
+      },
+      select: createdSelect,
+    })
+    return NextResponse.json(toClientJson(row, { textExtractionFallback }))
+  } catch (e) {
+    await deletePdfFromStorage(uploadRes.path)
+    console.error("[department-forms] POST create:", e)
+    return NextResponse.json({ error: "Kayıt oluşturulamadı." }, { status: 500 })
+  }
 }

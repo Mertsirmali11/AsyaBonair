@@ -7,6 +7,7 @@ import {
   effectiveDepartmanForDepartmentForms,
   normalizeDeptLabel,
 } from "@/lib/department-form-access"
+import { deletePdfFromStorage } from "@/lib/supabase-storage"
 
 async function viewerDepartman() {
   const session = await auth()
@@ -48,6 +49,7 @@ export async function GET(
       contentText: true,
       isCurrent: true,
       department: true,
+      fileStoragePath: true,
     },
   })
 
@@ -71,6 +73,7 @@ export async function GET(
       id: row.id,
       title: row.title,
       contentText: row.contentText,
+      hasOriginalFile: Boolean(row.fileStoragePath?.trim()),
     },
   })
 }
@@ -94,12 +97,19 @@ export async function DELETE(
     const outcome = await prisma.$transaction(async (tx) => {
       const row = await tx.departmentForm.findUnique({
         where: { id: numericId },
-        select: { id: true, seriesId: true, isCurrent: true, department: true },
+        select: {
+          id: true,
+          seriesId: true,
+          isCurrent: true,
+          department: true,
+          fileStoragePath: true,
+        },
       })
       if (!row) return { kind: "not_found" as const }
       if (!canViewDepartmentFormRow(departman, row.department)) {
         return { kind: "forbidden" as const }
       }
+      const storagePath = row.fileStoragePath?.trim() || null
       await tx.departmentForm.delete({ where: { id: numericId } })
       if (row.isCurrent) {
         const promoted = await tx.departmentForm.findFirst({
@@ -114,13 +124,16 @@ export async function DELETE(
           })
         }
       }
-      return { kind: "deleted" as const }
+      return { kind: "deleted" as const, storagePath }
     })
     if (outcome.kind === "forbidden") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
     if (outcome.kind === "not_found") {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+    if (outcome.storagePath) {
+      void deletePdfFromStorage(outcome.storagePath)
     }
     return NextResponse.json({ success: true })
   } catch (e: unknown) {
