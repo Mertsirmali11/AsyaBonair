@@ -887,9 +887,25 @@ model SupportTicket {
 
   creator     Calisan  @relation("SupportTicketCreator", fields: [createdBy], references: [id], onDelete: Cascade)
   lastUpdater Calisan? @relation("SupportTicketAdmin", fields: [lastUpdatedBy], references: [id], onDelete: SetNull)
+  attachments SupportTicketAttachment[]
 
   @@index([createdAt(sort: Desc)])
   @@index([status])
   @@index([createdBy])
   @@map("support_tickets")
+}
+
+model SupportTicketAttachment {
+  id              Int      @id @default(autoincrement())
+  supportTicketId Int      @map("support_ticket_id")
+  storagePath     String   @map("storage_path") @db.VarChar(1000)
+  fileName        String   @map("file_name") @db.VarChar(255)
+  mimeType        String   @map("mime_type") @db.VarChar(200)
+  sizeBytes       Int      @map("size_bytes")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  supportTicket SupportTicket @relation(fields: [supportTicketId], references: [id], onDelete: Cascade)
+
+  @@index([supportTicketId])
+  @@map("support_ticket_attachments")
 }

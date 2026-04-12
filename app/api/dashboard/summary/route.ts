@@ -11,8 +11,11 @@ import {
   getUtcRangeForCalendarDate,
 } from "@/lib/day-range"
 import { canAccessConfigurationsArea } from "@/lib/department-access"
+import { canManageSupportTicketsAsAdmin } from "@/lib/support-ticket-access"
+import { canViewAllHazardReports } from "@/lib/hazard-access"
 
 const ANNOUNCEMENTS_DASHBOARD_LIMIT = 80
+const SUPPORT_TICKETS_DASHBOARD_LIMIT = 10
 
 /** İstanbul takvim günü için YYYY-MM-DD anahtarı (görevleri bugün / sonraki günlere ayırmak için). */
 function ymdKeyIstanbul(d: Date): string {
@@ -79,6 +82,7 @@ export async function GET() {
       birthdays,
       tasksInWindow,
       certificateRows,
+      supportTicketsPreview,
     ] = await Promise.all([
       prisma.meeting.findMany({
         where: {
@@ -94,21 +98,35 @@ export async function GET() {
         },
         orderBy: { plannedDate: "asc" },
       }),
-      prisma.hazardReport.findMany({
-        where: {
-          createdAt: { gte: hazardDayStart, lt: hazardDayEnd },
-        },
-        select: {
-          id: true,
-          reportNo: true,
-          title: true,
-          eventDate: true,
-          createdAt: true,
-          sourceType: true,
-        },
-        orderBy: { createdAt: "desc" },
-        take: 100,
-      }),
+      viewer
+        ? prisma.hazardReport.findMany({
+            where: {
+              createdAt: { gte: hazardDayStart, lt: hazardDayEnd },
+              ...(canViewAllHazardReports(viewer.departman)
+                ? {}
+                : { reportedBy: viewer.id }),
+            },
+            select: {
+              id: true,
+              reportNo: true,
+              title: true,
+              eventDate: true,
+              createdAt: true,
+              sourceType: true,
+            },
+            orderBy: { createdAt: "desc" },
+            take: 100,
+          })
+        : Promise.resolve(
+            [] as {
+              id: number
+              reportNo: string | null
+              title: string | null
+              eventDate: Date
+              createdAt: Date
+              sourceType: string | null
+            }[]
+          ),
       prisma.announcement.findMany({
         where: { isActive: true },
         orderBy: { createdAt: "desc" },
@@ -183,6 +201,44 @@ export async function GET() {
               aircraft: { id: number; register: string; msn: string }
             }[]
           ),
+      viewer
+        ? prisma.supportTicket.findMany({
+            where: canManageSupportTicketsAsAdmin(viewer.departman)
+              ? {}
+              : { createdBy: viewer.id },
+            orderBy: { createdAt: "desc" },
+            take: SUPPORT_TICKETS_DASHBOARD_LIMIT,
+            select: {
+              id: true,
+              subject: true,
+              content: true,
+              status: true,
+              createdAt: true,
+              creator: {
+                select: {
+                  isim: true,
+                  soyisim: true,
+                  email: true,
+                  departman: true,
+                },
+              },
+            },
+          })
+        : Promise.resolve(
+            [] as {
+              id: number
+              subject: string | null
+              content: string
+              status: string
+              createdAt: Date
+              creator: {
+                isim: string | null
+                soyisim: string | null
+                email: string
+                departman: string | null
+              }
+            }[]
+          ),
     ])
 
     const annIds = announcements.map((a) => a.id)
@@ -240,6 +296,10 @@ export async function GET() {
         tasksDueToday,
         tasksDueNext30Days,
         certificatesExpiringSoon,
+        supportTicketsPreview,
+        supportTicketsAdminView: viewer
+          ? canManageSupportTicketsAsAdmin(viewer.departman)
+          : false,
       })
     )
   } catch (e) {

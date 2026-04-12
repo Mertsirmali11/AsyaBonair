@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
 import { auth } from "@/auth"
-import { isAdminDepartment } from "@/lib/department-access"
+import { canViewAllHazardReports } from "@/lib/hazard-access"
 import { createHazardReportRecord } from "@/lib/hazard-report-create"
 import { persistHazardFilesFromUploads } from "@/lib/hazard-attachments-db"
 
@@ -47,10 +47,7 @@ export async function GET() {
     const userDepartman = session.user?.departman
     const userId = await resolveReporterCalisanId(session)
 
-    const isElevated =
-      userDepartman === "Quality" ||
-      userDepartman === "Human Resources" ||
-      isAdminDepartment(userDepartman)
+    const isElevated = canViewAllHazardReports(userDepartman)
 
     if (!isElevated && userId == null) {
       return NextResponse.json([])

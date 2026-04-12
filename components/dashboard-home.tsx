@@ -20,6 +20,7 @@ import {
   ClipboardList,
   FileWarning,
   ChevronDown,
+  Ticket,
 } from "lucide-react"
 import { formatDateOnlyIstanbul, formatDateTimeIstanbul } from "@/lib/date-format"
 import { isAdminDepartment } from "@/lib/department-access"
@@ -105,6 +106,38 @@ interface CertificateExpiryAlert {
   aircraft: { id: number; register: string; msn: string }
 }
 
+interface SupportTicketPreview {
+  id: number
+  subject: string | null
+  content: string
+  status: string
+  createdAt: string
+  creator: {
+    isim: string | null
+    soyisim: string | null
+    email: string
+    departman: string | null
+  }
+}
+
+const SUPPORT_STATUS_TR: Record<string, string> = {
+  OPEN: "Açık",
+  IN_PROGRESS: "İşlemde",
+  RESOLVED: "Çözüldü",
+  CLOSED: "Kapatıldı",
+}
+
+function supportPersonelLabel(c: SupportTicketPreview["creator"]): string {
+  const n = `${c.isim ?? ""} ${c.soyisim ?? ""}`.trim()
+  return n || c.email
+}
+
+function supportTruncate(s: string, max: number): string {
+  const t = s.trim()
+  if (t.length <= max) return t
+  return `${t.slice(0, max - 1)}…`
+}
+
 const SUMMARY_RETRIES = 3
 const SUMMARY_RETRY_MS = 400
 /** Duyuru gövdesi kaydırmasında “sona gelindi” toleransı (px) */
@@ -125,6 +158,11 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
   const [certificatesExpiringSoon, setCertificatesExpiringSoon] = useState<
     CertificateExpiryAlert[]
   >([])
+  const [supportTicketsPreview, setSupportTicketsPreview] = useState<
+    SupportTicketPreview[]
+  >([])
+  const [supportTicketsAdminView, setSupportTicketsAdminView] =
+    useState(false)
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState("")
   const [content, setContent] = useState("")
@@ -168,6 +206,8 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
           setTasksDueToday(data.tasksDueToday ?? [])
           setTasksDueNext30Days(data.tasksDueNext30Days ?? [])
           setCertificatesExpiringSoon(data.certificatesExpiringSoon ?? [])
+          setSupportTicketsPreview(data.supportTicketsPreview ?? [])
+          setSupportTicketsAdminView(!!data.supportTicketsAdminView)
           setLoadError(null)
           hasLoadedOnceRef.current = true
           setLoading(false)
@@ -413,6 +453,82 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                 </li>
               ))}
             </ul>
+          </div>
+        )}
+
+        {!loading && !loadError && (
+          <div className="rounded-lg border border-violet-200/90 bg-violet-50/95 px-4 py-3 text-sm text-violet-950 shadow-sm dark:border-violet-800/60 dark:bg-violet-950/35 dark:text-violet-100">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex gap-2">
+                <Ticket
+                  className="mt-0.5 size-5 shrink-0 text-violet-700 dark:text-violet-300"
+                  aria-hidden
+                />
+                <div>
+                  <p className="font-semibold text-violet-950 dark:text-violet-50">
+                    {supportTicketsAdminView
+                      ? "Gelen destek talepleri"
+                      : "Destek taleplerim"}
+                  </p>
+                  <p className="mt-0.5 text-xs text-violet-900/85 dark:text-violet-200/90">
+                    {supportTicketsAdminView
+                      ? "Çalışanlardan gelen son talepler; tümünü ve aksiyonları Support Ticket sayfasında yönetin."
+                      : "Gönderdiğiniz taleplerin özeti; yeni talep ve ekler için Support Ticket sayfasına gidin."}
+                  </p>
+                </div>
+              </div>
+              <Link
+                href="/support-tickets"
+                className="inline-flex shrink-0 items-center gap-1 font-semibold text-violet-800 underline-offset-4 hover:underline dark:text-violet-200"
+              >
+                Support Ticket
+                <ArrowRight className="size-4" />
+              </Link>
+            </div>
+            {supportTicketsPreview.length === 0 ? (
+              <p className="mt-3 border-t border-violet-200/80 pt-3 text-xs text-violet-800/90 dark:border-violet-800/50 dark:text-violet-200/85">
+                {supportTicketsAdminView
+                  ? "Henüz kayıtlı destek talebi yok."
+                  : "Henüz destek talebi göndermediniz."}
+              </p>
+            ) : (
+              <ul className="mt-3 space-y-2 border-t border-violet-200/80 pt-3 dark:border-violet-800/50">
+                {supportTicketsPreview.map((t) => (
+                  <li
+                    key={t.id}
+                    className="flex flex-col gap-0.5 rounded-md border border-violet-200/60 bg-white/80 px-3 py-2 dark:border-violet-900/50 dark:bg-violet-950/30"
+                  >
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <span className="font-medium text-violet-950 dark:text-violet-50">
+                        {t.subject?.trim()
+                          ? t.subject
+                          : supportTruncate(t.content, 56)}
+                      </span>
+                      <span className="text-[11px] font-medium uppercase tracking-wide text-violet-700 dark:text-violet-300">
+                        {SUPPORT_STATUS_TR[t.status] ?? t.status}
+                      </span>
+                    </div>
+                    {supportTicketsAdminView ? (
+                      <p className="text-xs text-violet-800/90 dark:text-violet-200/85">
+                        {supportPersonelLabel(t.creator)}
+                        {t.creator.departman ? (
+                          <span className="text-violet-700/80">
+                            {" "}
+                            · {t.creator.departman}
+                          </span>
+                        ) : null}
+                      </p>
+                    ) : null}
+                    <p className="line-clamp-2 text-xs text-violet-900/80 dark:text-violet-200/80">
+                      {supportTruncate(t.content, 140)}
+                    </p>
+                    <p className="text-[11px] tabular-nums text-violet-700/85 dark:text-violet-300/90">
+                      {formatDateTimeIstanbul(t.createdAt)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 

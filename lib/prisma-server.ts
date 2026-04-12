@@ -5,7 +5,7 @@ import { Pool } from "pg"
 import { PrismaPg } from "@prisma/adapter-pg"
 
 /** Şemada alan/model değişince artırın; dev’de global’deki eski PrismaClient’ı atar. */
-const PRISMA_CLIENT_CACHE_REVISION = 7
+const PRISMA_CLIENT_CACHE_REVISION = 9
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
@@ -83,8 +83,14 @@ function createPrismaClient() {
 function prismaHasExpectedDelegates(client: PrismaClient): boolean {
   const c = client as unknown as {
     safetyRiskBoardCatalog?: { findUnique?: unknown }
+    supportTicket?: { create?: unknown }
+    supportTicketAttachment?: { create?: unknown }
   }
-  return typeof c.safetyRiskBoardCatalog?.findUnique === "function"
+  return (
+    typeof c.safetyRiskBoardCatalog?.findUnique === "function" &&
+    typeof c.supportTicket?.create === "function" &&
+    typeof c.supportTicketAttachment?.create === "function"
+  )
 }
 
 function getOrCreatePrisma(): PrismaClient {
@@ -107,10 +113,13 @@ function getOrCreatePrisma(): PrismaClient {
 export const prisma = getOrCreatePrisma()
 
 if (process.env.NODE_ENV === "development") {
-  const p = prisma as unknown as { auditCategoryType?: unknown }
-  if (!p.auditCategoryType) {
+  const p = prisma as unknown as {
+    auditCategoryType?: unknown
+    supportTicketAttachment?: unknown
+  }
+  if (!p.auditCategoryType || !p.supportTicketAttachment) {
     console.error(
-      "[prisma] Prisma Client is missing models (e.g. auditCategoryType). Run `pnpm exec prisma generate` and restart `pnpm dev`."
+      "[prisma] Prisma Client is missing models. Run `pnpm exec prisma generate` and restart `pnpm dev`."
     )
   }
 }

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "prisma generate && next dev",
-    "dev:fresh": "node scripts/free-dev-port.mjs && next dev",
+    "dev:fresh": "prisma generate && node scripts/free-dev-port.mjs && next dev",
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
@@ -26,6 +26,7 @@
     "@dnd-kit/modifiers": "^9.0.0",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@google/generative-ai": "^0.24.1",
     "@prisma/adapter-pg": "^7.2.0",
     "@prisma/client": "^7.2.0",
     "@radix-ui/react-avatar": "^1.1.11",

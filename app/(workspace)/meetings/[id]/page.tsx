@@ -2,6 +2,7 @@ import { auth } from "@/auth"
 import { redirect, notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma-server"
 import { prismaJson } from "@/lib/prisma-json"
+import { canViewAllHazardReports } from "@/lib/hazard-access"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { MeetingDetailClient } from "./meeting-detail-client"
 
@@ -52,6 +53,11 @@ export default async function MeetingDetailPage({ params, searchParams }: Props)
   })
 
   const hazardReports = await prisma.hazardReport.findMany({
+    where: canViewAllHazardReports(calisan?.departman)
+      ? {}
+      : calisan
+        ? { reportedBy: calisan.id }
+        : { reportedBy: -1 },
     orderBy: { eventDate: "desc" },
     select: {
       id: true,

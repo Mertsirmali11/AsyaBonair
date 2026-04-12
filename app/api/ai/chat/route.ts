@@ -2,36 +2,40 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
 import { isAdminDepartment } from "@/lib/department-access"
-import { groqChatCompletion, type GroqChatMessage } from "@/lib/groq-chat"
-import { userFacingGroqError } from "@/lib/groq-user-errors"
-import { GROQ_MANUAL_CONTEXT_MAX_CHARS } from "@/lib/groq-truncate"
-
-const MANUAL_CONTEXT_MAX_CHARS = GROQ_MANUAL_CONTEXT_MAX_CHARS
+import { geminiChatCompletion, type GeminiChatMessage } from "@/lib/gemini-chat"
+import { userFacingAiError } from "@/lib/ai-provider-errors"
+import {
+  composeManualSystemPrompt,
+  type ManualForRag,
+} from "@/lib/manual-rag-context"
 
 const BASE_SYSTEM = `Sen Bonair Havacılık'ın yapay zeka asistanısın. Türk sivil havacılık mevzuatı (SHGM, SHY, SHT), uçuş operasyonları, SMS (Safety Management System) ve FDM (Flight Data Monitoring) konularında uzmansın. Kullanıcılara her zaman Türkçe yanıt verirsin. Bilmediğin veya doğrulayamadığın mevzuat maddelerini uydurmak yerine kullanıcıya resmi kaynağı kontrol etmesini söylersin.`
 
-function buildSystemWithOptionalManual(
-  manual: { title: string; contentText: string } | null
-): string {
-  if (!manual) return BASE_SYSTEM
-  const body = manual.contentText.slice(0, MANUAL_CONTEXT_MAX_CHARS)
-  return `${BASE_SYSTEM}
-
----
-KULLANICI AŞAĞIDAKİ ŞİRKET MANUELİNİ SEÇTİ — ÖNCELİK BU METİNDİR.
-Manuel başlığı: ${manual.title}
-
-Kurallar:
-- Soruyu mümkün olduğunca yalnızca bu manuelin metnine dayanarak yanıtla.
-- Metinde geçmeyen veya emin olmadığın bir şeyi uydurma; "Bu manuelde yer almıyor" veya "İlgili bölüm bulunamadı" de.
-- Mümkünse manuelden kısa alıntı veya bölüm/madde ifadesiyle destekle.
-- Genel bilgi ekleme; sadece manueldeki ifadeyi açıklamak gerekiyorsa kısa bağlam ver.
-
---- MANUEL METNİ ---
-${body}`
-}
+const MAX_MANUALS_PER_CHAT = 15
 
 type ChatMsg = { role: string; content: string }
+
+function parseManualIds(body: Record<string, unknown>): number[] {
+  const raw = body.manualIds
+  if (Array.isArray(raw)) {
+    const ids: number[] = []
+    for (const x of raw) {
+      const n =
+        typeof x === "number" ? x : Number.parseInt(String(x), 10)
+      if (!Number.isNaN(n)) ids.push(n)
+    }
+    return [...new Set(ids)]
+  }
+  const single = body.manualId
+  if (single != null && single !== "") {
+    const n =
+      typeof single === "number"
+        ? single
+        : Number.parseInt(String(single), 10)
+    if (!Number.isNaN(n)) return [n]
+  }
+  return []
+}
 
 /**
  * İstemci ilk karşılama metnini assistant olarak gönderdiği için baştaki assistant
@@ -50,9 +54,8 @@ function sanitizeChatMessages(messages: ChatMsg[]): ChatMsg[] {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json() as {
+    const body = (await req.json()) as Record<string, unknown> & {
       messages?: ChatMsg[]
-      manualId?: number | string | null
     }
     const raw: ChatMsg[] = Array.isArray(body.messages) ? body.messages : []
     const messages = sanitizeChatMessages(raw)
@@ -64,35 +67,53 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    let manual: { title: string; contentText: string } | null = null
-    const mid = body.manualId
-    if (mid != null && mid !== "") {
-      const id =
-        typeof mid === "number"
-          ? mid
-          : Number.parseInt(String(mid), 10)
-      if (!Number.isNaN(id)) {
-        const session = await auth()
-        const row = await prisma.companyManual.findUnique({
-          where: { id },
-          select: { title: true, contentText: true, isCurrent: true },
-        })
-        if (!row) {
-          return NextResponse.json({ error: "Manuel bulunamadı." }, { status: 404 })
-        }
+    const lastUser = [...messages].reverse().find((m) => m.role === "user")
+    const userQuery = lastUser?.content?.trim() ?? ""
+
+    let manuals: ManualForRag[] = []
+    const rawIds = parseManualIds(body)
+    if (rawIds.length > MAX_MANUALS_PER_CHAT) {
+      return NextResponse.json(
+        { error: `En fazla ${MAX_MANUALS_PER_CHAT} manuel seçilebilir.` },
+        { status: 400 }
+      )
+    }
+    const ids = rawIds
+
+    if (ids.length > 0) {
+      const session = await auth()
+      const rows = await prisma.companyManual.findMany({
+        where: { id: { in: ids } },
+        select: {
+          id: true,
+          title: true,
+          contentText: true,
+          isCurrent: true,
+        },
+      })
+      if (rows.length !== ids.length) {
+        return NextResponse.json(
+          { error: "Bir veya daha fazla manuel bulunamadı." },
+          { status: 404 }
+        )
+      }
+      for (const row of rows) {
         if (
           !row.isCurrent &&
           !isAdminDepartment(session?.user?.departman)
         ) {
           return NextResponse.json({ error: "Manuel bulunamadı." }, { status: 404 })
         }
-        manual = { title: row.title, contentText: row.contentText }
       }
+      const order = new Map(ids.map((id, i) => [id, i]))
+      manuals = [...rows]
+        .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+        .map((r) => ({ title: r.title, contentText: r.contentText }))
     }
 
-    const system = buildSystemWithOptionalManual(manual)
+    const system = composeManualSystemPrompt(BASE_SYSTEM, manuals, userQuery)
 
-    const groqMessages: GroqChatMessage[] = [
+    const geminiMessages: GeminiChatMessage[] = [
       { role: "system", content: system },
       ...messages.map((m) => ({
         role: m.role as "user" | "assistant",
@@ -100,17 +121,23 @@ export async function POST(req: NextRequest) {
       })),
     ]
 
-    const result = await groqChatCompletion({
-      messages: groqMessages,
-      maxTokens: manual ? 4096 : 1024,
+    const result = await geminiChatCompletion({
+      messages: geminiMessages,
+      maxTokens: manuals.length > 0 ? 4096 : 1024,
     })
 
     if (!result.ok) {
       if (result.status === 503) {
         return NextResponse.json({ error: result.detail }, { status: 503 })
       }
-      console.error("[api/ai/chat] Groq error:", result.status, result.detail)
-      const friendly = userFacingGroqError(result.detail)
+      if (result.status === 429) {
+        return NextResponse.json(
+          { error: userFacingAiError(result.detail) },
+          { status: 429 }
+        )
+      }
+      console.error("[api/ai/chat] Gemini error:", result.status, result.detail)
+      const friendly = userFacingAiError(result.detail)
       return NextResponse.json({ error: friendly }, { status: 502 })
     }
 

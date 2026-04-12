@@ -101,6 +101,61 @@ export async function uploadPdfToStorage(
   }
 }
 
+/** Evrak MIME çözümlemesi olmadan ham buffer yüklemek (ör. destek ekleri: görsel + PDF). */
+export async function uploadBinaryToStorage(
+  folderPrefix: string,
+  storageFileName: string,
+  buffer: Buffer,
+  contentType: string,
+  options?: { upsert?: boolean }
+): Promise<UploadPdfToStorageResult> {
+  try {
+    const sanitizedFileName = storageFileName
+      .replace(/[^a-zA-Z0-9._-]/g, "_")
+      .replace(/\.\./g, "_")
+      .replace(/\s+/g, "_")
+    const storagePath = `${folderPrefix}/${sanitizedFileName}`
+    const supabaseAdmin = getSupabaseAdmin()
+    const upsert = options?.upsert ?? true
+    const doUpload = (ct: string) =>
+      supabaseAdmin.storage.from(getStorageBucket()).upload(storagePath, buffer, {
+        contentType: ct,
+        upsert,
+      })
+
+    let { error } = await doUpload(contentType)
+    if (
+      error &&
+      /mime type .+ is not supported/i.test(error.message || "")
+    ) {
+      const retry = await doUpload("application/octet-stream")
+      if (!retry.error) error = null
+      else error = retry.error
+    }
+    if (error) {
+      const msg =
+        typeof error.message === "string" && error.message.length > 0
+          ? error.message
+          : "Storage upload rejected"
+      console.error("[uploadBinaryToStorage]", storagePath, error)
+      return { ok: false, message: msg }
+    }
+    const { data: urlData } = supabaseAdmin.storage
+      .from(getStorageBucket())
+      .getPublicUrl(storagePath)
+    return {
+      ok: true,
+      path: storagePath,
+      fileName: sanitizedFileName,
+      publicUrl: urlData.publicUrl,
+    }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    console.error("[uploadBinaryToStorage] catch", e)
+    return { ok: false, message }
+  }
+}
+
 export async function downloadPdfFromStorage(
   storagePath: string
 ): Promise<Buffer | null> {

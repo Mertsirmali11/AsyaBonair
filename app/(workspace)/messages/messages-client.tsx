@@ -528,12 +528,20 @@ export function MessagesClient({
           body: JSON.stringify({ body: text }),
         })
       }
-      if (!res.ok) return
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string }
+        toast.error(
+          err.error ?? `Mesaj gönderilemedi (${res.status}). Tekrar deneyin.`
+        )
+        return
+      }
       setDraft("")
       setPendingFile(null)
       if (fileInputRef.current) fileInputRef.current.value = ""
       await syncRealtimeForConversation(cid)
       await loadConversations()
+    } catch {
+      toast.error("Bağlantı hatası. Mesaj gönderilemedi.")
     } finally {
       setSending(false)
     }
@@ -1004,7 +1012,7 @@ export function MessagesClient({
 
               <div
                 className={cn(
-                  "shrink-0 px-3 py-2 md:px-4 md:py-3",
+                  "relative z-10 shrink-0 px-3 py-2 md:px-4 md:py-3",
                   CHAT_COMPOSER
                 )}
               >
@@ -1051,12 +1059,13 @@ export function MessagesClient({
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault()
-                        void sendMessage()
-                      }
+                      if (e.key !== "Enter" || e.shiftKey) return
+                      if (e.nativeEvent.isComposing) return
+                      e.preventDefault()
+                      void sendMessage()
                     }}
                     placeholder="Type a message"
+                    title="Enter: gönder · Shift+Enter: yeni satır"
                     rows={1}
                     className="max-h-32 min-h-[42px] flex-1 resize-none border-border bg-background text-sm shadow-sm"
                   />

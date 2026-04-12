@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
-import { groqChatCompletion } from "@/lib/groq-chat"
-import { userFacingGroqError } from "@/lib/groq-user-errors"
+import { geminiChatCompletion } from "@/lib/gemini-chat"
+import { userFacingAiError } from "@/lib/ai-provider-errors"
 import { truncateForGroqAnalyze } from "@/lib/groq-truncate"
 
 export async function POST(req: NextRequest) {
@@ -43,7 +43,7 @@ ${body}`,
     const system =
       analysisType === "regulation_impact" ? systemRegulation : systemDefault
 
-    const result = await groqChatCompletion({
+    const result = await geminiChatCompletion({
       messages: [
         { role: "system", content: system },
         { role: "user", content: userContent },
@@ -55,8 +55,14 @@ ${body}`,
       if (result.status === 503) {
         return NextResponse.json({ error: result.detail }, { status: 503 })
       }
+      if (result.status === 429) {
+        return NextResponse.json(
+          { error: userFacingAiError(result.detail) },
+          { status: 429 }
+        )
+      }
       return NextResponse.json(
-        { error: userFacingGroqError(result.detail) },
+        { error: userFacingAiError(result.detail) },
         { status: 502 }
       )
     }

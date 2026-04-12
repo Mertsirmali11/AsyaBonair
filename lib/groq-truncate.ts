@@ -1,11 +1,9 @@
 /**
- * Groq ücretsiz / on_demand katmanı tek istekte düşük TPM (ör. ~12k token) ile sınırlı olabiliyor.
- * Çok uzun veya PDF’den bozuk çıkan metin bu sınırı aşıyor; girdiyi önceden kısaltırız.
+ * Uzun PDF / metinler token sınırını aşmasın diye analiz ve sohbet öncesi kısaltma.
  */
-/** PDF’den bozuk/yoğun metin token başına daha pahalı olabildiği için ücretsiz TPM sınırına sığdırmak üzün tutuldu. */
 export const GROQ_ANALYZE_MAX_INPUT_CHARS = 6_000
 
-/** Sohbette şirket manueli gövdesi (önceki 120k yerine Groq ile uyumlu üst sınır). */
+/** Sohbette şirket manueli gövdesi üst sınırı (Gemini bağlamı). */
 export const GROQ_MANUAL_CONTEXT_MAX_CHARS = 12_000
 
 export function truncateForGroqAnalyze(text: string): {
@@ -20,7 +18,7 @@ export function truncateForGroqAnalyze(text: string): {
   return {
     text:
       t.slice(0, max) +
-      `\n\n[… Metin ücretsiz API sınırı için ${max.toLocaleString("tr-TR")} karakterde kesildi. Tam metin için parçalara bölerek analiz edin veya Groq tarafında limiti yükseltin. …]`,
+      `\n\n[… Metin ${max.toLocaleString("tr-TR")} karakterde kesildi. Tam metin için parçalara bölerek analiz edin. …]`,
     truncated: true,
   }
 }

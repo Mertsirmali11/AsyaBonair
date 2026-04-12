@@ -36,6 +36,10 @@ import {
   canApproveWorkerRegistrations,
 } from "@/lib/department-access"
 import {
+  canViewComplianceMonitoringNav,
+  canViewSafetyManagementNav,
+} from "@/lib/sidebar-nav-access"
+import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -60,15 +64,26 @@ interface User {
   departman?: string | null
 }
 
-const menuItems = [
+type NavItem = {
+  title: string
+  url: string
+  icon: React.ComponentType<{ className?: string }>
+}
+
+const NAV_TOP: NavItem[] = [
   { title: "Dashboard", url: "/dashboard", icon: IconDashboard },
   { title: "Support Ticket", url: "/support-tickets", icon: IconTicket },
   { title: "Report Hazard", url: "/report-hazard", icon: IconAlertTriangle },
   { title: "Hazard Inbox", url: "/hazard-inbox", icon: IconInbox },
-  { title: "Compliance Monitoring", url: "/compliance", icon: IconClipboardCheck },
+]
+
+const NAV_MID: NavItem[] = [
   { title: "Emergency Response", url: "/emergency", icon: IconUrgent },
   { title: "FRMS", url: "/frms", icon: IconFileDescription },
   { title: "Meetings", url: "/meetings", icon: IconCalendarEvent },
+]
+
+const NAV_AFTER_CONTROLLED_DOCS: NavItem[] = [
   { title: "Tasks & Actions", url: "/tasks", icon: IconChecklist },
   { title: "Performance Reports", url: "/reports", icon: IconChartBar },
   { title: "AI Report Creator", url: "/ai-reports", icon: IconRobot },
@@ -333,14 +348,8 @@ export function AppSidebar({
     return () => el.removeEventListener("scroll", onScroll)
   }, [])
 
-  const controlledDocumentsMenuSplitIndex = menuItems.findIndex(
-    (i) => i.url === "/tasks"
-  )
-  const menuItemsBeforeControlledDocs = menuItems.slice(
-    0,
-    controlledDocumentsMenuSplitIndex
-  )
-  const menuItemsAfterControlledDocs = menuItems.slice(controlledDocumentsMenuSplitIndex)
+  const showComplianceNav = canViewComplianceMonitoringNav(user.departman)
+  const showSafetyNav = canViewSafetyManagementNav(user.departman)
 
   const isControlledDocumentsSubActive = (subUrl: string) => {
     if (subUrl === "/documents") return pathname === "/documents"
@@ -370,128 +379,146 @@ export function AppSidebar({
 
       <SidebarContent ref={sidebarContentRef} className="px-2 py-2">
         <SidebarMenu>
-          {menuItemsBeforeControlledDocs.map((item) => {
-            if (item.title === "Compliance Monitoring") {
-              const complianceActive = pathname?.startsWith("/compliance")
-              return (
-                <React.Fragment key={item.title}>
-                  <Collapsible
-                    open={complianceMonitoringOpen}
-                    onOpenChange={setComplianceMonitoringOpen}
-                    className="group/collapsible"
-                  >
-                    <SidebarMenuItem>
-                      <CollapsibleTrigger asChild>
-                        <SidebarMenuButton
-                          className={cn(
-                            "h-10 w-full justify-between rounded-lg px-3 transition-colors",
-                            complianceActive &&
-                              "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                          )}
-                        >
-                          <div className="flex items-center gap-2">
-                            <IconClipboardCheck className="size-5" />
-                            <span>Compliance Monitoring</span>
-                          </div>
-                          <IconChevronDown
-                            className={cn(
-                              "size-4 transition-transform duration-200",
-                              complianceMonitoringOpen && "rotate-180"
-                            )}
-                          />
-                        </SidebarMenuButton>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <SidebarMenuSub>
-                          {visibleComplianceMonitoringSubItems.map((subItem) => {
-                            const isSubActive =
-                              subItem.url === "/compliance"
-                                ? pathname === "/compliance" ||
-                                  pathname === "/compliance/"
-                                : pathname === subItem.url ||
-                                  !!pathname?.startsWith(`${subItem.url}/`)
-                            return (
-                              <SidebarMenuSubItem key={subItem.title}>
-                                <SidebarMenuSubButton
-                                  asChild
-                                  className={cn(
-                                    "h-9 pl-9",
-                                    isSubActive && "bg-sidebar-accent/50 font-medium"
-                                  )}
-                                >
-                                  <Link href={subItem.url}>
-                                    <span>{subItem.title}</span>
-                                  </Link>
-                                </SidebarMenuSubButton>
-                              </SidebarMenuSubItem>
-                            )
-                          })}
-                        </SidebarMenuSub>
-                      </CollapsibleContent>
-                    </SidebarMenuItem>
-                  </Collapsible>
-
-                  <Collapsible
-                    open={safetyManagementOpen}
-                    onOpenChange={setSafetyManagementOpen}
-                    className="group/collapsible"
-                  >
-                    <SidebarMenuItem>
-                      <CollapsibleTrigger asChild>
-                        <SidebarMenuButton
-                          className={cn(
-                            "h-10 w-full justify-between rounded-lg px-3 transition-colors",
-                            pathname?.startsWith("/safety") &&
-                              "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                          )}
-                        >
-                          <div className="flex items-center gap-2">
-                            <IconShieldCheck className="size-5" />
-                            <span>Safety Management</span>
-                          </div>
-                          <IconChevronDown
-                            className={cn(
-                              "size-4 transition-transform duration-200",
-                              safetyManagementOpen && "rotate-180"
-                            )}
-                          />
-                        </SidebarMenuButton>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <SidebarMenuSub>
-                          {safetyManagementSubItems.map((subItem) => {
-                            const isSubActive =
-                              subItem.url === "/safety/risk-board"
-                                ? pathname === "/safety/risk-board" ||
-                                  pathname?.startsWith("/safety/task-board")
-                                : pathname === subItem.url ||
-                                  !!pathname?.startsWith(`${subItem.url}/`)
-                            return (
-                              <SidebarMenuSubItem key={subItem.title}>
-                                <SidebarMenuSubButton
-                                  asChild
-                                  className={cn(
-                                    "h-9 pl-9",
-                                    isSubActive && "bg-sidebar-accent/50 font-medium"
-                                  )}
-                                >
-                                  <Link href={subItem.url}>
-                                    <span>{subItem.title}</span>
-                                  </Link>
-                                </SidebarMenuSubButton>
-                              </SidebarMenuSubItem>
-                            )
-                          })}
-                        </SidebarMenuSub>
-                      </CollapsibleContent>
-                    </SidebarMenuItem>
-                  </Collapsible>
-                </React.Fragment>
-              )
-            }
-
+          {NAV_TOP.map((item) => {
             const isActive =
-              pathname === item.url || pathname?.startsWith(item.url + "/")
+              pathname === item.url || pathname?.startsWith(`${item.url}/`)
+            return (
+              <SidebarMenuItem key={item.title}>
+                <SidebarMenuButton
+                  asChild
+                  className={cn(
+                    "h-10 rounded-lg px-3 transition-colors",
+                    isActive &&
+                      "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                  )}
+                >
+                  <Link href={item.url}>
+                    <item.icon className="size-5" />
+                    <span>{item.title}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )
+          })}
+
+          {showComplianceNav ? (
+            <Collapsible
+              open={complianceMonitoringOpen}
+              onOpenChange={setComplianceMonitoringOpen}
+              className="group/collapsible"
+            >
+              <SidebarMenuItem>
+                <CollapsibleTrigger asChild>
+                  <SidebarMenuButton
+                    className={cn(
+                      "h-10 w-full justify-between rounded-lg px-3 transition-colors",
+                      pathname?.startsWith("/compliance") &&
+                        "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      <IconClipboardCheck className="size-5" />
+                      <span>Compliance Monitoring</span>
+                    </div>
+                    <IconChevronDown
+                      className={cn(
+                        "size-4 transition-transform duration-200",
+                        complianceMonitoringOpen && "rotate-180"
+                      )}
+                    />
+                  </SidebarMenuButton>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <SidebarMenuSub>
+                    {visibleComplianceMonitoringSubItems.map((subItem) => {
+                      const isSubActive =
+                        subItem.url === "/compliance"
+                          ? pathname === "/compliance" || pathname === "/compliance/"
+                          : pathname === subItem.url ||
+                            !!pathname?.startsWith(`${subItem.url}/`)
+                      return (
+                        <SidebarMenuSubItem key={subItem.title}>
+                          <SidebarMenuSubButton
+                            asChild
+                            className={cn(
+                              "h-9 pl-9",
+                              isSubActive && "bg-sidebar-accent/50 font-medium"
+                            )}
+                          >
+                            <Link href={subItem.url}>
+                              <span>{subItem.title}</span>
+                            </Link>
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                      )
+                    })}
+                  </SidebarMenuSub>
+                </CollapsibleContent>
+              </SidebarMenuItem>
+            </Collapsible>
+          ) : null}
+
+          {showSafetyNav ? (
+            <Collapsible
+              open={safetyManagementOpen}
+              onOpenChange={setSafetyManagementOpen}
+              className="group/collapsible"
+            >
+              <SidebarMenuItem>
+                <CollapsibleTrigger asChild>
+                  <SidebarMenuButton
+                    className={cn(
+                      "h-10 w-full justify-between rounded-lg px-3 transition-colors",
+                      pathname?.startsWith("/safety") &&
+                        "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      <IconShieldCheck className="size-5" />
+                      <span>Safety Management</span>
+                    </div>
+                    <IconChevronDown
+                      className={cn(
+                        "size-4 transition-transform duration-200",
+                        safetyManagementOpen && "rotate-180"
+                      )}
+                    />
+                  </SidebarMenuButton>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <SidebarMenuSub>
+                    {safetyManagementSubItems.map((subItem) => {
+                      const isSubActive =
+                        subItem.url === "/safety/risk-board"
+                          ? pathname === "/safety/risk-board" ||
+                            pathname?.startsWith("/safety/task-board")
+                          : pathname === subItem.url ||
+                            !!pathname?.startsWith(`${subItem.url}/`)
+                      return (
+                        <SidebarMenuSubItem key={subItem.title}>
+                          <SidebarMenuSubButton
+                            asChild
+                            className={cn(
+                              "h-9 pl-9",
+                              isSubActive && "bg-sidebar-accent/50 font-medium"
+                            )}
+                          >
+                            <Link href={subItem.url}>
+                              <span>{subItem.title}</span>
+                            </Link>
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                      )
+                    })}
+                  </SidebarMenuSub>
+                </CollapsibleContent>
+              </SidebarMenuItem>
+            </Collapsible>
+          ) : null}
+
+          {NAV_MID.map((item) => {
+            const isActive =
+              pathname === item.url || pathname?.startsWith(`${item.url}/`)
             return (
               <SidebarMenuItem key={item.title}>
                 <SidebarMenuButton
@@ -562,7 +589,7 @@ export function AppSidebar({
             </SidebarMenuItem>
           </Collapsible>
 
-          {menuItemsAfterControlledDocs.map((item) => {
+          {NAV_AFTER_CONTROLLED_DOCS.map((item) => {
             const isActive =
               pathname === item.url || pathname?.startsWith(`${item.url}/`)
             const announcementSystemNavActive =
