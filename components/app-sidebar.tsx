@@ -23,6 +23,7 @@ import {
   IconSettings,
   IconShieldCheck,
   IconSpeakerphone,
+  IconTicket,
   IconUrgent,
   IconUser,
 } from "@tabler/icons-react"
@@ -61,6 +62,7 @@ interface User {
 
 const menuItems = [
   { title: "Dashboard", url: "/dashboard", icon: IconDashboard },
+  { title: "Support Ticket", url: "/support-tickets", icon: IconTicket },
   { title: "Report Hazard", url: "/report-hazard", icon: IconAlertTriangle },
   { title: "Hazard Inbox", url: "/hazard-inbox", icon: IconInbox },
   { title: "Compliance Monitoring", url: "/compliance", icon: IconClipboardCheck },

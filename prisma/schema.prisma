@@ -110,6 +110,8 @@ model Calisan {
   safetyRiskBoardsUpdated   SafetyRiskBoard[] @relation("SafetyRiskBoardUpdatedBy")
   auditPlanAuditors AuditPlanAuditor[] @relation("AuditPlanAuditorCalisan")
   auditPlanAuditees AuditPlanAuditee[] @relation("AuditPlanAuditeeCalisan")
+  supportTicketsCreated SupportTicket[] @relation("SupportTicketCreator")
+  supportTicketsAdminUpdated SupportTicket[] @relation("SupportTicketAdmin")
 
   @@index([createdAt(sort: Desc)])
   @@index([isim, soyisim])
@@ -861,4 +863,33 @@ model AuditPlanAuditee {
   @@unique([auditPlanEntryId, calisanId])
   @@index([calisanId])
   @@map("audit_plan_auditees")
+}
+
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+/// Çalışanların sistem sorunlarını Admin’e iletmesi; Admin aksiyon notu ve durum günceller.
+model SupportTicket {
+  id                 Int                 @id @default(autoincrement())
+  subject            String?             @db.VarChar(200)
+  content            String              @db.Text
+  status             SupportTicketStatus @default(OPEN)
+  adminAction        String?             @map("admin_action") @db.Text
+  departmentSnapshot String?             @map("department_snapshot") @db.VarChar(100)
+  createdBy          Int                 @map("created_by")
+  lastUpdatedBy      Int?                @map("last_updated_by")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  creator     Calisan  @relation("SupportTicketCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+  lastUpdater Calisan? @relation("SupportTicketAdmin", fields: [lastUpdatedBy], references: [id], onDelete: SetNull)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([status])
+  @@index([createdBy])
+  @@map("support_tickets")
 }
