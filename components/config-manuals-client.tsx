@@ -91,7 +91,7 @@ export function ConfigManualsClient() {
   const [customDepartment, setCustomDepartment] = React.useState("")
   const [uploadMode, setUploadMode] = React.useState<"new" | "revision">("new")
   const [supersedesId, setSupersedesId] = React.useState<string>("")
-  const [revisionInput, setRevisionInput] = React.useState("1")
+  const [revisionInput, setRevisionInput] = React.useState("0")
   const [file, setFile] = React.useState<File | null>(null)
   const [uploading, setUploading] = React.useState(false)
   const [deletingId, setDeletingId] = React.useState<number | null>(null)
@@ -124,7 +124,7 @@ export function ConfigManualsClient() {
       setItems(
         list.map((m) => ({
           ...m,
-          revision: m.revision ?? 1,
+          revision: m.revision ?? 0,
           isCurrent: m.isCurrent ?? true,
           createdBy: m.createdBy ?? null,
           creator: m.creator ?? null,
@@ -134,7 +134,7 @@ export function ConfigManualsClient() {
         Array.isArray(data.historicManuals)
           ? data.historicManuals.map((m) => ({
               ...m,
-              revision: m.revision ?? 1,
+              revision: m.revision ?? 0,
               isCurrent: m.isCurrent ?? false,
               createdBy: m.createdBy ?? null,
               creator: m.creator ?? null,
@@ -170,13 +170,13 @@ export function ConfigManualsClient() {
     setCustomDepartment("")
     setUploadMode("new")
     setSupersedesId("")
-    setRevisionInput("1")
+    setRevisionInput("0")
     setFile(null)
   }
 
   const revisionNumberValid = React.useMemo(() => {
     const n = Number.parseInt(revisionInput.trim(), 10)
-    return Number.isFinite(n) && n >= 1 && n <= 999999
+    return Number.isFinite(n) && n >= 0 && n <= 999999
   }, [revisionInput])
 
   const departmentChoiceValid = React.useMemo(() => {
@@ -201,7 +201,7 @@ export function ConfigManualsClient() {
     if (!revisionNumberValid) {
       setBanner({
         type: "err",
-        text: "Enter a revision number between 1 and 999999 (whole number).",
+        text: "Enter a revision number between 0 and 999999 (whole number).",
       })
       return
     }
@@ -468,7 +468,7 @@ export function ConfigManualsClient() {
                   <SelectContent>
                     {revisionParentOptions.map((m) => (
                       <SelectItem key={m.id} value={String(m.id)}>
-                        {m.title} (Rev. {m.revision ?? 1})
+                        {m.title} (Rev. {m.revision ?? 0})
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -653,7 +653,7 @@ export function ConfigManualsClient() {
                   <div className="min-w-0">
                     <p className="font-medium">{m.title}</p>
                     <p className="text-muted-foreground text-xs">
-                      Rev. {m.revision ?? 1}
+                      Rev. {m.revision ?? 0}
                       {m.department ? ` · ${m.department}` : ""}
                       {" · "}
                       Uploaded by {formatUploaderLabel(m)}
@@ -762,7 +762,7 @@ export function ConfigManualsClient() {
                     <div className="min-w-0">
                       <p className="font-medium text-muted-foreground">{m.title}</p>
                       <p className="text-muted-foreground text-xs">
-                        Rev. {m.revision ?? 1}
+                        Rev. {m.revision ?? 0}
                         {m.department ? ` · ${m.department}` : ""}
                         {" · "}
                         Uploaded by {formatUploaderLabel(m)}

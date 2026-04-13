@@ -227,9 +227,9 @@ export async function POST(req: NextRequest) {
       )
     }
   }
-  if (!Number.isFinite(revisionNum) || revisionNum < 1 || revisionNum > 999999) {
+  if (!Number.isFinite(revisionNum) || revisionNum < 0 || revisionNum > 999999) {
     return NextResponse.json(
-      { error: "Revizyon numarası 1–999999 arasında tam sayı olmalıdır." },
+      { error: "Revizyon numarası 0–999999 arasında tam sayı olmalıdır." },
       { status: 400 }
     )
   }

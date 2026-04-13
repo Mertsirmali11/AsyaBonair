@@ -85,8 +85,11 @@ export async function GET(
     ? `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`
     : `inline; filename="${ascii}"; filename*=UTF-8''${utf8}`
 
+  const nameLower = name.toLowerCase()
+  const mimeFromRow = row.fileMimeType?.trim() || ""
   const mime =
-    row.fileMimeType?.trim() || "application/octet-stream"
+    mimeFromRow ||
+    (nameLower.endsWith(".pdf") ? "application/pdf" : "application/octet-stream")
 
   return new Response(new Uint8Array(buf), {
     status: 200,

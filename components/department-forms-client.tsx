@@ -97,6 +97,9 @@ function matchesSearch(m: FormRow, q: string): boolean {
   )
 }
 
+/** Admin departman filtresi: Radix Select boş değer kullanmadığı için yer tutucu. */
+const ADMIN_DEPT_FILTER_UNSET = "__unset__"
+
 export function DepartmentFormsClient() {
   const [items, setItems] = React.useState<FormRow[]>([])
   const [historicItems, setHistoricItems] = React.useState<FormRow[]>([])
@@ -109,13 +112,15 @@ export function DepartmentFormsClient() {
   )
   const [loading, setLoading] = React.useState(true)
   const [search, setSearch] = React.useState("")
+  /** Yalnızca Admin: listede hangi departmanın formları gösterilecek */
+  const [filterDept, setFilterDept] = React.useState("")
 
   const [title, setTitle] = React.useState("")
   const [formNumber, setFormNumber] = React.useState("")
   const [department, setDepartment] = React.useState<string>("")
   const [uploadMode, setUploadMode] = React.useState<"new" | "revision">("new")
   const [supersedesId, setSupersedesId] = React.useState<string>("")
-  const [revisionInput, setRevisionInput] = React.useState("1")
+  const [revisionInput, setRevisionInput] = React.useState("0")
   const [file, setFile] = React.useState<File | null>(null)
   const [uploading, setUploading] = React.useState(false)
   const [deletingId, setDeletingId] = React.useState<number | null>(null)
@@ -169,7 +174,7 @@ export function DepartmentFormsClient() {
         list.map((m) => ({
           ...m,
           formNumber: m.formNumber ?? "",
-          revision: m.revision ?? 1,
+          revision: m.revision ?? 0,
           isCurrent: m.isCurrent ?? true,
           createdBy: m.createdBy ?? null,
           creator: m.creator ?? null,
@@ -181,7 +186,7 @@ export function DepartmentFormsClient() {
           ? data.historicForms.map((m) => ({
               ...m,
               formNumber: m.formNumber ?? "",
-              revision: m.revision ?? 1,
+              revision: m.revision ?? 0,
               isCurrent: m.isCurrent ?? false,
               createdBy: m.createdBy ?? null,
               creator: m.creator ?? null,
@@ -236,7 +241,7 @@ export function DepartmentFormsClient() {
     setFormNumber("")
     setUploadMode("new")
     setSupersedesId("")
-    setRevisionInput("1")
+    setRevisionInput("0")
     setFile(null)
     if (fileInputRef.current) fileInputRef.current.value = ""
     if (!canManageAll) {
@@ -330,14 +335,14 @@ export function DepartmentFormsClient() {
     setFormNumber("")
     setUploadMode("new")
     setSupersedesId("")
-    setRevisionInput("1")
+    setRevisionInput("0")
     setFile(null)
     if (fileInputRef.current) fileInputRef.current.value = ""
   }
 
   const revisionNumberValid = React.useMemo(() => {
     const n = Number.parseInt(revisionInput.trim(), 10)
-    return Number.isFinite(n) && n >= 1 && n <= 999999
+    return Number.isFinite(n) && n >= 0 && n <= 999999
   }, [revisionInput])
 
   const departmentChoiceValid = React.useMemo(() => {
@@ -357,7 +362,7 @@ export function DepartmentFormsClient() {
     if (!revisionNumberValid) {
       setBanner({
         type: "err",
-        text: "Revizyon 1–999999 arasında tam sayı olmalıdır.",
+        text: "Revizyon 0–999999 arasında tam sayı olmalıdır.",
       })
       return
     }
@@ -476,13 +481,34 @@ export function DepartmentFormsClient() {
     }
   }
 
+  const deptFilterOptions = React.useMemo(() => {
+    const s = new Set<string>()
+    for (const d of departmentOptions) s.add(d)
+    for (const m of items) s.add(m.department)
+    return [...s].sort((a, b) => a.localeCompare(b, "tr"))
+  }, [departmentOptions, items])
+
+  const itemsForList = React.useMemo(() => {
+    if (!canManageAll) return items
+    const d = filterDept.trim()
+    if (!d) return []
+    return items.filter((m) => m.department === d)
+  }, [items, canManageAll, filterDept])
+
+  const historicForList = React.useMemo(() => {
+    if (!canManageAll) return historicItems
+    const d = filterDept.trim()
+    if (!d) return []
+    return historicItems.filter((m) => m.department === d)
+  }, [historicItems, canManageAll, filterDept])
+
   const filteredCurrent = React.useMemo(
-    () => items.filter((m) => matchesSearch(m, search)),
-    [items, search]
+    () => itemsForList.filter((m) => matchesSearch(m, search)),
+    [itemsForList, search]
   )
   const filteredHistoric = React.useMemo(
-    () => historicItems.filter((m) => matchesSearch(m, search)),
-    [historicItems, search]
+    () => historicForList.filter((m) => matchesSearch(m, search)),
+    [historicForList, search]
   )
 
   const revisionParentOptions = items.filter((m) => m.isCurrent !== false)
@@ -515,19 +541,22 @@ export function DepartmentFormsClient() {
       {!loading && !canWriteAny ? (
         <p className="text-muted-foreground text-sm">
           Hesabınıza departman atanmamış; kendi departmanınızın formlarını göremez veya
-          yükleyemezsiniz. <strong className="text-foreground">Quality</strong> ve{" "}
-          <strong className="text-foreground">Admin</strong> tüm formlara erişir (hesap
-          departmanı bu rollerden biri olmalıdır). Diğer kullanıcılar için yöneticiden
+          yükleyemezsiniz. Tüm departman formlarını yalnızca{" "}
+          <strong className="text-foreground">Admin</strong> görür ve yönetir. Diğer
+          kullanıcılar yalnızca kendi departmanlarını görür; gerekirse yöneticiden
           departman ataması isteyin.
         </p>
       ) : null}
 
       {canManageAll ? (
         <p className="text-muted-foreground text-sm">
-          <strong className="text-foreground">Quality</strong> ve{" "}
-          <strong className="text-foreground">Admin</strong> tüm departman formlarını
-          görür ve <strong className="text-foreground">Form yükle</strong> ile
-          yükleyebilir. Diğer departmanlar yalnızca kendi formlarını görür ve yükler.
+          <strong className="text-foreground">Admin</strong> olarak tüm departman
+          formlarını yönetebilirsiniz. Listede görmek için önce bir{" "}
+          <strong className="text-foreground">departman</strong> seçin; ardından
+          isteğe bağlı metin aramasıyla daraltın.{" "}
+          <strong className="text-foreground">Form yükle</strong> ile herhangi bir
+          departman adına yükleme yapabilirsiniz. Admin olmayan kullanıcılar yalnızca
+          kendi departmanlarının formlarını görür.
         </p>
       ) : canWriteAny ? (
         <p className="text-muted-foreground text-sm">
@@ -538,22 +567,55 @@ export function DepartmentFormsClient() {
       ) : null}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex min-w-0 flex-1 flex-col gap-2 sm:max-w-md">
-          <Label htmlFor="dept-form-search" className="text-muted-foreground">
-            Form ara
-          </Label>
-          <div className="flex gap-2">
-            <Input
-              id="dept-form-search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Form no, başlık, departman, yükleyen, revizyon…"
-              className="flex-1"
-            />
-            <Button type="button" variant="secondary" className="shrink-0 gap-1.5">
-              <IconSearch className="size-4" />
-              Ara
-            </Button>
+        <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-end">
+          {canManageAll ? (
+            <div className="flex min-w-0 flex-1 flex-col gap-2 sm:max-w-xs">
+              <Label htmlFor="dept-form-filter" className="text-muted-foreground">
+                Departman
+              </Label>
+              <Select
+                value={filterDept.trim() ? filterDept : ADMIN_DEPT_FILTER_UNSET}
+                onValueChange={(v) =>
+                  setFilterDept(v === ADMIN_DEPT_FILTER_UNSET ? "" : v)
+                }
+              >
+                <SelectTrigger id="dept-form-filter" className="w-full">
+                  <SelectValue placeholder="Departman seçin" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ADMIN_DEPT_FILTER_UNSET}>
+                    Departman seçin
+                  </SelectItem>
+                  {deptFilterOptions.map((d) => (
+                    <SelectItem key={d} value={d}>
+                      {d}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+          <div className="flex min-w-0 flex-1 flex-col gap-2 sm:max-w-md">
+            <Label htmlFor="dept-form-search" className="text-muted-foreground">
+              {canManageAll ? "İçinde ara (isteğe bağlı)" : "Form ara"}
+            </Label>
+            <div className="flex gap-2">
+              <Input
+                id="dept-form-search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={
+                  canManageAll
+                    ? "Form no, başlık, yükleyen, revizyon…"
+                    : "Form no, başlık, departman, yükleyen, revizyon…"
+                }
+                className="flex-1"
+              />
+              <Button type="button" variant="secondary" className="shrink-0 gap-1.5">
+                <IconSearch className="size-4" />
+                Ara
+              </Button>
+            </div>
           </div>
         </div>
         {canWriteAny ? (
@@ -891,8 +953,16 @@ export function DepartmentFormsClient() {
             ) : null}
           </TabsList>
           <TabsContent value="current" className="mt-4">
-            {filteredCurrent.length === 0 ? (
-              <p className="text-muted-foreground text-sm">Kayıt yok.</p>
+            {canManageAll && !filterDept.trim() ? (
+              <p className="text-muted-foreground text-sm">
+                Güncel formları görmek için yukarıdan bir departman seçin.
+              </p>
+            ) : filteredCurrent.length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                {canManageAll && filterDept.trim()
+                  ? "Bu departmanda güncel form yok."
+                  : "Kayıt yok."}
+              </p>
             ) : (
               <Table>
                 <TableHeader>
@@ -994,8 +1064,16 @@ export function DepartmentFormsClient() {
           </TabsContent>
           {showHistoricTab ? (
             <TabsContent value="historic" className="mt-4">
-              {filteredHistoric.length === 0 ? (
-                <p className="text-muted-foreground text-sm">Arşivde kayıt yok.</p>
+              {canManageAll && !filterDept.trim() ? (
+                <p className="text-muted-foreground text-sm">
+                  Arşivi görmek için önce bir departman seçin.
+                </p>
+              ) : filteredHistoric.length === 0 ? (
+                <p className="text-muted-foreground text-sm">
+                  {canManageAll && filterDept.trim()
+                    ? "Bu departman için arşivde kayıt yok."
+                    : "Arşivde kayıt yok."}
+                </p>
               ) : (
                 <Table>
                   <TableHeader>
@@ -1076,7 +1154,9 @@ export function DepartmentFormsClient() {
           </p>
           <p>
             <strong className="text-foreground">Arşiv:</strong> Eski revizyonlar
-            burada; Quality / Admin tüm arşivi görür.
+            burada. <strong className="text-foreground">Admin</strong> departman
+            seçerek tüm arşive bakar; diğer kullanıcılar yalnızca kendi departmanlarının
+            arşivini görür.
           </p>
           <p>
             <strong className="text-foreground">Yeni revizyon:</strong> Satırdaki{" "}

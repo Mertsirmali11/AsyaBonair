@@ -2,7 +2,7 @@
 -- Prisma: `pnpm prisma db push` bu şemayı senkronlar; yalnızca SQL kullanıyorsanız bu dosyayı çalıştırın.
 
 ALTER TABLE "company_manuals" ADD COLUMN IF NOT EXISTS "department" VARCHAR(100);
-ALTER TABLE "company_manuals" ADD COLUMN IF NOT EXISTS "revision" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE "company_manuals" ADD COLUMN IF NOT EXISTS "revision" INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE "company_manuals" ADD COLUMN IF NOT EXISTS "is_current" BOOLEAN NOT NULL DEFAULT true;
 
 -- Dolu tabloda NOT NULL seri: önce sütun + varsayılan, sonra gerekirse NOT NULL

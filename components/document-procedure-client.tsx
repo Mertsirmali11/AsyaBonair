@@ -60,6 +60,10 @@ function isPdfMime(
   return n.endsWith(".pdf")
 }
 
+function fileViewUrl(versionId: number): string {
+  return `/api/document-procedure/${versionId}/file#view=FitH`
+}
+
 function formatCreator(c: Creator): string {
   if (!c) return "—"
   const name = `${c.isim ?? ""} ${c.soyisim ?? ""}`.trim()
@@ -79,7 +83,7 @@ export function DocumentProcedureClient() {
 
   const [addOpen, setAddOpen] = React.useState(false)
   const [title, setTitle] = React.useState("Document Procedure")
-  const [revisionInput, setRevisionInput] = React.useState("1")
+  const [revisionInput, setRevisionInput] = React.useState("0")
   const [file, setFile] = React.useState<File | null>(null)
   const [uploading, setUploading] = React.useState(false)
 
@@ -134,9 +138,9 @@ export function DocumentProcedureClient() {
   React.useEffect(() => {
     if (!addOpen) return
     if (current) {
-      setRevisionInput(String((current.revision ?? 1) + 1))
+      setRevisionInput(String((current.revision ?? 0) + 1))
     } else {
-      setRevisionInput("1")
+      setRevisionInput("0")
     }
     setTitle("Document Procedure")
     setFile(null)
@@ -144,7 +148,7 @@ export function DocumentProcedureClient() {
 
   const revisionNumberValid = React.useMemo(() => {
     const n = Number.parseInt(revisionInput.trim(), 10)
-    return Number.isFinite(n) && n >= 1 && n <= 999999
+    return Number.isFinite(n) && n >= 0 && n <= 999999
   }, [revisionInput])
 
   const submit = async () => {
@@ -159,7 +163,7 @@ export function DocumentProcedureClient() {
     if (!revisionNumberValid) {
       setBanner({
         type: "err",
-        text: "Revizyon 1–999999 arasında tam sayı olmalıdır.",
+        text: "Revizyon 0–999999 arasında tam sayı olmalıdır.",
       })
       return
     }
@@ -288,7 +292,7 @@ export function DocumentProcedureClient() {
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" variant="default" size="sm" asChild>
                     <a
-                      href={`/api/document-procedure/${current.id}/file`}
+                      href={fileViewUrl(current.id)}
                       target="_blank"
                       rel="noopener noreferrer"
                     >
@@ -309,7 +313,7 @@ export function DocumentProcedureClient() {
                 {isPdfMime(current.fileMimeType, current.originalFileName) ? (
                   <iframe
                     title={current.title}
-                    src={`/api/document-procedure/${current.id}/file`}
+                    src={fileViewUrl(current.id)}
                     className="min-h-[min(78vh,720px)] w-full rounded-md border border-border bg-background"
                   />
                 ) : (
@@ -320,15 +324,36 @@ export function DocumentProcedureClient() {
                 )}
               </>
             ) : (
-              <>
-                <p className="text-muted-foreground text-sm">
-                  Bu sürüm yalnızca metin çıkarımıyla kayıtlı (eski yükleme). Tam
-                  görünüm için yeni bir sürüm yükleyin.
+              <div className="space-y-3 rounded-md border border-amber-500/35 bg-amber-500/5 p-4">
+                <p className="text-sm text-foreground">
+                  Bu sürümde PDF dosyası yok (yalnızca eski metin kaydı). Sayfa
+                  üzerinde düzenli PDF görünümü için güncel dosyayı{" "}
+                  <strong className="font-medium">
+                    PDF olarak «Sürüm yükle»
+                  </strong>
+                  ile yeniden yükleyin; yüklemeden sonra belge burada gömülü
+                  PDF olarak açılır.
                 </p>
-                <pre className="max-h-[min(50vh,420px)] overflow-auto whitespace-pre-wrap rounded-md border bg-muted/30 p-4 text-sm leading-relaxed">
-                  {current.contentText}
-                </pre>
-              </>
+                {canEdit ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => setAddOpen(true)}
+                  >
+                    <IconUpload className="size-4" />
+                    PDF sürümü yükle
+                  </Button>
+                ) : null}
+                <details className="group text-sm">
+                  <summary className="cursor-pointer text-muted-foreground underline-offset-2 hover:underline">
+                    Çıkarılmış metin yedeği (salt okunur, isteğe bağlı)
+                  </summary>
+                  <pre className="mt-3 max-h-[min(40vh,360px)] overflow-auto whitespace-pre-wrap rounded-md border bg-muted/30 p-4 text-sm leading-relaxed">
+                    {current.contentText}
+                  </pre>
+                </details>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -383,7 +408,7 @@ export function DocumentProcedureClient() {
                   <div className="flex flex-wrap gap-2">
                     <Button type="button" variant="default" size="sm" asChild>
                       <a
-                        href={`/api/document-procedure/${historicView.id}/file`}
+                        href={fileViewUrl(historicView.id)}
                         target="_blank"
                         rel="noopener noreferrer"
                       >
@@ -404,7 +429,7 @@ export function DocumentProcedureClient() {
                   ) ? (
                     <iframe
                       title={historicView.title}
-                      src={`/api/document-procedure/${historicView.id}/file`}
+                      src={fileViewUrl(historicView.id)}
                       className="min-h-[55vh] w-full rounded-md border border-border bg-background"
                     />
                   ) : (
@@ -414,9 +439,20 @@ export function DocumentProcedureClient() {
                   )}
                 </>
               ) : (
-                <pre className="max-h-[55vh] overflow-auto whitespace-pre-wrap rounded-md border bg-muted/30 p-4 text-sm">
-                  {historicView.contentText}
-                </pre>
+                <div className="space-y-3 rounded-md border border-amber-500/35 bg-amber-500/5 p-4">
+                  <p className="text-sm text-foreground">
+                    Bu arşiv satırında PDF yok (eski kayıt). Gömülü PDF için
+                    güncel sürümü PDF olarak yükleyin.
+                  </p>
+                  <details className="text-sm">
+                    <summary className="cursor-pointer text-muted-foreground underline-offset-2 hover:underline">
+                      Çıkarılmış metin yedeği
+                    </summary>
+                    <pre className="mt-3 max-h-[45vh] overflow-auto whitespace-pre-wrap rounded-md border bg-muted/30 p-4 text-sm">
+                      {historicView.contentText}
+                    </pre>
+                  </details>
+                </div>
               )}
             </div>
           ) : null}

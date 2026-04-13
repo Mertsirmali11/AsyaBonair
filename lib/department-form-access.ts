@@ -1,10 +1,10 @@
 import { isAdminDepartment } from "@/lib/department-access"
 
-/** Quality veya Admin — tüm departman formlarını görür / düzenler. */
+/** Yalnızca Admin — tüm departman formlarını görür / her departman adına yükleyebilir. */
 export function canManageAllDepartmentForms(
   departman: string | null | undefined
 ): boolean {
-  return departman === "Quality" || isAdminDepartment(departman)
+  return isAdminDepartment(departman)
 }
 
 export function normalizeDeptLabel(
@@ -14,7 +14,7 @@ export function normalizeDeptLabel(
 }
 
 /**
- * Formlar API’si için: JWT’de Admin/Quality görünürken veritabanında farklı veya boş
+ * Formlar API’si için: JWT’de Admin görünürken veritabanında farklı veya boş
  * departman kaydı olabiliyor; duyuru tarafındaki «önce DB» kuralı burada yükseltilmiş
  * oturum rolünü ezmemeli.
  */
@@ -40,7 +40,7 @@ export function canViewDepartmentFormRow(
   return normalizeDeptLabel(viewerDept) === normalizeDeptLabel(formDepartment)
 }
 
-/** Düzenleme / yükleme / arşiv / silme — yalnızca satırın departmanı veya Quality/Admin. */
+/** Düzenleme / yükleme / arşiv / silme — yalnızca satırın departmanı veya Admin. */
 export function canWriteDepartmentForm(
   viewerDept: string | null | undefined,
   formDepartment: string
