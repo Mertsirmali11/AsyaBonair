@@ -8,6 +8,7 @@ export default async function TasksPage() {
   if (!session) redirect("/login")
 
   const userDepartman = session.user?.departman
+  // Page visible to Quality + Admin; edits restricted to Admin in the API/UI.
   if (userDepartman !== "Quality" && !isAdminDepartment(userDepartman)) {
     redirect("/dashboard")
   }

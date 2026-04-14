@@ -96,6 +96,7 @@ model Calisan {
   outgoingCorrespondences  OutgoingCorrespondence[]
   meetingParticipations    MeetingParticipant[]
   meetingTasksAssigned     MeetingTask[]          @relation("MeetingTaskAssignee")
+  meetingTasksAssignedBy   MeetingTask[]          @relation("MeetingTaskAssignedBy")
   aircraftDocumentsUploaded AircraftDocument[]    @relation("AircraftDocumentUploader")
   taskMessages TaskMessage[]
   taskAttachmentsUploaded TaskAttachment[]
@@ -453,6 +454,7 @@ model MeetingTask {
   dueDate    DateTime? @map("due_date") @db.Date
   meetingId  Int?      @map("meeting_id")
   assigneeId Int?      @map("assignee_id")
+  assignedById Int?    @map("assigned_by_id")
   filePath   String?   @map("file_path") @db.VarChar(1000)
   fileName   String?   @map("file_name") @db.VarChar(255)
   createdAt  DateTime  @default(now()) @map("created_at")
@@ -461,10 +463,12 @@ model MeetingTask {
 
   meeting  Meeting? @relation(fields: [meetingId], references: [id], onDelete: SetNull)
   assignee Calisan? @relation("MeetingTaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  assignedBy Calisan? @relation("MeetingTaskAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
   attachments TaskAttachment[]
 
   @@index([meetingId])
   @@index([assigneeId])
+  @@index([assignedById])
   @@index([createdAt(sort: Desc)])
   @@map("meeting_tasks")
 }

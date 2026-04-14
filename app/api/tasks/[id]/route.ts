@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
+import { isAdminDepartment } from "@/lib/department-access"
 
 export async function GET(
   _req: NextRequest,
@@ -11,12 +12,21 @@ export async function GET(
     if (!session?.user?.email) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+    // Viewing is allowed for Quality + Admin (existing behavior)
+    if (session.user.departman !== "Quality" && !isAdminDepartment(session.user.departman)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
 
     const { id: idParam } = await params
     const id = Number.parseInt(idParam, 10)
     if (Number.isNaN(id)) {
       return NextResponse.json({ error: "Invalid task id" }, { status: 400 })
     }
+
+    const calisan = await prisma.calisan.findUnique({
+      where: { email: session.user.email },
+      select: { id: true },
+    })
 
     const task = await prisma.meetingTask.findUnique({
       where: { id },
@@ -34,6 +44,7 @@ export async function GET(
           },
         },
         assignee: { select: { isim: true, soyisim: true } },
+        assignedBy: { select: { id: true, isim: true, soyisim: true } },
         messages: {
           orderBy: { createdAt: "asc" },
           include: { sender: { select: { isim: true, soyisim: true } } },
@@ -83,18 +94,16 @@ export async function GET(
     }
     history.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
 
-    const participants =
-      task.meeting?.participants
-        ?.map((p) => p.calisan)
-        .filter(Boolean) ?? []
-    const assignedByName =
-      participants.length > 0 ? name(participants[0]!) : null
+    const assignedByName = task.assignedBy ? name(task.assignedBy) : null
+    // Only Admin department may edit tasks (per requirement).
+    const canEdit = isAdminDepartment(session.user.departman)
 
     return NextResponse.json({
       id: task.id,
       title: task.title,
       status: task.status,
       assigneeId: task.assigneeId,
+      assignedById: task.assignedById ?? null,
       dueDate: task.dueDate ? task.dueDate.toISOString() : null,
       createdAt: task.createdAt.toISOString(),
       updatedAt: task.updatedAt.toISOString(),
@@ -107,6 +116,7 @@ export async function GET(
           }
         : null,
       assignedByName,
+      permissions: { canEdit },
       assignee: task.assignee,
       filePath: task.filePath,
       fileName: task.fileName,
@@ -136,6 +146,21 @@ export async function GET(
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  const session = await auth()
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  // Only Admin department may update tasks (per requirement).
+  if (!isAdminDepartment(session.user.departman)) {
+    return NextResponse.json({ error: "Only admin can update tasks" }, { status: 403 })
+  }
+
+  const task = await prisma.meetingTask.findUnique({
+    where: { id: parseInt(id) },
+    select: { id: true },
+  })
+  if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 })
+
   const contentType = req.headers.get("content-type") || ""
 
   if (contentType.includes("multipart/form-data")) {
@@ -176,7 +201,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
     }
 
-    const task = await prisma.meetingTask.update({
+    const updated = await prisma.meetingTask.update({
       where: { id: parseInt(id) },
       data: {
         ...(status && { status }),
@@ -185,7 +210,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       },
       include: { assignee: { select: { isim: true, soyisim: true } } },
     })
-    return NextResponse.json(task)
+    return NextResponse.json(updated)
   }
 
   const body = (await req.json()) as Record<string, unknown>
@@ -221,12 +246,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     )
   }
 
-  const task = await prisma.meetingTask.update({
+  const updated = await prisma.meetingTask.update({
     where: { id: parseInt(id) },
     data,
     include: { assignee: { select: { isim: true, soyisim: true } } },
   })
-  return NextResponse.json(task)
+  return NextResponse.json(updated)
 }
 
 export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {

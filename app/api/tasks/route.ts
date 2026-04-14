@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
+import { auth } from "@/auth"
+import { isAdminDepartment } from "@/lib/department-access"
 
 export async function GET(req: NextRequest) {
   try {
@@ -31,6 +33,23 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const session = await auth()
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    // Only Admin may create tasks (per requirement for restricted edits/ownership).
+    if (!isAdminDepartment(session.user.departman)) {
+      return NextResponse.json({ error: "Only admin can create tasks" }, { status: 403 })
+    }
+
+    const calisan = await prisma.calisan.findUnique({
+      where: { email: session.user.email },
+      select: { id: true },
+    })
+    if (!calisan) {
+      return NextResponse.json({ error: "User not found" }, { status: 403 })
+    }
+
     const body = await req.json()
     const rawMeetingId = body.meetingId
     let meetingId: number | null = null
@@ -61,6 +80,7 @@ export async function POST(req: NextRequest) {
         assigneeId,
         dueDate,
         status,
+        assignedById: calisan.id,
       },
       include: {
         assignee: { select: { isim: true, soyisim: true } },
