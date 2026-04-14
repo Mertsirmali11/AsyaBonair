@@ -12,10 +12,17 @@ import {
   isOrganizationDepartment,
   isValidCustomManualDepartment,
 } from "@/lib/organization-departments"
-import { isAllowedCorrespondenceDocumentFile } from "@/lib/allowed-document-uploads"
+import {
+  isAllowedCorrespondenceDocumentFile,
+  lowerExtension,
+} from "@/lib/allowed-document-uploads"
 import { slugifyManualTitle } from "@/lib/company-manual-slug"
 import { isAdminDepartment } from "@/lib/department-access"
 import { extractPlainTextFromUploadedDocument } from "@/lib/extract-uploaded-document-text"
+import {
+  deleteCompanyManualFile,
+  uploadCompanyManualFile,
+} from "@/lib/company-manuals-storage"
 
 export const runtime = "nodejs"
 
@@ -32,6 +39,8 @@ const manualSelect = {
   seriesId: true,
   isCurrent: true,
   createdBy: true,
+  fileName: true,
+  fileStoragePath: true,
   creator: {
     select: {
       isim: true,
@@ -40,6 +49,16 @@ const manualSelect = {
     },
   },
 } as const
+
+function documentPreviewKind(
+  fileStoragePath: string | null,
+  fileName: string | null
+): "pdf" | "none" | "unsupported" {
+  if (!fileStoragePath) return "none"
+  const ext = lowerExtension(fileName ?? "")
+  if (ext === ".pdf") return "pdf"
+  return "unsupported"
+}
 
 export async function GET() {
   const session = await auth()
@@ -78,13 +97,37 @@ export async function GET() {
     : undefined
 
   return NextResponse.json({
-    manuals,
-    historicManuals,
+    manuals: manuals.map((m) => {
+      const { fileStoragePath, fileName, ...rest } = m
+      return {
+        ...rest,
+        documentPreview: documentPreviewKind(fileStoragePath, fileName),
+      }
+    }),
+    historicManuals: historicManuals?.map((m) => {
+      const { fileStoragePath, fileName, ...rest } = m
+      return {
+        ...rest,
+        documentPreview: documentPreviewKind(fileStoragePath, fileName),
+      }
+    }),
     viewerIsAdminDepartment,
     canManageManuals,
     departmentOptions,
   })
 }
+
+const createdManualSelect = {
+  id: true,
+  title: true,
+  slug: true,
+  createdAt: true,
+  updatedAt: true,
+  department: true,
+  revision: true,
+  seriesId: true,
+  isCurrent: true,
+} as const
 
 export async function POST(req: NextRequest) {
   const gate = await assertCanManageAnnouncements()
@@ -109,7 +152,10 @@ export async function POST(req: NextRequest) {
   const contentType = req.headers.get("content-type") || ""
   if (!contentType.includes("multipart/form-data")) {
     return NextResponse.json(
-      { error: "multipart/form-data bekleniyor (title + department + file)." },
+      {
+        error:
+          "multipart/form-data bekleniyor (başlık + departman + dosya).",
+      },
       { status: 400 }
     )
   }
@@ -138,6 +184,9 @@ export async function POST(req: NextRequest) {
       ? Number.parseInt(supersedesRaw.trim(), 10)
       : Number.NaN
 
+  const isRevision =
+    Number.isFinite(supersedesId) && !Number.isNaN(supersedesId) && supersedesId > 0
+
   if (!title) {
     return NextResponse.json({ error: "Başlık gerekli." }, { status: 400 })
   }
@@ -160,6 +209,7 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     )
   }
+
   if (!(file instanceof File) || file.size === 0) {
     return NextResponse.json({ error: "Dosya gerekli." }, { status: 400 })
   }
@@ -169,7 +219,6 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     )
   }
-
   if (!isAllowedCorrespondenceDocumentFile(file)) {
     return NextResponse.json(
       { error: "Yalnızca PDF, Word, Excel veya PowerPoint kabul edilir." },
@@ -211,54 +260,23 @@ export async function POST(req: NextRequest) {
     slug = `${baseSlug}-${n}`.slice(0, 160)
   }
 
-  const isRevision =
-    Number.isFinite(supersedesId) && !Number.isNaN(supersedesId) && supersedesId > 0
-
+  let seriesIdForUpload: string
   if (isRevision) {
-    let duplicateRevision = false
-    const created = await prisma.$transaction(async (tx) => {
-      const prior = await tx.companyManual.findFirst({
-        where: { id: supersedesId, isCurrent: true },
-        select: { id: true, seriesId: true },
-      })
-      if (!prior) return null
-      const clash = await tx.companyManual.findFirst({
-        where: { seriesId: prior.seriesId, revision: revisionNum },
-        select: { id: true },
-      })
-      if (clash) {
-        duplicateRevision = true
-        return null
-      }
-      await tx.companyManual.updateMany({
-        where: { seriesId: prior.seriesId, isCurrent: true },
-        data: { isCurrent: false },
-      })
-      return tx.companyManual.create({
-        data: {
-          title,
-          slug,
-          contentText,
-          createdBy: calisan.id,
-          department,
-          seriesId: prior.seriesId,
-          revision: revisionNum,
-          isCurrent: true,
-        },
-        select: {
-          id: true,
-          title: true,
-          slug: true,
-          createdAt: true,
-          updatedAt: true,
-          department: true,
-          revision: true,
-          seriesId: true,
-          isCurrent: true,
-        },
-      })
+    const prior = await prisma.companyManual.findFirst({
+      where: { id: supersedesId, isCurrent: true },
+      select: { seriesId: true },
     })
-    if (duplicateRevision) {
+    if (!prior) {
+      return NextResponse.json(
+        { error: "Yeni revizyon için seçilen manuel bulunamadı veya güncel değil." },
+        { status: 400 }
+      )
+    }
+    const clash = await prisma.companyManual.findFirst({
+      where: { seriesId: prior.seriesId, revision: revisionNum },
+      select: { id: true },
+    })
+    if (clash) {
       return NextResponse.json(
         {
           error:
@@ -267,38 +285,104 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       )
     }
-    if (!created) {
-      return NextResponse.json(
-        { error: "Yeni revizyon için seçilen manuel bulunamadı veya güncel değil." },
-        { status: 400 }
-      )
-    }
-    return NextResponse.json(created)
+    seriesIdForUpload = prior.seriesId
+  } else {
+    seriesIdForUpload = randomUUID()
   }
 
-  const manual = await prisma.companyManual.create({
-    data: {
-      title,
-      slug,
-      contentText,
-      createdBy: calisan.id,
-      department,
-      seriesId: randomUUID(),
-      revision: revisionNum,
-      isCurrent: true,
-    },
-    select: {
-      id: true,
-      title: true,
-      slug: true,
-      createdAt: true,
-      updatedAt: true,
-      department: true,
-      revision: true,
-      seriesId: true,
-      isCurrent: true,
-    },
-  })
+  const uploaded = await uploadCompanyManualFile(
+    buf,
+    seriesIdForUpload,
+    slug,
+    revisionNum,
+    file
+  )
+  if (!uploaded.ok) {
+    return NextResponse.json(
+      {
+        error: `Dosya depoya yüklenemedi: ${uploaded.message}`,
+      },
+      { status: 500 }
+    )
+  }
 
-  return NextResponse.json(manual)
+  try {
+    if (isRevision) {
+      let duplicateRevision = false
+      const created = await prisma.$transaction(async (tx) => {
+        const prior = await tx.companyManual.findFirst({
+          where: { id: supersedesId, isCurrent: true },
+          select: { id: true, seriesId: true },
+        })
+        if (!prior) return null
+        const clash = await tx.companyManual.findFirst({
+          where: { seriesId: prior.seriesId, revision: revisionNum },
+          select: { id: true },
+        })
+        if (clash) {
+          duplicateRevision = true
+          return null
+        }
+        await tx.companyManual.updateMany({
+          where: { seriesId: prior.seriesId, isCurrent: true },
+          data: { isCurrent: false },
+        })
+        return tx.companyManual.create({
+          data: {
+            title,
+            slug,
+            contentText,
+            fileStoragePath: uploaded.storagePath,
+            fileName: uploaded.fileName,
+            createdBy: calisan.id,
+            department,
+            seriesId: prior.seriesId,
+            revision: revisionNum,
+            isCurrent: true,
+          },
+          select: createdManualSelect,
+        })
+      })
+      if (duplicateRevision) {
+        await deleteCompanyManualFile(uploaded.storagePath)
+        return NextResponse.json(
+          {
+            error:
+              "Bu seri için aynı revizyon numarası zaten kullanılmış. Farklı bir numara girin.",
+          },
+          { status: 400 }
+        )
+      }
+      if (!created) {
+        await deleteCompanyManualFile(uploaded.storagePath)
+        return NextResponse.json(
+          { error: "Yeni revizyon için seçilen manuel bulunamadı veya güncel değil." },
+          { status: 400 }
+        )
+      }
+      return NextResponse.json(created)
+    }
+
+    const manual = await prisma.companyManual.create({
+      data: {
+        title,
+        slug,
+        contentText,
+        fileStoragePath: uploaded.storagePath,
+        fileName: uploaded.fileName,
+        createdBy: calisan.id,
+        department,
+        seriesId: seriesIdForUpload,
+        revision: revisionNum,
+        isCurrent: true,
+      },
+      select: createdManualSelect,
+    })
+
+    return NextResponse.json(manual)
+  } catch (e) {
+    console.error("[manuals] create after upload:", e)
+    await deleteCompanyManualFile(uploaded.storagePath)
+    return NextResponse.json({ error: "Kayıt oluşturulamadı." }, { status: 500 })
+  }
 }

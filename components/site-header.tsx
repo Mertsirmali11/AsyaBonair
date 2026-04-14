@@ -1,7 +1,11 @@
 "use client"
 
+import * as React from "react"
 import { Separator } from "@/components/ui/separator"
-import { useWorkspacePageTitle } from "@/components/workspace-page-title"
+import {
+  useWorkspacePageTitle,
+  useWorkspaceTitleAccessory,
+} from "@/components/workspace-page-title"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { DmHeaderInbox } from "@/components/dm-header-inbox"
@@ -27,9 +31,51 @@ function getInitials(name?: string | null): string {
   return name[0].toUpperCase()
 }
 
+function PageTitleWithAccessory({
+  title,
+  accessory,
+}: {
+  title: string
+  accessory: React.ReactNode | null
+}) {
+  if (!accessory) {
+    return (
+      <h1 className="min-w-0 truncate text-base font-medium" title={title}>
+        {title}
+      </h1>
+    )
+  }
+  const sep = " · "
+  const idx = title.lastIndexOf(sep)
+  if (idx === -1) {
+    return (
+      <h1 className="flex min-h-0 min-w-0 items-center gap-1 text-base font-medium">
+        <span className="truncate" title={title}>
+          {title}
+        </span>
+        {accessory}
+      </h1>
+    )
+  }
+  const before = title.slice(0, idx + sep.length)
+  const last = title.slice(idx + sep.length)
+  return (
+    <h1 className="flex min-h-0 min-w-0 max-w-full items-center gap-1 text-base font-medium">
+      <span className="min-w-0 truncate" title={before + last}>
+        {before}
+      </span>
+      <span className="flex shrink-0 items-center gap-0.5">
+        {last}
+        {accessory}
+      </span>
+    </h1>
+  )
+}
+
 export function SiteHeader({ user, title: titleProp }: SiteHeaderProps) {
   const titleFromContext = useWorkspacePageTitle()
   const title = titleProp ?? titleFromContext
+  const titleAccessory = useWorkspaceTitleAccessory()
   const initials = getInitials(user?.name)
 
   return (
@@ -40,7 +86,7 @@ export function SiteHeader({ user, title: titleProp }: SiteHeaderProps) {
           orientation="vertical"
           className="mx-2 data-[orientation=vertical]:h-4"
         />
-        <h1 className="text-base font-medium">{title}</h1>
+        <PageTitleWithAccessory title={title} accessory={titleAccessory} />
         <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
           <DmHeaderInbox />
           <IstanbulClock />

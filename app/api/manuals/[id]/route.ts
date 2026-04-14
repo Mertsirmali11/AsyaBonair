@@ -3,6 +3,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
 import { assertCanManageAnnouncements } from "@/lib/announcements-access"
 import { isAdminDepartment } from "@/lib/department-access"
+import { deleteCompanyManualFile } from "@/lib/company-manuals-storage"
 
 export async function GET(
   _request: Request,
@@ -58,9 +59,15 @@ export async function DELETE(
     const outcome = await prisma.$transaction(async (tx) => {
       const row = await tx.companyManual.findUnique({
         where: { id: numericId },
-        select: { id: true, seriesId: true, isCurrent: true },
+        select: {
+          id: true,
+          seriesId: true,
+          isCurrent: true,
+          fileStoragePath: true,
+        },
       })
-      if (!row) return { deleted: false as const }
+      if (!row) return { deleted: false as const, storagePath: null as string | null }
+      const storagePath = row.fileStoragePath
       await tx.companyManual.delete({ where: { id: numericId } })
       if (row.isCurrent) {
         const promoted = await tx.companyManual.findFirst({
@@ -75,11 +82,12 @@ export async function DELETE(
           })
         }
       }
-      return { deleted: true as const }
+      return { deleted: true as const, storagePath }
     })
     if (!outcome.deleted) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
+    await deleteCompanyManualFile(outcome.storagePath)
     return NextResponse.json({ success: true })
   } catch (e: unknown) {
     console.error("DELETE manual:", e)

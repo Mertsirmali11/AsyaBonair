@@ -1,16 +1,19 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import {
   IconArchive,
-  IconPlus,
+  IconPencil,
   IconSearch,
   IconTrash,
   IconUpload,
 } from "@tabler/icons-react"
 import { formatDateTimeIstanbul } from "@/lib/date-format"
-import { DOCUMENT_ACCEPT_HTML } from "@/lib/allowed-document-uploads"
+import {
+  DOCUMENT_ACCEPT_HTML,
+  lowerExtension,
+} from "@/lib/allowed-document-uploads"
+import { isValidCustomManualDepartment } from "@/lib/organization-departments"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -32,6 +35,11 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ManualsHeaderHelp } from "@/components/manuals-header-help"
+import { SetWorkspacePageTitleAccessory } from "@/components/workspace-page-title"
+
+/** Düzenle / revizyon akışında yalnızca PDF yüklenir (ilk yüklemede Word vb. yükleme penceresi ile). */
+const REVISION_PDF_ACCEPT = "application/pdf,.pdf"
 
 type ManualRow = {
   id: number
@@ -43,6 +51,7 @@ type ManualRow = {
   revision: number
   isCurrent: boolean
   createdBy: number | null
+  documentPreview?: "pdf" | "none" | "unsupported"
   creator: {
     isim: string | null
     soyisim: string | null
@@ -71,6 +80,8 @@ function matchesManualSearch(m: ManualRow, q: string): boolean {
     up.includes(s)
   )
 }
+
+const manualsHeaderHelp = <ManualsHeaderHelp />
 
 export function ConfigManualsClient() {
   const [items, setItems] = React.useState<ManualRow[]>([])
@@ -101,6 +112,19 @@ export function ConfigManualsClient() {
     text: string
   } | null>(null)
 
+  const [editOpen, setEditOpen] = React.useState(false)
+  const [editRow, setEditRow] = React.useState<ManualRow | null>(null)
+  const [editTab, setEditTab] = React.useState<"pdf" | "revizyon">("pdf")
+  const [editSaving, setEditSaving] = React.useState(false)
+  const [editRevTitle, setEditRevTitle] = React.useState("")
+  const [editRevDeptTab, setEditRevDeptTab] = React.useState<"list" | "custom">(
+    "list"
+  )
+  const [editRevDepartment, setEditRevDepartment] = React.useState("")
+  const [editRevCustomDepartment, setEditRevCustomDepartment] = React.useState("")
+  const [editRevRevision, setEditRevRevision] = React.useState("")
+  const [editRevFile, setEditRevFile] = React.useState<File | null>(null)
+
   React.useEffect(() => {
     if (!banner) return
     const t = window.setTimeout(() => setBanner(null), 5000)
@@ -128,6 +152,7 @@ export function ConfigManualsClient() {
           isCurrent: m.isCurrent ?? true,
           createdBy: m.createdBy ?? null,
           creator: m.creator ?? null,
+          documentPreview: m.documentPreview ?? "none",
         }))
       )
       setHistoricItems(
@@ -138,6 +163,7 @@ export function ConfigManualsClient() {
               isCurrent: m.isCurrent ?? false,
               createdBy: m.createdBy ?? null,
               creator: m.creator ?? null,
+              documentPreview: m.documentPreview ?? "none",
             }))
           : []
       )
@@ -147,10 +173,7 @@ export function ConfigManualsClient() {
         Array.isArray(data.departmentOptions) ? data.departmentOptions : []
       )
     } catch (e) {
-      setBanner({
-        type: "err",
-        text: e instanceof Error ? e.message : "Could not load list",
-      })
+      console.error("[manuals] load:", e)
       setItems([])
       setHistoricItems([])
       setDepartmentOptions([])
@@ -178,6 +201,120 @@ export function ConfigManualsClient() {
     const n = Number.parseInt(revisionInput.trim(), 10)
     return Number.isFinite(n) && n >= 0 && n <= 999999
   }, [revisionInput])
+
+  const editRevRevisionValid = React.useMemo(() => {
+    const n = Number.parseInt(editRevRevision.trim(), 10)
+    return Number.isFinite(n) && n >= 0 && n <= 999999
+  }, [editRevRevision])
+
+  const editRevDeptValid = React.useMemo(() => {
+    if (editRevDeptTab === "list") {
+      return Boolean(editRevDepartment.trim()) && departmentOptions.length > 0
+    }
+    return isValidCustomManualDepartment(editRevCustomDepartment)
+  }, [
+    editRevDeptTab,
+    editRevDepartment,
+    editRevCustomDepartment,
+    departmentOptions.length,
+  ])
+
+  const resetEditDialog = React.useCallback(() => {
+    setEditRow(null)
+    setEditTab("pdf")
+    setEditSaving(false)
+    setEditRevTitle("")
+    setEditRevDeptTab("list")
+    setEditRevDepartment("")
+    setEditRevCustomDepartment("")
+    setEditRevRevision("")
+    setEditRevFile(null)
+  }, [])
+
+  const editRevPdfValid = React.useMemo(() => {
+    if (!editRevFile || editRevFile.size === 0) return false
+    return lowerExtension(editRevFile.name) === ".pdf"
+  }, [editRevFile])
+
+  const openEditManual = React.useCallback(
+    (m: ManualRow) => {
+      setEditRow(m)
+      setEditOpen(true)
+      setEditTab("pdf")
+      setEditRevFile(null)
+      setEditRevTitle(m.title)
+      const dep = (m.department ?? "").trim()
+      if (dep && departmentOptions.includes(dep)) {
+        setEditRevDeptTab("list")
+        setEditRevDepartment(dep)
+        setEditRevCustomDepartment("")
+      } else {
+        setEditRevDeptTab("custom")
+        setEditRevCustomDepartment(dep)
+        setEditRevDepartment("")
+      }
+      setEditRevRevision(String(Math.max(0, m.revision ?? 0) + 1))
+    },
+    [departmentOptions]
+  )
+
+  const submitPdfRevision = async () => {
+    if (!editRow) return
+    const t = editRevTitle.trim()
+    const deptValue =
+      editRevDeptTab === "list"
+        ? editRevDepartment.trim()
+        : editRevCustomDepartment.trim()
+    if (!editRevFile || !editRevPdfValid) {
+      setBanner({
+        type: "err",
+        text: "Yeni revizyon için geçerli bir PDF dosyası seçin.",
+      })
+      return
+    }
+    if (!t || !deptValue || !editRevDeptValid) {
+      setBanner({
+        type: "err",
+        text: "Başlık ve sahip departman gerekli.",
+      })
+      return
+    }
+    if (!editRevRevisionValid) {
+      setBanner({
+        type: "err",
+        text: "Revizyon numarası 0–999999 arasında tam sayı olmalıdır.",
+      })
+      return
+    }
+    setEditSaving(true)
+    try {
+      const fd = new FormData()
+      fd.append("title", t)
+      fd.append("department", deptValue)
+      fd.append("departmentMode", editRevDeptTab)
+      fd.append("revision", editRevRevision.trim())
+      fd.append("supersedesId", String(editRow.id))
+      fd.append("file", editRevFile)
+      const res = await fetch("/api/manuals", { method: "POST", body: fd })
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) throw new Error(data.error || "Kayıt başarısız")
+      setBanner({
+        type: "ok",
+        text:
+          "Yeni revizyon kaydedildi. PDF depolandı; Bonair AI güncellenmiş dosyadan çıkarılan metni kullanır.",
+      })
+      setEditOpen(false)
+      resetEditDialog()
+      await load()
+    } catch (e) {
+      setBanner({
+        type: "err",
+        text: e instanceof Error ? e.message : "Kayıt başarısız",
+      })
+    } finally {
+      setEditSaving(false)
+    }
+  }
 
   const departmentChoiceValid = React.useMemo(() => {
     if (departmentTab === "list") {
@@ -312,7 +449,9 @@ export function ConfigManualsClient() {
   const revisionParentOptions = items.filter((m) => m.isCurrent !== false)
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+    <>
+      <SetWorkspacePageTitleAccessory>{manualsHeaderHelp}</SetWorkspacePageTitleAccessory>
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       {banner && (
         <div
           role="status"
@@ -326,97 +465,62 @@ export function ConfigManualsClient() {
         </div>
       )}
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex min-w-0 flex-1 flex-col gap-2 sm:max-w-md">
-          <Label htmlFor="manual-search" className="text-muted-foreground">
-            Search manuals
-          </Label>
-          <div className="flex gap-2">
+      {canManageManuals ? (
+        <Card className="border-primary/25 bg-primary/5">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Doküman yükleme</CardTitle>
+            <CardDescription className="text-muted-foreground">
+              <strong className="text-foreground">Admin</strong>,{" "}
+              <strong className="text-foreground">Quality</strong> veya{" "}
+              <strong className="text-foreground">Human Resources</strong> departmanındaki
+              hesaplar yeni manuel yükleyebilir veya mevcut seriye yeni revizyon ekleyebilir.
+              Yeni revizyon kaydedildiğinde önceki güncel sürüm otomatik olarak arşive
+              alınır (güncel listede yalnızca son sürüm kalır).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+            <Button
+              type="button"
+              size="lg"
+              className="w-full gap-2 sm:w-auto"
+              onClick={() => {
+                resetAddForm()
+                setAddOpen(true)
+              }}
+            >
+              <IconUpload className="size-5" />
+              Yeni doküman veya revizyon yükle
+            </Button>
+            <p className="text-muted-foreground text-sm sm:max-w-md sm:flex-1">
+              İsterseniz listedeki bir satırda <strong className="text-foreground">Düzenle</strong>{" "}
+              ile PDF’yi önizleyip bilgisayarınızda düzenledikten sonra{" "}
+              <strong className="text-foreground">Yeni revizyon numarası ver</strong> adımına
+              geçin.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="manual-search" className="text-muted-foreground">
+          Manuel ara
+        </Label>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="flex min-w-0 flex-1 gap-2">
             <Input
               id="manual-search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Title, department, uploader, slug, revision…"
+              placeholder="Başlık, departman, yükleyen, slug, revizyon…"
               className="flex-1"
             />
             <Button type="button" variant="secondary" className="shrink-0 gap-1.5">
               <IconSearch className="size-4" />
-              Search
+              Ara
             </Button>
           </div>
         </div>
-        {canManageManuals ? (
-          <Button
-            type="button"
-            className="shrink-0 gap-2 sm:self-end"
-            onClick={() => {
-              resetAddForm()
-              setAddOpen(true)
-            }}
-          >
-            <IconPlus className="size-4" />
-            Add Manual
-          </Button>
-        ) : null}
       </div>
-      {!loading && !canManageManuals ? (
-        <p className="text-muted-foreground text-sm">
-          Yükleme yalnızca <strong>Quality</strong> veya <strong>Human Resources</strong>{" "}
-          departmanı hesapları içindir; yetkiniz varsa sağda (geniş ekranda) veya arama
-          alanının hemen altında <strong>Add Manual</strong> düğmesi görünür.
-        </p>
-      ) : null}
-
-      <Card className="border-muted bg-muted/20">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Revizyon takibi nasıl çalışır?</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 pt-0 text-sm leading-relaxed text-muted-foreground">
-          <p>
-            <strong className="text-foreground">Güncel sürüm:</strong> Listede her kitap
-            için yalnızca girdiğiniz revizyon numarasıyla kayıtlı güncel dosya görünür
-            (Bonair AI da bunu kullanır).
-          </p>
-          <p>
-            <strong className="text-foreground">Yeni revizyon:</strong> Add Manual → New
-            revision of existing → güncel satırı seçin → yeni Revision number ve dosya →
-            Save. Önceki güncel satır arşivlenir.
-          </p>
-          <p>
-            <strong className="text-foreground">Listeden arşiv:</strong> Güncel satırda
-            klasör (Move to previous) simgesi: satırı arşivler. Seride başka revizyon
-            varsa en yüksek olan tekrar güncel olur; tek revizyon varsa kayıt yalnızca
-            Admin’in Previous revisions listesinde kalır, Bonair AI listeden düşer.
-          </p>
-          <p>
-            <strong className="text-foreground">Eski revizyonlar:</strong> Yalnızca
-            oturumdaki <strong className="text-foreground">Department = Admin</strong>{" "}
-            olan kullanıcılar sayfanın altındaki Previous revisions listesini görür.
-            Atama:{" "}
-            <Link
-              href="/configurations"
-              className="font-medium text-primary underline-offset-4 hover:underline"
-            >
-              Configurations → User settings
-            </Link>{" "}
-            → çalışanı düzenle → Department: <strong className="text-foreground">Admin</strong>{" "}
-            (HR / Quality / Admin). Ayrı bir &quot;admin listesi&quot; ekranı yok; User
-            settings tablosunda arama ile bulunur.
-          </p>
-          <p>
-            <strong className="text-foreground">Kim yükledi:</strong> Her satırda
-            yükleyen çalışanın adı ve e-postası gösterilir (veritabanında kalıcı).
-          </p>
-          <p>
-            <strong className="text-foreground">Departman:</strong> Owning department
-            için iki yol vardır: <strong className="text-foreground">Standard list</strong>{" "}
-            (User Management ile aynı kurum listesi) veya{" "}
-            <strong className="text-foreground">Custom label</strong> (listedeki olmayan
-            birim / proje adı, en fazla 100 karakter).
-          </p>
-        </CardContent>
-      </Card>
-
       <Dialog
         open={addOpen}
         onOpenChange={(open) => {
@@ -426,12 +530,11 @@ export function ConfigManualsClient() {
       >
         <DialogContent className="max-h-[min(90vh,640px)] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Add manual</DialogTitle>
+            <DialogTitle>Doküman yükle</DialogTitle>
             <DialogDescription>
-              Text is extracted from PDF or Office files for grounded Q&amp;A in Bonair
-              AI. You set the revision number yourself (e.g. 29). Owning department: pick
-              the standard list or enter a custom label. Superseded files are listed only
-              for the Admin department.
+              PDF veya Office dosyasından metin çıkarılır (Bonair AI). Revizyon numarasını
+              siz verirsiniz. Sahip departman: standart liste veya özel etiket. Arşivdeki
+              eski sürümleri yalnızca Admin departmanındaki kullanıcılar listede görür.
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4 py-2">
@@ -617,17 +720,265 @@ export function ConfigManualsClient() {
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={editOpen}
+        onOpenChange={(open) => {
+          setEditOpen(open)
+          if (!open) resetEditDialog()
+        }}
+      >
+        <DialogContent className="flex max-h-[min(92vh,720px)] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+          <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-4">
+            <DialogTitle>Manueli düzenle ve revize et</DialogTitle>
+            <DialogDescription>
+              Önce <span className="font-medium text-foreground">PDF önizle</span> ile
+              dokümana bakın; düzenlemeleri bilgisayarınızda tamamladıktan sonra{" "}
+              <span className="font-medium text-foreground">Yeni revizyon numarası ver</span>{" "}
+              sekmesine geçip numarayı girip güncellenmiş PDF’yi yükleyin. Kayıtta önceki
+              güncel sürüm otomatik arşive alınır. Tarayıcı içinde PDF düzenlenmez.
+            </DialogDescription>
+          </DialogHeader>
+          <Tabs
+            value={editTab}
+            onValueChange={(v) => setEditTab(v as "pdf" | "revizyon")}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <div className="shrink-0 px-6 pt-2">
+              <TabsList className="grid w-full max-w-md grid-cols-2">
+                <TabsTrigger value="pdf" disabled={editSaving}>
+                  PDF önizle
+                </TabsTrigger>
+                <TabsTrigger value="revizyon" disabled={editSaving}>
+                  Yeni revizyon numarası ver
+                </TabsTrigger>
+              </TabsList>
+            </div>
+            <TabsContent
+              value="pdf"
+              className="mt-0 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-6 pb-4 pt-3 data-[state=inactive]:hidden"
+            >
+              {!editRow ? null : editRow.documentPreview === "pdf" ? (
+                <>
+                  <p className="text-muted-foreground text-xs leading-relaxed">
+                    PDF aşağıda gömülüdür. Düzenlemek için indirip Acrobat veya benzeri
+                    bir uygulamada açın; bitince{" "}
+                    <strong className="text-foreground">Yeni revizyon numarası ver</strong>{" "}
+                    sekmesine geçin.
+                  </p>
+                  <iframe
+                    title="Manuel PDF önizleme"
+                    src={`/api/manuals/${editRow.id}/file`}
+                    className="min-h-[min(52vh,480px)] w-full flex-1 rounded-md border bg-muted/30"
+                  />
+                  <Button type="button" variant="outline" size="sm" className="shrink-0 self-start" asChild>
+                    <a
+                      href={`/api/manuals/${editRow.id}/file`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Yeni sekmede aç / indir
+                    </a>
+                  </Button>
+                </>
+              ) : editRow.documentPreview === "unsupported" ? (
+                <div className="space-y-3 text-sm text-muted-foreground">
+                  <p>
+                    Bu sürüm PDF değil (ör. Word/Excel). Tarayıcıda gömülü önizleme yok;
+                    dosyayı indirip düzenleyebilirsiniz.
+                  </p>
+                  <Button type="button" variant="outline" size="sm" asChild>
+                    <a
+                      href={`/api/manuals/${editRow.id}/file`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Dosyayı indir
+                    </a>
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2 text-sm text-muted-foreground leading-relaxed">
+                  <p>
+                    Bu kayıtta henüz saklı dosya yok (eski yükleme).{" "}
+                    <strong className="text-foreground">Yeni revizyon numarası ver</strong>{" "}
+                    sekmesinden güncellenmiş <strong className="text-foreground">PDF</strong>{" "}
+                    yükleyin; kayıttan sonra önizleme burada görünür.
+                  </p>
+                </div>
+              )}
+            </TabsContent>
+            <TabsContent
+              value="revizyon"
+              className="mt-0 max-h-[min(52vh,480px)] space-y-4 overflow-y-auto px-6 pb-4 pt-3 data-[state=inactive]:hidden"
+            >
+              <p className="text-muted-foreground text-xs leading-relaxed">
+                <strong className="text-foreground">Revizyonu kaydet</strong> dediğinizde
+                bu satırdaki güncel sürüm otomatik arşive gider; listede yalnızca yeni
+                revizyon kalır. Yalnızca <strong className="text-foreground">PDF</strong>{" "}
+                yükleyin. Seride aynı revizyon numarası varsa sunucu reddeder.
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="edit-rev-title">Manuel başlığı</Label>
+                <Input
+                  id="edit-rev-title"
+                  value={editRevTitle}
+                  onChange={(e) => setEditRevTitle(e.target.value)}
+                  disabled={editSaving}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-rev-revision">Yeni revizyon numarası</Label>
+                <Input
+                  id="edit-rev-revision"
+                  type="number"
+                  min={0}
+                  max={999999}
+                  step={1}
+                  inputMode="numeric"
+                  value={editRevRevision}
+                  onChange={(e) => setEditRevRevision(e.target.value)}
+                  disabled={editSaving}
+                />
+              </div>
+              <div className="space-y-3">
+                <Label>Sahip departman</Label>
+                <Tabs
+                  value={editRevDeptTab}
+                  onValueChange={(v) => {
+                    const next = v as "list" | "custom"
+                    setEditRevDeptTab(next)
+                    if (next === "list") setEditRevCustomDepartment("")
+                    else setEditRevDepartment("")
+                  }}
+                >
+                  <TabsList className="grid w-full max-w-md grid-cols-2">
+                    <TabsTrigger value="list" disabled={editSaving}>
+                      Standart liste
+                    </TabsTrigger>
+                    <TabsTrigger value="custom" disabled={editSaving}>
+                      Özel etiket
+                    </TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="list" className="mt-2 space-y-2">
+                    <Select
+                      value={editRevDepartment || undefined}
+                      onValueChange={setEditRevDepartment}
+                      disabled={editSaving || departmentOptions.length === 0}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Departman seçin…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {departmentOptions.map((d) => (
+                          <SelectItem key={d} value={d}>
+                            {d}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TabsContent>
+                  <TabsContent value="custom" className="mt-2 space-y-2">
+                    <Input
+                      value={editRevCustomDepartment}
+                      onChange={(e) => setEditRevCustomDepartment(e.target.value)}
+                      placeholder="Örn. SMS Çalışma Grubu"
+                      disabled={editSaving}
+                      maxLength={100}
+                    />
+                  </TabsContent>
+                </Tabs>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-rev-pdf">Güncellenmiş PDF</Label>
+                <Input
+                  id="edit-rev-pdf"
+                  type="file"
+                  accept={REVISION_PDF_ACCEPT}
+                  disabled={editSaving}
+                  onChange={(e) => setEditRevFile(e.target.files?.[0] ?? null)}
+                />
+                {editRevFile && !editRevPdfValid ? (
+                  <p className="text-destructive text-xs">
+                    Yalnızca .pdf uzantılı dosya seçin.
+                  </p>
+                ) : null}
+              </div>
+            </TabsContent>
+          </Tabs>
+          <DialogFooter className="shrink-0 gap-2 border-t px-6 py-4 sm:justify-between">
+            {editTab === "pdf" ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={editSaving}
+                  onClick={() => {
+                    setEditOpen(false)
+                    resetEditDialog()
+                  }}
+                >
+                  İptal
+                </Button>
+                <Button
+                  type="button"
+                  disabled={editSaving}
+                  onClick={() => setEditTab("revizyon")}
+                >
+                  Yeni revizyon numarası ver →
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={editSaving}
+                  onClick={() => setEditTab("pdf")}
+                >
+                  ← PDF önizlemeye dön
+                </Button>
+                <div className="flex flex-wrap gap-2 sm:justify-end">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={editSaving}
+                    onClick={() => {
+                      setEditOpen(false)
+                      resetEditDialog()
+                    }}
+                  >
+                    İptal
+                  </Button>
+                  <Button
+                    type="button"
+                    className="gap-2"
+                    disabled={
+                      editSaving ||
+                      !editRevPdfValid ||
+                      !editRevTitle.trim() ||
+                      !editRevDeptValid ||
+                      !editRevRevisionValid
+                    }
+                    onClick={() => void submitPdfRevision()}
+                  >
+                    <IconUpload className="size-4" />
+                    {editSaving ? "Kaydediliyor…" : "Revizyonu kaydet"}
+                  </Button>
+                </div>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Card>
         <CardHeader>
-          <CardTitle>Uploaded manuals</CardTitle>
+          <CardTitle>Yüklü manueller</CardTitle>
           <CardDescription>
-            Current revisions are visible to everyone. Only current records appear in
-            the Bonair AI manual picker. Use{" "}
-            <span className="font-medium text-foreground">Move to previous</span> to
-            archive the current row (works for a single revision too; multi-revision
-            series then promotes the next-highest revision).
+            Güncel sürümler listede; ayrıntılar için üst başlıktaki{" "}
+            <span className="font-medium text-foreground">?</span> simgesine gelin.
             {viewerIsAdminDepartment
-              ? " Superseded revisions are listed below (Admin department only)."
+              ? " Arşiv: aşağıda (Admin)."
               : null}
           </CardDescription>
         </CardHeader>
@@ -668,6 +1019,19 @@ export function ConfigManualsClient() {
                       <Button
                         type="button"
                         variant="ghost"
+                        size="sm"
+                        className="gap-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                        disabled={archivingId === m.id || deletingId === m.id}
+                        onClick={() => openEditManual(m)}
+                        title="Metni düzenle ve yeni revizyon ver"
+                        aria-label="Düzenle: metni düzenle ve yeni revizyon ver"
+                      >
+                        <IconPencil className="size-4 shrink-0" />
+                        <span className="hidden sm:inline">Düzenle</span>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
                         size="icon"
                         className="text-muted-foreground hover:bg-muted hover:text-foreground"
                         disabled={archivingId === m.id || deletingId === m.id}
@@ -696,43 +1060,6 @@ export function ConfigManualsClient() {
           )}
         </CardContent>
       </Card>
-
-      {!viewerIsAdminDepartment ? (
-        <Card className="border-border/80 bg-muted/15">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">
-              Previous revisions neden görünmüyor?
-            </CardTitle>
-            <CardDescription>
-              Arşiv bölümü yalnızca kullanıcı kaydınızda departmanı{" "}
-              <span className="font-medium text-foreground">Admin</span> olan hesaplar
-              içindir (ör. Quality, Pilot görmez).
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm leading-relaxed text-muted-foreground">
-            <p>
-              <strong className="text-foreground">Adminleri nerede seçiyoruz?</strong>{" "}
-              Ayrı bir rol ekranı yok:{" "}
-              <Link
-                href="/configurations"
-                className="font-medium text-primary underline-offset-4 hover:underline"
-              >
-                Configurations → User settings
-              </Link>{" "}
-              sayfasında bir çalışanı açıp{" "}
-              <strong className="text-foreground">Department</strong> alanından{" "}
-              <strong className="text-foreground">Admin</strong> seçilir ve kaydedilir.
-              Bu sayfaya HR, Quality ve Admin departmanındaki kullanıcılar erişebilir.
-            </p>
-            <p>
-              <strong className="text-foreground">Admin listesini nerede görürüm?</strong>{" "}
-              Özel liste yok; User settings tablosunda çalışanları arayıp departmanı
-              Admin olanları kendiniz süzebilirsiniz. Arşivi siz görecekseniz, kendi
-              hesabınızın departmanını Admin yapmanız gerekir (iş kurallarınıza göre).
-            </p>
-          </CardContent>
-        </Card>
-      ) : null}
 
       {viewerIsAdminDepartment ? (
         <Card className="border-dashed">
@@ -792,6 +1119,7 @@ export function ConfigManualsClient() {
           </CardContent>
         </Card>
       ) : null}
-    </div>
+      </div>
+    </>
   )
 }

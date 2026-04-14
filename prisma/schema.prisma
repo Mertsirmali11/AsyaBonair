@@ -516,6 +516,9 @@ model CompanyManual {
   title       String   @db.VarChar(300)
   slug        String   @unique @db.VarChar(160)
   contentText String   @map("content_text") @db.Text
+  /// Supabase bucket-relative path (orijinal PDF/Office; önizleme ve revizyon akışı)
+  fileStoragePath String? @map("file_storage_path") @db.Text
+  fileName        String? @map("file_name") @db.VarChar(255)
   /// Manuelin ait olduğu kurum departmanı (`lib/organization-departments` ile User Management aynı liste)
   department  String?  @db.VarChar(100) @map("department")
   /// Aynı mantıksal kitabın tüm revizyonları ortak seri kimliğini paylaşır

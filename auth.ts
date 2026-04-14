@@ -94,10 +94,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           try {
             const row = await prisma.calisan.findUnique({
               where: { id: uid },
-              select: { profilFotoStoragePath: true },
+              select: { profilFotoStoragePath: true, departman: true },
             })
             session.user.image =
               calisanAvatarPublicUrl(row?.profilFotoStoragePath) ?? null
+            if (row) {
+              session.user.departman = row.departman
+            }
           } catch {
             /* Vercel / DB kesintisinde oturumu düşürme; JWT’deki görsel kalır */
           }
