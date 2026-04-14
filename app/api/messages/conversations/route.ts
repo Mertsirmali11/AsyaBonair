@@ -40,6 +40,7 @@ export async function GET() {
         ],
       },
       orderBy: { updatedAt: "desc" },
+      take: 50,
       include: {
         messages: {
           orderBy: { createdAt: "desc" },

@@ -14,12 +14,19 @@ export async function GET(req: NextRequest) {
 
     const tasks = await prisma.meetingTask.findMany({
       where,
-      include: {
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        dueDate: true,
+        createdAt: true,
+        meetingId: true,
+        assigneeId: true,
         assignee: { select: { isim: true, soyisim: true } },
         meeting: { select: { id: true, meetingNo: true, title: true } },
       },
       orderBy: { createdAt: "desc" },
-      ...(Object.keys(where).length === 0 ? { take: 500 } : {}),
+      ...(Object.keys(where).length === 0 ? { take: 200 } : {}),
     })
     return NextResponse.json(tasks)
   } catch (e) {

@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
 import { prismaJson } from "@/lib/prisma-json"
 import { nextBonMeMeetingNumber } from "@/lib/next-bon-me-number"
-import { Resend } from "resend"
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+function getResend() {
+  const { Resend } = require("resend") as typeof import("resend")
+  return new Resend(process.env.RESEND_API_KEY)
+}
 
 /** "Tüm yıllar" seçildiğinde bellek/yanıt boyutu sınırı */
 const MEETINGS_UNFILTERED_CAP = 500
@@ -137,7 +139,7 @@ export async function POST(req: NextRequest) {
 
   if (allEmails.length > 0) {
     try {
-      await resend.emails.send({
+      await getResend().emails.send({
         from: "Bonair <onboarding@resend.dev>",
         to: allEmails,
         subject: `📅 Meeting Invitation: ${title}`,

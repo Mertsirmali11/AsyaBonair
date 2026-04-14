@@ -59,6 +59,7 @@ export default async function MeetingDetailPage({ params, searchParams }: Props)
         ? { reportedBy: calisan.id }
         : { reportedBy: -1 },
     orderBy: { eventDate: "desc" },
+    take: 200,
     select: {
       id: true,
       reportNo: true,

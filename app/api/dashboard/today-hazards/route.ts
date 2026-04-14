@@ -29,22 +29,23 @@ export async function GET() {
     const { year, month, day } = getCalendarYmdInTimeZone(APP_TIMEZONE)
     const todayYmd = formatYmd(year, month, day)
 
-    const rows = await prisma.$queryRaw<Array<{ id: number }>>`
-    SELECT id FROM hazard_reports WHERE event_date = CAST(${todayYmd} AS DATE)
-  `
-    const ids = rows.map((r) => r.id)
-    if (ids.length === 0) {
-      return NextResponse.json([])
-    }
-
     const hazards = await prisma.hazardReport.findMany({
       where: {
-        id: { in: ids },
+        eventDate: new Date(`${todayYmd}T00:00:00.000Z`),
         ...(canViewAllHazardReports(viewer.departman)
           ? {}
           : { reportedBy: viewer.id }),
       },
+      select: {
+        id: true,
+        reportNo: true,
+        title: true,
+        eventDate: true,
+        createdAt: true,
+        sourceType: true,
+      },
       orderBy: { createdAt: "desc" },
+      take: 100,
     })
 
     return NextResponse.json(hazards)

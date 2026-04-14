@@ -1485,11 +1485,17 @@ export function TaskBoardView({
   }, [loadMeetingTasks])
 
   useEffect(() => {
+    let debounce: ReturnType<typeof setTimeout> | null = null
     const onVis = () => {
-      if (document.visibilityState === "visible") void loadMeetingTasks()
+      if (document.visibilityState !== "visible") return
+      if (debounce) clearTimeout(debounce)
+      debounce = setTimeout(() => void loadMeetingTasks(), 2000)
     }
     document.addEventListener("visibilitychange", onVis)
-    return () => document.removeEventListener("visibilitychange", onVis)
+    return () => {
+      document.removeEventListener("visibilitychange", onVis)
+      if (debounce) clearTimeout(debounce)
+    }
   }, [loadMeetingTasks])
 
   const skipPersistRef = useRef(true)
@@ -1626,6 +1632,7 @@ export function TaskBoardView({
       if (!useServerPersistenceRef.current) return
       const rk = riskBoardKeyFromTitle(displayTitle)
       void fetch("/api/safety/risk-board-state", {
+        keepalive: true,
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

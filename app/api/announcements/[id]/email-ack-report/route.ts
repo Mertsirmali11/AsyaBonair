@@ -3,7 +3,6 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
 import { assertCanManageAnnouncements } from "@/lib/announcements-access"
 import { getAppPublicUrl } from "@/lib/app-public-url"
-import { Resend } from "resend"
 
 function escapeHtml(s: string): string {
   return s
@@ -13,9 +12,10 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;")
 }
 
-function getResend(): Resend | null {
+function getResend(): InstanceType<typeof import("resend").Resend> | null {
   const key = process.env.RESEND_API_KEY?.trim()
   if (!key) return null
+  const { Resend } = require("resend") as typeof import("resend")
   return new Resend(key)
 }
 

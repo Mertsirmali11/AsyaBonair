@@ -366,11 +366,17 @@ export function RiskBoardView() {
   }, [pathname, loadSummaries])
 
   useEffect(() => {
+    let debounce: ReturnType<typeof setTimeout> | null = null
     const onVis = () => {
-      if (document.visibilityState === "visible") void loadSummaries()
+      if (document.visibilityState !== "visible") return
+      if (debounce) clearTimeout(debounce)
+      debounce = setTimeout(() => void loadSummaries(), 2000)
     }
     document.addEventListener("visibilitychange", onVis)
-    return () => document.removeEventListener("visibilitychange", onVis)
+    return () => {
+      document.removeEventListener("visibilitychange", onVis)
+      if (debounce) clearTimeout(debounce)
+    }
   }, [loadSummaries])
 
   const liveInitialByKey = useMemo(() => {

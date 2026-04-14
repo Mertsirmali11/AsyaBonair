@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  compress: true,
   compiler: {
     removeConsole:
       process.env.NODE_ENV === "production"
@@ -14,6 +15,20 @@ const nextConfig: NextConfig = {
       "@tabler/icons-react",
       "recharts",
       "date-fns",
+      "@radix-ui/react-dialog",
+      "@radix-ui/react-dropdown-menu",
+      "@radix-ui/react-popover",
+      "@radix-ui/react-select",
+      "@radix-ui/react-tabs",
+      "@radix-ui/react-tooltip",
+      "@radix-ui/react-scroll-area",
+      "@radix-ui/react-collapsible",
+      "@dnd-kit/core",
+      "@dnd-kit/sortable",
+      "@dnd-kit/utilities",
+      "class-variance-authority",
+      "clsx",
+      "zod",
     ],
   },
   async redirects() {

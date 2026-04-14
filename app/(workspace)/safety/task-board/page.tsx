@@ -1,6 +1,11 @@
+import dynamic from "next/dynamic"
 import { auth } from "@/auth"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
-import { TaskBoardView } from "@/components/task-board-view"
+
+const TaskBoardView = dynamic(
+  () => import("@/components/task-board-view").then((m) => m.TaskBoardView),
+  { ssr: false }
+)
 
 type Props = {
   searchParams: Promise<{ title?: string }>

@@ -12,7 +12,14 @@ export async function GET() {
 
   const meetings = await prisma.meeting.findMany({
     where: { plannedDate: { gte: dayStartUtc, lt: dayEndUtc } },
-    include: { meetingType: true },
+    select: {
+      id: true,
+      meetingNo: true,
+      title: true,
+      plannedDate: true,
+      status: true,
+      meetingType: { select: { id: true, name: true } },
+    },
     orderBy: { plannedDate: "asc" },
   })
 

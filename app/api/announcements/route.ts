@@ -6,13 +6,14 @@ import {
   canManageAnnouncementsForDepartman,
 } from "@/lib/announcements-access"
 import { getAppPublicUrl } from "@/lib/app-public-url"
-import { Resend } from "resend"
 
 const ANNOUNCEMENTS_ADMIN_LIST_MAX = 2000
 
-function getResend(): Resend | null {
+function getResend() {
   const key = process.env.RESEND_API_KEY?.trim()
   if (!key) return null
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { Resend } = require("resend") as typeof import("resend")
   return new Resend(key)
 }
 
@@ -31,7 +32,7 @@ function getFromAddress(): string {
 }
 
 async function sendAnnouncementEmails(
-  resend: Resend,
+  resend: ReturnType<typeof getResend> & {},
   emails: string[],
   title: string,
   content: string
