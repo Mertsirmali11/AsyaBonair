@@ -1,11 +1,6 @@
-import dynamic from "next/dynamic"
 import { auth } from "@/auth"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
-
-const TaskBoardView = dynamic(
-  () => import("@/components/task-board-view").then((m) => m.TaskBoardView),
-  { ssr: false }
-)
+import { TaskBoardViewLazy } from "@/components/task-board-view-lazy"
 
 type Props = {
   searchParams: Promise<{ title?: string }>
@@ -22,7 +17,7 @@ export default async function SafetyTaskBoardPage({ searchParams }: Props) {
   return (
     <>
       <SetWorkspacePageTitle title="Risk assessment" />
-      <TaskBoardView riskTitle={riskTitle ?? undefined} actorName={actorName} />
+      <TaskBoardViewLazy riskTitle={riskTitle ?? undefined} actorName={actorName} />
     </>
   )
 }
