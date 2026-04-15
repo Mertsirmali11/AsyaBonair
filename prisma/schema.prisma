@@ -107,6 +107,7 @@ model Calisan {
   announcementAcknowledgments AnnouncementAcknowledgment[]
   companyManuals CompanyManual[]
   departmentFormsCreated    DepartmentForm[]           @relation("DepartmentFormCreator")
+  departmentProceduresCreated DepartmentProcedure[]    @relation("DepartmentProcedureCreator")
   documentProcedureVersions DocumentProcedureVersion[] @relation("DocumentProcedureCreator")
   safetyRiskBoardsUpdated   SafetyRiskBoard[] @relation("SafetyRiskBoardUpdatedBy")
   auditPlanAuditors AuditPlanAuditor[] @relation("AuditPlanAuditorCalisan")
@@ -521,6 +522,10 @@ model CompanyManual {
   fileName        String? @map("file_name") @db.VarChar(255)
   /// Manuelin ait olduğu kurum departmanı (`lib/organization-departments` ile User Management aynı liste)
   department  String?  @db.VarChar(100) @map("department")
+  /// Kurumsal manuel numarası (örn. OM-A, MNL-001)
+  manualNumber String? @map("manual_no") @db.VarChar(120)
+  /// Kullanıcının belirttiği revizyon tarihi (dosya yükleme tarihinden bağımsız)
+  revisionDate DateTime? @map("revision_date") @db.Date
   /// Aynı mantıksal kitabın tüm revizyonları ortak seri kimliğini paylaşır
   seriesId    String   @default(dbgenerated("(gen_random_uuid())::text")) @map("series_id") @db.VarChar(36)
   revision    Int      @default(0)
@@ -565,6 +570,33 @@ model DepartmentForm {
   @@index([department])
   @@index([isCurrent])
   @@map("department_forms")
+}
+
+/// Departman prosedürleri — revizyon serisi; erişim mantığı departman formları ile aynı (Admin tümü)
+model DepartmentProcedure {
+  id          Int      @id @default(autoincrement())
+  /// Kurumsal prosedür numarası (örn. PR-001)
+  procedureNumber String   @default("") @map("procedure_number") @db.VarChar(80)
+  title       String   @db.VarChar(300)
+  slug        String   @unique @db.VarChar(160)
+  department  String   @db.VarChar(100)
+  contentText String   @map("content_text") @db.Text
+  fileStoragePath  String? @map("file_storage_path") @db.Text
+  originalFileName String? @map("original_file_name") @db.VarChar(280)
+  fileMimeType     String? @map("file_mime_type") @db.VarChar(120)
+  seriesId    String   @default(dbgenerated("(gen_random_uuid())::text")) @map("series_id") @db.VarChar(36)
+  revision    Int      @default(0)
+  isCurrent   Boolean  @default(true) @map("is_current")
+  createdBy   Int?     @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  creator Calisan? @relation("DepartmentProcedureCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@unique([seriesId, revision], map: "department_procedures_series_revision_uniq")
+  @@index([department])
+  @@index([isCurrent])
+  @@map("department_procedures")
 }
 
 /// Tek kurumsal Document Procedure — tüm sürümler aynı seriesId ile (sabit UUID uygulama kodunda)

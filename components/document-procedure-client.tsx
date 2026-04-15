@@ -5,7 +5,14 @@ import { IconPlus, IconUpload } from "@tabler/icons-react"
 import { formatDateTimeIstanbul } from "@/lib/date-format"
 import { ALLOWED_DOCUMENT_TYPES_USER_MESSAGE } from "@/lib/allowed-document-uploads"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { DepartmentProceduresClient } from "@/components/department-procedures-client"
 import {
   Dialog,
   DialogContent,
@@ -48,16 +55,6 @@ type HistoricMeta = {
   createdAt: string
   updatedAt: string
   creator: Creator
-}
-
-function isPdfMime(
-  mime: string | null | undefined,
-  fileName?: string | null
-): boolean {
-  const m = (mime ?? "").trim().toLowerCase()
-  if (m === "application/pdf" || m.includes("pdf")) return true
-  const n = (fileName ?? "").toLowerCase()
-  return n.endsWith(".pdf")
 }
 
 function fileViewUrl(versionId: number): string {
@@ -228,7 +225,7 @@ export function DocumentProcedureClient() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       {banner && (
         <div
           role="status"
@@ -244,11 +241,12 @@ export function DocumentProcedureClient() {
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-muted-foreground text-sm">
-          Kurumsal Document Procedure tek belgedir;{" "}
-          <strong className="text-foreground">herkes</strong> güncel dosyayı PDF
-          önizlemesi veya indirme ile görür.{" "}
-          <strong className="text-foreground">Quality</strong> ve{" "}
-          <strong className="text-foreground">Admin</strong> yeni sürüm yükleyebilir.
+          <strong className="text-foreground">Kurumsal Documentation Procedure</strong>{" "}
+          tek referans belgedir; aşağıda kompakt özet ve yeni sekmede açma vardır.{" "}
+          Her departmanın kendi prosedürleri ikinci bölümde listelenir.{" "}
+          <strong className="text-foreground">Quality</strong> /{" "}
+          <strong className="text-foreground">Admin</strong> kurumsal dosyayı
+          güncelleyebilir.
         </p>
         {canEdit ? (
           <Button
@@ -281,10 +279,10 @@ export function DocumentProcedureClient() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base leading-snug">{current.title}</CardTitle>
-            <p className="text-muted-foreground text-xs">
+            <CardDescription>
               Rev. {current.revision} · {formatDateTimeIstanbul(current.updatedAt)} ·{" "}
               {formatCreator(current.creator)}
-            </p>
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {current.hasFile ? (
@@ -310,29 +308,17 @@ export function DocumentProcedureClient() {
                     </a>
                   </Button>
                 </div>
-                {isPdfMime(current.fileMimeType, current.originalFileName) ? (
-                  <iframe
-                    title={current.title}
-                    src={fileViewUrl(current.id)}
-                    className="min-h-[min(78vh,720px)] w-full rounded-md border border-border bg-background"
-                  />
-                ) : (
-                  <p className="text-muted-foreground text-sm leading-relaxed">
-                    Bu dosya türü tarayıcıda gömülü önizlenemez. Görüntülemek için
-                    «Yeni sekmede aç» veya dosyayı indirin.
-                  </p>
-                )}
+                <p className="text-muted-foreground text-xs leading-relaxed">
+                  Gömülü önizleme yok; dosyayı tam ekran görmek için «Yeni sekmede aç»
+                  ile açın. PDF olmayan dosyalarda da aynı bağlantı geçerlidir.
+                </p>
               </>
             ) : (
               <div className="space-y-3 rounded-md border border-amber-500/35 bg-amber-500/5 p-4">
                 <p className="text-sm text-foreground">
-                  Bu sürümde PDF dosyası yok (yalnızca eski metin kaydı). Sayfa
-                  üzerinde düzenli PDF görünümü için güncel dosyayı{" "}
-                  <strong className="font-medium">
-                    PDF olarak «Sürüm yükle»
-                  </strong>
-                  ile yeniden yükleyin; yüklemeden sonra belge burada gömülü
-                  PDF olarak açılır.
+                  Bu sürümde PDF dosyası yok (yalnızca eski metin kaydı). Güncel dosyayı{" "}
+                  <strong className="font-medium">«Sürüm yükle»</strong> ile PDF olarak
+                  ekleyin.
                 </p>
                 {canEdit ? (
                   <Button
@@ -359,13 +345,15 @@ export function DocumentProcedureClient() {
         </Card>
       )}
 
+      <DepartmentProceduresClient />
+
       {canEdit && historic.length > 0 ? (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Önceki sürümler</CardTitle>
+            <CardTitle className="text-base">Kurumsal DP — önceki sürümler</CardTitle>
             <p className="text-muted-foreground text-sm">
-              Yalnızca Quality ve Admin listeler; sürümü açarak PDF önizlemesi veya
-              indirme kullanılabilir.
+              Yalnızca Quality ve Admin görür. Dosyayı yeni sekmede açın veya indirin
+              (gömülü önizleme yok).
             </p>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -374,19 +362,42 @@ export function DocumentProcedureClient() {
                 key={h.id}
                 className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
               >
-                <span>
+                <span className="min-w-0">
                   Rev. {h.revision} · {formatDateTimeIstanbul(h.updatedAt)} ·{" "}
                   {formatCreator(h.creator)}
                 </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  disabled={historicLoadingId === h.id}
-                  onClick={() => void openHistoric(h.id)}
-                >
-                  {historicLoadingId === h.id ? "Yükleniyor…" : "Görüntüle"}
-                </Button>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  {h.hasFile ? (
+                    <>
+                      <Button type="button" size="sm" variant="secondary" asChild>
+                        <a
+                          href={fileViewUrl(h.id)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Yeni sekmede aç
+                        </a>
+                      </Button>
+                      <Button type="button" size="sm" variant="outline" asChild>
+                        <a
+                          href={`/api/document-procedure/${h.id}/file?download=1`}
+                        >
+                          İndir
+                        </a>
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={historicLoadingId === h.id}
+                      onClick={() => void openHistoric(h.id)}
+                    >
+                      {historicLoadingId === h.id ? "Yükleniyor…" : "Metin"}
+                    </Button>
+                  )}
+                </div>
               </div>
             ))}
           </CardContent>
@@ -403,57 +414,19 @@ export function DocumentProcedureClient() {
           </DialogHeader>
           {historicView ? (
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 pb-2">
-              {historicView.hasFile ? (
-                <>
-                  <div className="flex flex-wrap gap-2">
-                    <Button type="button" variant="default" size="sm" asChild>
-                      <a
-                        href={fileViewUrl(historicView.id)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        Yeni sekmede aç
-                      </a>
-                    </Button>
-                    <Button type="button" variant="outline" size="sm" asChild>
-                      <a
-                        href={`/api/document-procedure/${historicView.id}/file?download=1`}
-                      >
-                        İndir
-                      </a>
-                    </Button>
-                  </div>
-                  {isPdfMime(
-                    historicView.fileMimeType,
-                    historicView.originalFileName
-                  ) ? (
-                    <iframe
-                      title={historicView.title}
-                      src={fileViewUrl(historicView.id)}
-                      className="min-h-[55vh] w-full rounded-md border border-border bg-background"
-                    />
-                  ) : (
-                    <p className="text-muted-foreground text-sm">
-                      Bu dosya türü için önizleme yok; yeni sekmede açın veya indirin.
-                    </p>
-                  )}
-                </>
-              ) : (
-                <div className="space-y-3 rounded-md border border-amber-500/35 bg-amber-500/5 p-4">
-                  <p className="text-sm text-foreground">
-                    Bu arşiv satırında PDF yok (eski kayıt). Gömülü PDF için
-                    güncel sürümü PDF olarak yükleyin.
-                  </p>
-                  <details className="text-sm">
-                    <summary className="cursor-pointer text-muted-foreground underline-offset-2 hover:underline">
-                      Çıkarılmış metin yedeği
-                    </summary>
-                    <pre className="mt-3 max-h-[45vh] overflow-auto whitespace-pre-wrap rounded-md border bg-muted/30 p-4 text-sm">
-                      {historicView.contentText}
-                    </pre>
-                  </details>
-                </div>
-              )}
+              <div className="space-y-3 rounded-md border border-amber-500/35 bg-amber-500/5 p-4">
+                <p className="text-sm text-foreground">
+                  Bu arşiv satırında dosya yok (eski kayıt).
+                </p>
+                <details className="text-sm" open>
+                  <summary className="cursor-pointer text-muted-foreground underline-offset-2 hover:underline">
+                    Çıkarılmış metin yedeği
+                  </summary>
+                  <pre className="mt-3 max-h-[45vh] overflow-auto whitespace-pre-wrap rounded-md border bg-muted/30 p-4 text-sm">
+                    {historicView.contentText}
+                  </pre>
+                </details>
+              </div>
             </div>
           ) : null}
           <DialogFooter className="shrink-0 border-t px-6 py-4">

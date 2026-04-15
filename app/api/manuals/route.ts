@@ -3,8 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
 import {
-  assertCanManageAnnouncements,
-  canManageAnnouncementsForDepartman,
+  assertCanManageCompanyManuals,
   effectiveEmployeeDepartman,
 } from "@/lib/announcements-access"
 import {
@@ -35,6 +34,8 @@ const manualSelect = {
   createdAt: true,
   updatedAt: true,
   department: true,
+  manualNumber: true,
+  revisionDate: true,
   revision: true,
   seriesId: true,
   isCurrent: true,
@@ -61,60 +62,91 @@ function documentPreviewKind(
 }
 
 export async function GET() {
-  const session = await auth()
-  if (!session?.user?.email) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  try {
+    const session = await auth()
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const email = (session.user.email ?? "").trim()
+    const calisan = email
+      ? await prisma.calisan.findFirst({
+          where: { email: { equals: email, mode: "insensitive" } },
+          select: { departman: true },
+        })
+      : null
+    const departman = effectiveEmployeeDepartman(
+      calisan?.departman,
+      session.user.departman
+    )
+
+    const manuals = await prisma.companyManual.findMany({
+      where: { isCurrent: true },
+      orderBy: { title: "asc" },
+      select: manualSelect,
+    })
+
+    const seriesIds = [...new Set(manuals.map((m) => m.seriesId))]
+    const historicInSeries =
+      seriesIds.length === 0
+        ? []
+        : await prisma.companyManual.findMany({
+            where: { isCurrent: false, seriesId: { in: seriesIds } },
+            orderBy: [{ seriesId: "asc" }, { revision: "desc" }],
+            select: manualSelect,
+          })
+
+    const previousBySeries = new Map<string, typeof historicInSeries>()
+    for (const row of historicInSeries) {
+      const list = previousBySeries.get(row.seriesId) ?? []
+      list.push(row)
+      previousBySeries.set(row.seriesId, list)
+    }
+
+    const canManageManuals =
+      !!calisan && isAdminDepartment(departman)
+    const departmentOptions = getOrganizationDepartmentOptions()
+
+    return NextResponse.json({
+      manuals: manuals.map((m) => {
+        const { fileStoragePath, fileName, ...rest } = m
+        const prevRows = previousBySeries.get(m.seriesId) ?? []
+        return {
+          ...rest,
+          revisionDate: rest.revisionDate
+            ? rest.revisionDate.toISOString().slice(0, 10)
+            : null,
+          documentPreview: documentPreviewKind(fileStoragePath, fileName),
+          previousRevisions: prevRows.map((p) => {
+            const { fileStoragePath: fp, fileName: fn, ...pr } = p
+            return {
+              ...pr,
+              revisionDate: pr.revisionDate
+                ? pr.revisionDate.toISOString().slice(0, 10)
+                : null,
+              documentPreview: documentPreviewKind(fp, fn),
+            }
+          }),
+        }
+      }),
+      canManageManuals,
+      departmentOptions,
+    })
+  } catch (e) {
+    console.error("[GET /api/manuals]", e)
+    const msg =
+      e instanceof Error ? e.message : "Manuel listesi yüklenemedi."
+    const hint =
+      process.env.NODE_ENV === "development" &&
+      typeof msg === "string" &&
+      (msg.includes("manualNumber") || msg.includes("Unknown field"))
+        ? " Şemayı güncellediyseniz: `pnpm exec prisma generate` ve `pnpm dev` yeniden başlatın."
+        : ""
+    return NextResponse.json(
+      { error: `${msg}${hint}` },
+      { status: 500 }
+    )
   }
-
-  const email = (session.user.email ?? "").trim()
-  const calisan = email
-    ? await prisma.calisan.findFirst({
-        where: { email: { equals: email, mode: "insensitive" } },
-        select: { departman: true },
-      })
-    : null
-  const departman = effectiveEmployeeDepartman(
-    calisan?.departman,
-    session.user.departman
-  )
-
-  const manuals = await prisma.companyManual.findMany({
-    where: { isCurrent: true },
-    orderBy: { title: "asc" },
-    select: manualSelect,
-  })
-
-  const viewerIsAdminDepartment = isAdminDepartment(departman)
-  const canManageManuals = canManageAnnouncementsForDepartman(departman)
-  const departmentOptions = getOrganizationDepartmentOptions()
-
-  const historicManuals = viewerIsAdminDepartment
-    ? await prisma.companyManual.findMany({
-        where: { isCurrent: false },
-        orderBy: [{ seriesId: "asc" }, { revision: "desc" }],
-        select: manualSelect,
-      })
-    : undefined
-
-  return NextResponse.json({
-    manuals: manuals.map((m) => {
-      const { fileStoragePath, fileName, ...rest } = m
-      return {
-        ...rest,
-        documentPreview: documentPreviewKind(fileStoragePath, fileName),
-      }
-    }),
-    historicManuals: historicManuals?.map((m) => {
-      const { fileStoragePath, fileName, ...rest } = m
-      return {
-        ...rest,
-        documentPreview: documentPreviewKind(fileStoragePath, fileName),
-      }
-    }),
-    viewerIsAdminDepartment,
-    canManageManuals,
-    departmentOptions,
-  })
 }
 
 const createdManualSelect = {
@@ -124,13 +156,24 @@ const createdManualSelect = {
   createdAt: true,
   updatedAt: true,
   department: true,
+  manualNumber: true,
+  revisionDate: true,
   revision: true,
   seriesId: true,
   isCurrent: true,
 } as const
 
+function parseOptionalRevisionDate(raw: unknown): Date | null {
+  if (typeof raw !== "string") return null
+  const s = raw.trim()
+  if (!s) return null
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null
+  const d = new Date(`${s}T12:00:00.000Z`)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
 export async function POST(req: NextRequest) {
-  const gate = await assertCanManageAnnouncements()
+  const gate = await assertCanManageCompanyManuals()
   if (!gate.ok) return gate.response
 
   const session = await auth()
@@ -178,6 +221,11 @@ export async function POST(req: NextRequest) {
       ? Number.parseInt(revRaw.trim(), 10)
       : Number.NaN
   const file = form.get("file")
+  const manualNoRaw = form.get("manualNumber")
+  const manualNumberInput =
+    typeof manualNoRaw === "string" ? manualNoRaw.trim().slice(0, 120) : ""
+  const revisionDateParsed = parseOptionalRevisionDate(form.get("revisionDate"))
+
   const supersedesRaw = form.get("supersedesId")
   const supersedesId =
     typeof supersedesRaw === "string" && supersedesRaw.trim()
@@ -261,10 +309,11 @@ export async function POST(req: NextRequest) {
   }
 
   let seriesIdForUpload: string
+  let priorCurrent: { seriesId: string; manualNumber: string | null } | null = null
   if (isRevision) {
     const prior = await prisma.companyManual.findFirst({
       where: { id: supersedesId, isCurrent: true },
-      select: { seriesId: true },
+      select: { seriesId: true, manualNumber: true },
     })
     if (!prior) {
       return NextResponse.json(
@@ -272,6 +321,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       )
     }
+    priorCurrent = prior
     const clash = await prisma.companyManual.findFirst({
       where: { seriesId: prior.seriesId, revision: revisionNum },
       select: { id: true },
@@ -289,6 +339,11 @@ export async function POST(req: NextRequest) {
   } else {
     seriesIdForUpload = randomUUID()
   }
+
+  const manualNumberResolved =
+    isRevision && !manualNumberInput
+      ? priorCurrent?.manualNumber ?? null
+      : manualNumberInput || null
 
   const uploaded = await uploadCompanyManualFile(
     buf,
@@ -336,6 +391,8 @@ export async function POST(req: NextRequest) {
             fileName: uploaded.fileName,
             createdBy: calisan.id,
             department,
+            manualNumber: manualNumberResolved,
+            revisionDate: revisionDateParsed,
             seriesId: prior.seriesId,
             revision: revisionNum,
             isCurrent: true,
@@ -372,6 +429,8 @@ export async function POST(req: NextRequest) {
         fileName: uploaded.fileName,
         createdBy: calisan.id,
         department,
+        manualNumber: manualNumberResolved,
+        revisionDate: revisionDateParsed,
         seriesId: seriesIdForUpload,
         revision: revisionNum,
         isCurrent: true,

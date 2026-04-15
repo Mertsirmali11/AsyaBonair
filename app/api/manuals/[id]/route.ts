@@ -1,9 +1,25 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
-import { assertCanManageAnnouncements } from "@/lib/announcements-access"
+import { assertCanManageCompanyManuals } from "@/lib/announcements-access"
 import { isAdminDepartment } from "@/lib/department-access"
+import { slugifyManualTitle } from "@/lib/company-manual-slug"
+import {
+  getOrganizationDepartmentOptions,
+  isOrganizationDepartment,
+  isValidCustomManualDepartment,
+} from "@/lib/organization-departments"
 import { deleteCompanyManualFile } from "@/lib/company-manuals-storage"
+
+function parseOptionalRevisionDateBody(raw: unknown): Date | null {
+  if (raw === null || raw === undefined || raw === "") return null
+  if (typeof raw !== "string") return null
+  const s = raw.trim()
+  if (!s) return null
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null
+  const d = new Date(`${s}T12:00:00.000Z`)
+  return Number.isNaN(d.getTime()) ? null : d
+}
 
 export async function GET(
   _request: Request,
@@ -42,11 +58,130 @@ export async function GET(
   })
 }
 
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const gate = await assertCanManageCompanyManuals()
+  if (!gate.ok) return gate.response
+
+  const { id } = await params
+  const numericId = Number.parseInt(id, 10)
+  if (Number.isNaN(numericId)) {
+    return NextResponse.json({ error: "Invalid id" }, { status: 400 })
+  }
+
+  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null
+  if (!body || typeof body !== "object") {
+    return NextResponse.json({ error: "Geçersiz istek gövdesi." }, { status: 400 })
+  }
+
+  const existing = await prisma.companyManual.findUnique({
+    where: { id: numericId },
+    select: { id: true, isCurrent: true, title: true, slug: true },
+  })
+  if (!existing) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
+  }
+  if (!existing.isCurrent) {
+    return NextResponse.json(
+      { error: "Yalnızca güncel revizyonun bilgileri düzenlenebilir." },
+      { status: 400 }
+    )
+  }
+
+  const title =
+    typeof body.title === "string" ? body.title.trim().slice(0, 300) : ""
+  const departmentMode =
+    typeof body.departmentMode === "string" &&
+    body.departmentMode.trim().toLowerCase() === "custom"
+      ? "custom"
+      : "list"
+  const departmentRaw =
+    typeof body.department === "string" ? body.department.trim() : ""
+  const manualNumber =
+    typeof body.manualNumber === "string"
+      ? body.manualNumber.trim().slice(0, 120)
+      : ""
+  const revisionDateParsed = parseOptionalRevisionDateBody(body.revisionDate)
+
+  if (!title) {
+    return NextResponse.json({ error: "Başlık gerekli." }, { status: 400 })
+  }
+  if (departmentMode === "custom") {
+    if (!isValidCustomManualDepartment(departmentRaw)) {
+      return NextResponse.json(
+        {
+          error:
+            "Özel departman 1–100 karakter olmalı; boş veya geçersiz karakter kullanılamaz.",
+        },
+        { status: 400 }
+      )
+    }
+  } else if (!isOrganizationDepartment(departmentRaw)) {
+    return NextResponse.json({ error: "Geçerli bir departman seçin." }, { status: 400 })
+  }
+
+  const department = departmentRaw
+  const opts = getOrganizationDepartmentOptions()
+  if (departmentMode === "list" && opts.length > 0 && !opts.includes(department)) {
+    return NextResponse.json({ error: "Geçerli bir departman seçin." }, { status: 400 })
+  }
+
+  let nextSlug = existing.slug
+  if (title !== existing.title) {
+    const baseSlug = slugifyManualTitle(title)
+    let slug = baseSlug
+    let n = 0
+    while (
+      await prisma.companyManual.findFirst({
+        where: { slug, NOT: { id: numericId } },
+        select: { id: true },
+      })
+    ) {
+      n += 1
+      slug = `${baseSlug}-${n}`.slice(0, 160)
+    }
+    nextSlug = slug
+  }
+
+  const updated = await prisma.companyManual.update({
+    where: { id: numericId },
+    data: {
+      title,
+      slug: nextSlug,
+      department,
+      manualNumber: manualNumber || null,
+      revisionDate: revisionDateParsed,
+    },
+    select: {
+      id: true,
+      title: true,
+      slug: true,
+      department: true,
+      manualNumber: true,
+      revisionDate: true,
+      revision: true,
+      seriesId: true,
+      isCurrent: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  })
+
+  return NextResponse.json({
+    ...updated,
+    revisionDate: updated.revisionDate
+      ? updated.revisionDate.toISOString().slice(0, 10)
+      : null,
+  })
+}
+
 export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const gate = await assertCanManageAnnouncements()
+  const gate = await assertCanManageCompanyManuals()
   if (!gate.ok) return gate.response
 
   const { id } = await params

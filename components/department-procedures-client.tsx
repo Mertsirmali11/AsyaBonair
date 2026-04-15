@@ -50,10 +50,10 @@ import {
 } from "@/components/ui/collapsible"
 import { cn } from "@/lib/utils"
 
-type FormRow = {
+type ProcedureRow = {
   id: number
-  /** Kurumsal form numarası (örn. FRM-001) */
-  formNumber: string
+  /** Kurumsal prosedür numarası (örn. PR-001) */
+  procedureNumber: string
   title: string
   slug: string
   createdAt: string
@@ -70,10 +70,10 @@ type FormRow = {
     soyisim: string | null
     email: string
   } | null
-  previousRevisions?: FormRow[]
+  previousRevisions?: ProcedureRow[]
 }
 
-function formatUploaderLabel(m: FormRow): string {
+function formatUploaderLabel(m: ProcedureRow): string {
   const c = m.creator
   if (!c) return "—"
   const name = `${c.isim ?? ""} ${c.soyisim ?? ""}`.trim()
@@ -81,13 +81,13 @@ function formatUploaderLabel(m: FormRow): string {
   return c.email
 }
 
-function matchesSearch(m: FormRow, q: string): boolean {
+function matchesSearch(m: ProcedureRow, q: string): boolean {
   const s = q.trim().toLowerCase()
   if (!s) return true
   const up = formatUploaderLabel(m).toLowerCase()
   return (
     m.title.toLowerCase().includes(s) ||
-    (m.formNumber ?? "").toLowerCase().includes(s) ||
+    (m.procedureNumber ?? "").toLowerCase().includes(s) ||
     m.slug.toLowerCase().includes(s) ||
     m.department.toLowerCase().includes(s) ||
     `rev.${m.revision}`.includes(s) ||
@@ -96,8 +96,8 @@ function matchesSearch(m: FormRow, q: string): boolean {
   )
 }
 
-export function DepartmentFormsClient() {
-  const [items, setItems] = React.useState<FormRow[]>([])
+export function DepartmentProceduresClient() {
+  const [items, setItems] = React.useState<ProcedureRow[]>([])
   const [canManageAll, setCanManageAll] = React.useState(false)
   const [viewerDepartman, setViewerDepartman] = React.useState<string | null>(
     null
@@ -111,7 +111,7 @@ export function DepartmentFormsClient() {
   const [departmentFilter, setDepartmentFilter] = React.useState("")
 
   const [title, setTitle] = React.useState("")
-  const [formNumber, setFormNumber] = React.useState("")
+  const [procedureNumber, setProcedureNumber] = React.useState("")
   const [department, setDepartment] = React.useState<string>("")
   const [uploadMode, setUploadMode] = React.useState<"new" | "revision">("new")
   const [supersedesId, setSupersedesId] = React.useState<string>("")
@@ -138,9 +138,10 @@ export function DepartmentFormsClient() {
   const [viewText, setViewText] = React.useState("")
 
   const [detailOpen, setDetailOpen] = React.useState(false)
-  const [detailForm, setDetailForm] = React.useState<FormRow | null>(null)
+  const [detailProcedure, setDetailProcedure] = React.useState<ProcedureRow | null>(null)
 
-  const canWriteAny =
+  /** Liste + arama + önizleme (Admin veya departmanı olan kullanıcı) */
+  const canViewProcedures =
     canManageAll || Boolean((viewerDepartman ?? "").trim())
 
   React.useEffect(() => {
@@ -157,20 +158,20 @@ export function DepartmentFormsClient() {
   const load = React.useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch("/api/department-forms", { cache: "no-store" })
+      const res = await fetch("/api/department-procedures", { cache: "no-store" })
       const data = (await res.json().catch(() => ({}))) as {
-        forms?: FormRow[]
-        canManageAllDepartmentForms?: boolean
+        procedures?: ProcedureRow[]
+        canManageAllDepartmentProcedures?: boolean
         viewerDepartman?: string | null
         departmentOptions?: string[]
         error?: string
       }
       if (!res.ok) throw new Error(data.error || "Liste yüklenemedi")
-      const list = Array.isArray(data.forms) ? data.forms : []
+      const list = Array.isArray(data.procedures) ? data.procedures : []
       setItems(
         list.map((m) => ({
           ...m,
-          formNumber: m.formNumber ?? "",
+          procedureNumber: m.procedureNumber ?? "",
           revision: m.revision ?? 0,
           isCurrent: m.isCurrent ?? true,
           createdBy: m.createdBy ?? null,
@@ -180,7 +181,7 @@ export function DepartmentFormsClient() {
           previousRevisions: Array.isArray(m.previousRevisions)
             ? m.previousRevisions.map((p) => ({
                 ...p,
-                formNumber: p.formNumber ?? "",
+                procedureNumber: p.procedureNumber ?? "",
                 revision: p.revision ?? 0,
                 creator: p.creator ?? null,
                 documentPreview: p.documentPreview ?? "none",
@@ -188,7 +189,7 @@ export function DepartmentFormsClient() {
             : [],
         }))
       )
-      setCanManageAll(!!data.canManageAllDepartmentForms)
+      setCanManageAll(!!data.canManageAllDepartmentProcedures)
       const vd =
         data.viewerDepartman === undefined ? null : data.viewerDepartman
       setViewerDepartman(vd)
@@ -198,7 +199,7 @@ export function DepartmentFormsClient() {
       setDepartmentOptions(opts)
       setDepartment((prev) => {
         if (prev.trim()) return prev
-        if (!data.canManageAllDepartmentForms) {
+        if (!data.canManageAllDepartmentProcedures) {
           const t = (vd ?? "").trim()
           if (t && opts.includes(t)) return t
         }
@@ -231,7 +232,7 @@ export function DepartmentFormsClient() {
     }
 
     setTitle("")
-    setFormNumber("")
+    setProcedureNumber("")
     setUploadMode("new")
     setSupersedesId("")
     setRevisionInput("0")
@@ -252,61 +253,32 @@ export function DepartmentFormsClient() {
     setViewTitle("")
     setViewText("")
     try {
-      const res = await fetch(`/api/department-forms/${id}`, { cache: "no-store" })
+      const res = await fetch(`/api/department-procedures/${id}`, { cache: "no-store" })
       const data = (await res.json().catch(() => ({}))) as {
-        form?: { title?: string; contentText?: string }
+        procedure?: { title?: string; contentText?: string }
         error?: string
       }
       if (!res.ok) {
-        throw new Error(data.error || "Form açılamadı")
+        throw new Error(data.error || "Prosedür açılamadı")
       }
-      const f = data.form
+      const f = data.procedure
       if (!f?.title) {
         throw new Error("Yanıt geçersiz")
       }
       setViewTitle(f.title)
       setViewText((f.contentText ?? "").trim() || "(Çıkarılan metin boş.)")
     } catch (e) {
-      setViewError(e instanceof Error ? e.message : "Form yüklenemedi")
+      setViewError(e instanceof Error ? e.message : "Prosedür yüklenemedi")
     } finally {
       setViewLoading(false)
     }
   }, [])
 
-  /** Orijinal dosya varsa yeni sekmede; yoksa (eski kayıt) metin önizlemesi */
-  const openFormDocument = React.useCallback(
-    async (m: FormRow) => {
-      if (m.hasOriginalFile === true) {
-        const url = `${window.location.origin}/api/department-forms/${m.id}/file`
-        window.open(url, "_blank", "noopener,noreferrer")
-        return
-      }
-      if (m.hasOriginalFile === false) {
-        await openTextPreviewModal(m.id)
-        return
-      }
-      const res = await fetch(`/api/department-forms/${m.id}`, { cache: "no-store" })
-      const data = (await res.json().catch(() => ({}))) as {
-        form?: { hasOriginalFile?: boolean }
-      }
-      if (res.ok && data.form?.hasOriginalFile) {
-        window.open(
-          `${window.location.origin}/api/department-forms/${m.id}/file`,
-          "_blank",
-          "noopener,noreferrer"
-        )
-        return
-      }
-      await openTextPreviewModal(m.id)
-    },
-    [openTextPreviewModal]
-  )
-
   const openEditRevision = React.useCallback(
-    (m: FormRow) => {
+    (m: ProcedureRow) => {
       skipUploadResetOnOpenRef.current = true
       setTitle(m.title)
-      setFormNumber(m.formNumber ?? "")
+      setProcedureNumber(m.procedureNumber ?? "")
       setDepartment(m.department)
       setUploadMode("revision")
       setSupersedesId(String(m.id))
@@ -325,7 +297,7 @@ export function DepartmentFormsClient() {
 
   const resetUploadFields = () => {
     setTitle("")
-    setFormNumber("")
+    setProcedureNumber("")
     setUploadMode("new")
     setSupersedesId("")
     setRevisionInput("0")
@@ -364,14 +336,14 @@ export function DepartmentFormsClient() {
       if (!Number.isFinite(sid) || sid < 1) {
         setBanner({
           type: "err",
-          text: "Yeni revizyon için güncel form satırını seçin.",
+          text: "Yeni revizyon için güncel prosedür satırını seçin.",
         })
         return
       }
-    } else if (!formNumber.trim()) {
+    } else if (!procedureNumber.trim()) {
       setBanner({
         type: "err",
-        text: "Yeni form serisi için form numarası girin (örn. FRM-001).",
+        text: "Yeni prosedür serisi için prosedür numarası girin (örn. PR-001).",
       })
       return
     }
@@ -379,23 +351,23 @@ export function DepartmentFormsClient() {
     try {
       const fd = new FormData()
       fd.append("title", t)
-      fd.append("formNumber", formNumber.trim())
+      fd.append("procedureNumber", procedureNumber.trim())
       fd.append("department", deptValue)
       fd.append("revision", revisionInput.trim())
       fd.append("file", file)
       if (uploadMode === "revision") {
         fd.append("supersedesId", supersedesId)
       }
-      const res = await fetch("/api/department-forms", { method: "POST", body: fd })
+      const res = await fetch("/api/department-procedures", { method: "POST", body: fd })
       const data = (await res.json().catch(() => ({}))) as {
         error?: string
-        formNumber?: string
+        procedureNumber?: string
         title?: string
         revision?: number
         textExtractionFallback?: boolean
       }
       if (!res.ok) throw new Error(data.error || "Yükleme başarısız")
-      const fn = (data.formNumber ?? formNumber).trim() || "—"
+      const fn = (data.procedureNumber ?? procedureNumber).trim() || "—"
       const revN = data.revision ?? Number.parseInt(revisionInput.trim(), 10)
       const displayTitle = (data.title ?? t).trim()
       let okText = `Kayıt eklendi: ${fn} · Rev. ${revN} · ${displayTitle}`
@@ -433,7 +405,7 @@ export function DepartmentFormsClient() {
     }
     setArchivingId(id)
     try {
-      const res = await fetch(`/api/department-forms/${id}/archive-current`, {
+      const res = await fetch(`/api/department-procedures/${id}/archive-current`, {
         method: "POST",
       })
       const data = (await res.json().catch(() => ({}))) as { error?: string }
@@ -456,10 +428,10 @@ export function DepartmentFormsClient() {
   }
 
   const remove = async (id: number) => {
-    if (!confirm("Bu form satırını silmek istiyor musunuz?")) return
+    if (!confirm("Bu prosedür satırını silmek istiyor musunuz?")) return
     setDeletingId(id)
     try {
-      const res = await fetch(`/api/department-forms/${id}`, { method: "DELETE" })
+      const res = await fetch(`/api/department-procedures/${id}`, { method: "DELETE" })
       const data = (await res.json().catch(() => ({}))) as { error?: string }
       if (!res.ok) throw new Error(data.error || "Silinemedi")
       setBanner({ type: "ok", text: "Silindi." })
@@ -493,7 +465,7 @@ export function DepartmentFormsClient() {
     const id = Number.parseInt(supersedesId, 10)
     if (!Number.isFinite(id)) return
     const row = revisionParentOptions.find((r) => r.id === id)
-    if (row) setFormNumber(row.formNumber ?? "")
+    if (row) setProcedureNumber(row.procedureNumber ?? "")
   }, [uploadMode, supersedesId, revisionParentOptions])
 
   return (
@@ -511,29 +483,31 @@ export function DepartmentFormsClient() {
         </div>
       )}
 
-      {!loading && !canWriteAny ? (
+      {!loading && !canViewProcedures ? (
         <p className="text-muted-foreground text-sm">
-          Hesabınıza departman atanmamış; kendi departmanınızın formlarını göremez veya
-          yükleyemezsiniz. Tüm departman formlarını yalnızca{" "}
+          Hesabınıza departman atanmamış; kendi departmanınızın prosedürlerini göremezsiniz.
+          Tüm departman prosedürlerini yalnızca{" "}
           <strong className="text-foreground">Admin</strong> görür ve yönetir. Diğer
-          kullanıcılar yalnızca kendi departmanlarını görür; gerekirse yöneticiden
-          departman ataması isteyin.
+          kullanıcılar yalnızca kendi departmanlarının listesini görür; gerekirse
+          yöneticiden departman ataması isteyin.
         </p>
       ) : null}
 
       {canManageAll ? (
         <p className="text-muted-foreground text-sm">
           <strong className="text-foreground">Admin</strong> olarak tüm departman
-          formlarını yönetebilirsiniz; departman filtresi &quot;Tüm departmanlar&quot;
-          iken hepsi listelenir.{" "}
-          <strong className="text-foreground">Form yükle</strong> ile herhangi bir
-          departman adına yükleme yapabilirsiniz.
+          prosedürlerini yükleyebilir, revize edebilir ve silebilirsiniz; departman
+          filtresi &quot;Tüm departmanlar&quot; iken hepsi listelenir.{" "}
+          <strong className="text-foreground">Prosedür yükle</strong> ve satırdaki{" "}
+          <strong className="text-foreground">Düzenle</strong> ile formlar sayfasındaki
+          gibi yeni revizyon akışını kullanın.
         </p>
-      ) : canWriteAny ? (
+      ) : canViewProcedures ? (
         <p className="text-muted-foreground text-sm">
           Yalnızca <strong className="text-foreground">{viewerDepartman}</strong>{" "}
-          departmanına ait formları görüyorsunuz. Yüklemek için{" "}
-          <strong className="text-foreground">Form yükle</strong> düğmesini kullanın.
+          departmanına ait güncel prosedürleri ve eski revizyonları (akordeon) görüyorsunuz.
+          Yükleme ve revizyon yalnızca <strong className="text-foreground">Admin</strong>{" "}
+          içindir.
         </p>
       ) : null}
 
@@ -542,7 +516,7 @@ export function DepartmentFormsClient() {
           <Label htmlFor="dept-form-search" className="text-muted-foreground">
             Ara ve filtrele
           </Label>
-          {canWriteAny ? (
+          {canManageAll ? (
             <Button
               type="button"
               size="sm"
@@ -551,7 +525,7 @@ export function DepartmentFormsClient() {
               onClick={() => openFreshUpload()}
             >
               <IconPlus className="size-4" />
-              Form yükle
+              Prosedür yükle
             </Button>
           ) : null}
         </div>
@@ -586,7 +560,7 @@ export function DepartmentFormsClient() {
               id="dept-form-search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Form no, başlık, departman, yükleyen, revizyon…"
+              placeholder="Prosedür no, başlık, departman, yükleyen, revizyon…"
               className="flex-1"
             />
             <Button type="button" variant="secondary" className="shrink-0 gap-1.5">
@@ -600,10 +574,10 @@ export function DepartmentFormsClient() {
       <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
         <DialogContent className="flex max-h-[min(92vh,800px)] flex-col gap-0 p-0 sm:max-w-2xl">
           <DialogHeader className="shrink-0 border-b px-6 py-4 text-left">
-            <DialogTitle>Form yükleme</DialogTitle>
+            <DialogTitle>Prosedür yükleme</DialogTitle>
             <DialogDescription>
               {DEPARTMENT_FORM_TYPES_USER_MESSAGE}. Yeni seride{" "}
-              <strong className="text-foreground">form numarası</strong> zorunludur.
+              <strong className="text-foreground">prosedür numarası</strong> zorunludur.
               Revizyonda numara güncel satırdan gelir; önceki güncel sürüm listede
               akordeon altında eski revizyon olarak kalır.
             </DialogDescription>
@@ -620,21 +594,21 @@ export function DepartmentFormsClient() {
 
             <Card className="gap-0 py-4 shadow-sm">
               <CardHeader className="px-4 pb-3 pt-0">
-                <CardTitle className="text-base">Form bilgileri (elle girin)</CardTitle>
+                <CardTitle className="text-base">Prosedür bilgileri (elle girin)</CardTitle>
                 <CardDescription>
-                  Önce form numarası, form adı ve revizyonu yazın. Yeni form serisinde
-                  form numarası zorunludur.
+                  Önce prosedür numarası, başlık ve revizyonu yazın. Yeni seride prosedür
+                  numarası zorunludur.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 px-4 pb-0">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="grid gap-2 sm:col-span-2">
-                    <Label htmlFor="df-modal-formno">Form numarası</Label>
+                    <Label htmlFor="dp-modal-procno">Prosedür numarası</Label>
                     <Input
-                      id="df-modal-formno"
-                      value={formNumber}
-                      onChange={(e) => setFormNumber(e.target.value)}
-                      placeholder="Örn. BON-CMM-FR-002"
+                      id="dp-modal-procno"
+                      value={procedureNumber}
+                      onChange={(e) => setProcedureNumber(e.target.value)}
+                      placeholder="Örn. BON-CMM-PR-001"
                       disabled={uploadMode === "revision"}
                       maxLength={80}
                       autoComplete="off"
@@ -650,18 +624,18 @@ export function DepartmentFormsClient() {
                     )}
                   </div>
                   <div className="grid gap-2 sm:col-span-2">
-                    <Label htmlFor="df-modal-title">Form adı (başlık)</Label>
+                    <Label htmlFor="dp-modal-title">Prosedür adı (başlık)</Label>
                     <Input
-                      id="df-modal-title"
+                      id="dp-modal-title"
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
                       placeholder="Örn. Compliance Monitoring System Auditor List"
                     />
                   </div>
                   <div className="grid gap-2 sm:col-span-2 sm:max-w-[200px]">
-                    <Label htmlFor="df-modal-rev">Revizyon no</Label>
+                    <Label htmlFor="dp-modal-rev">Revizyon no</Label>
                     <Input
-                      id="df-modal-rev"
+                      id="dp-modal-rev"
                       value={revisionInput}
                       onChange={(e) => setRevisionInput(e.target.value)}
                       inputMode="numeric"
@@ -680,9 +654,9 @@ export function DepartmentFormsClient() {
               </CardHeader>
               <CardContent className="space-y-2 px-4 pb-0 text-sm">
                 <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border/70 pb-2">
-                  <span className="text-muted-foreground shrink-0">Form no</span>
+                  <span className="text-muted-foreground shrink-0">Prosedür no</span>
                   <span className="min-w-0 text-right font-medium break-all text-foreground">
-                    {(formNumber ?? "").trim() || "—"}
+                    {(procedureNumber ?? "").trim() || "—"}
                   </span>
                 </div>
                 <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border/70 pb-2">
@@ -694,7 +668,7 @@ export function DepartmentFormsClient() {
                   </span>
                 </div>
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <span className="text-muted-foreground shrink-0 pt-0.5">Form adı</span>
+                  <span className="text-muted-foreground shrink-0 pt-0.5">Başlık</span>
                   <span className="min-w-0 max-w-[85%] text-right font-medium leading-snug break-words text-foreground">
                     {title.trim() || "—"}
                   </span>
@@ -739,7 +713,7 @@ export function DepartmentFormsClient() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="new">Yeni form serisi</SelectItem>
+                    <SelectItem value="new">Yeni prosedür serisi</SelectItem>
                     <SelectItem value="revision">
                       Mevcut güncel satırın yeni revizyonu
                     </SelectItem>
@@ -748,7 +722,7 @@ export function DepartmentFormsClient() {
               </div>
               {uploadMode === "revision" ? (
                 <div className="grid gap-2">
-                  <Label>Güncel form (yerine)</Label>
+                  <Label>Güncel prosedür (yerine)</Label>
                   <Select value={supersedesId} onValueChange={setSupersedesId}>
                     <SelectTrigger>
                       <SelectValue placeholder="Satır seçin" />
@@ -756,8 +730,8 @@ export function DepartmentFormsClient() {
                     <SelectContent>
                       {revisionParentOptions.map((m) => (
                         <SelectItem key={m.id} value={String(m.id)}>
-                          {(m.formNumber ?? "").trim()
-                            ? `[${(m.formNumber ?? "").trim()}] `
+                          {(m.procedureNumber ?? "").trim()
+                            ? `[${(m.procedureNumber ?? "").trim()}] `
                             : ""}
                           {m.title} · {m.department} · Rev.{m.revision}
                         </SelectItem>
@@ -837,7 +811,7 @@ export function DepartmentFormsClient() {
               disabled={uploading}
               onClick={resetUploadFields}
             >
-              Formu temizle
+              Alanları temizle
             </Button>
             <Button type="button" variant="secondary" onClick={() => setUploadOpen(false)}>
               Kapat
@@ -849,7 +823,7 @@ export function DepartmentFormsClient() {
               onClick={() => void submit()}
             >
               <IconUpload className="size-4" />
-              {uploading ? "Yükleniyor…" : "Formu yükle"}
+              {uploading ? "Yükleniyor…" : "Prosedürü yükle"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -869,7 +843,7 @@ export function DepartmentFormsClient() {
         <DialogContent className="flex max-h-[min(88vh,640px)] flex-col gap-0 p-0 sm:max-w-lg">
           <DialogHeader className="shrink-0 border-b px-6 py-4 text-left">
             <DialogTitle className="pr-8 leading-snug">
-              {viewLoading ? "Form açılıyor…" : viewTitle || "Form"}
+              {viewLoading ? "Prosedür açılıyor…" : viewTitle || "Prosedür"}
             </DialogTitle>
             <DialogDescription>
               Bu kayıt için orijinal dosya saklanmadığından yalnızca çıkarılmış metin
@@ -907,28 +881,28 @@ export function DepartmentFormsClient() {
         open={detailOpen}
         onOpenChange={(open) => {
           setDetailOpen(open)
-          if (!open) setDetailForm(null)
+          if (!open) setDetailProcedure(null)
         }}
       >
         <DialogContent className="flex max-h-[min(92vh,760px)] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
           <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-4">
             <DialogTitle className="pr-8 leading-snug">
-              {detailForm?.title ?? "Form"}
+              {detailProcedure?.title ?? "Prosedür"}
             </DialogTitle>
             <DialogDescription asChild>
               <div className="text-muted-foreground space-y-1 text-sm">
-                {detailForm ? (
+                {detailProcedure ? (
                   <>
                     <p>
-                      {(detailForm.formNumber ?? "").trim()
-                        ? `No: ${(detailForm.formNumber ?? "").trim()} · `
+                      {(detailProcedure.procedureNumber ?? "").trim()
+                        ? `No: ${(detailProcedure.procedureNumber ?? "").trim()} · `
                         : ""}
-                      Rev. {detailForm.revision} · {detailForm.department}
+                      Rev. {detailProcedure.revision} · {detailProcedure.department}
                     </p>
-                    <p>Yükleyen: {formatUploaderLabel(detailForm)}</p>
+                    <p>Yükleyen: {formatUploaderLabel(detailProcedure)}</p>
                     <p>
-                      {formatDateTimeIstanbul(detailForm.createdAt)} (yükleme) ·{" "}
-                      {formatDateTimeIstanbul(detailForm.updatedAt)} (güncelleme)
+                      {formatDateTimeIstanbul(detailProcedure.createdAt)} (yükleme) ·{" "}
+                      {formatDateTimeIstanbul(detailProcedure.updatedAt)} (güncelleme)
                     </p>
                   </>
                 ) : null}
@@ -936,18 +910,18 @@ export function DepartmentFormsClient() {
             </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4 pt-2">
-            {!detailForm ? null : detailForm.documentPreview === "pdf" ? (
+            {!detailProcedure ? null : detailProcedure.documentPreview === "pdf" ? (
               <>
                 <p className="text-muted-foreground mb-2 text-xs">
                   PDF önizleme. Tam ekran için yeni sekmede açın.
                 </p>
                 <iframe
-                  title={detailForm.title}
-                  src={`/api/department-forms/${detailForm.id}/file`}
+                  title={detailProcedure.title}
+                  src={`/api/department-procedures/${detailProcedure.id}/file`}
                   className="min-h-[min(52vh,480px)] w-full flex-1 rounded-md border bg-muted/30"
                 />
               </>
-            ) : detailForm.documentPreview === "unsupported" ? (
+            ) : detailProcedure.documentPreview === "unsupported" ? (
               <div className="text-muted-foreground space-y-3 text-sm">
                 <p>
                   Bu dosya PDF değil; tarayıcıda gömülü önizleme yok. İndirerek
@@ -955,7 +929,7 @@ export function DepartmentFormsClient() {
                 </p>
                 <Button type="button" variant="outline" size="sm" asChild>
                   <a
-                    href={`/api/department-forms/${detailForm.id}/file`}
+                    href={`/api/department-procedures/${detailProcedure.id}/file`}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
@@ -969,7 +943,7 @@ export function DepartmentFormsClient() {
                 <button
                   type="button"
                   className="text-primary underline underline-offset-2"
-                  onClick={() => void openTextPreviewModal(detailForm.id)}
+                  onClick={() => void openTextPreviewModal(detailProcedure.id)}
                 >
                   metin önizlemesi
                 </button>
@@ -978,10 +952,10 @@ export function DepartmentFormsClient() {
             )}
           </div>
           <DialogFooter className="shrink-0 gap-2 border-t px-6 py-4">
-            {detailForm ? (
+            {detailProcedure ? (
               <Button type="button" variant="outline" size="sm" asChild>
                 <a
-                  href={`/api/department-forms/${detailForm.id}/file`}
+                  href={`/api/department-procedures/${detailProcedure.id}/file`}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
@@ -994,7 +968,7 @@ export function DepartmentFormsClient() {
               variant="secondary"
               onClick={() => {
                 setDetailOpen(false)
-                setDetailForm(null)
+                setDetailProcedure(null)
               }}
             >
               Kapat
@@ -1005,10 +979,10 @@ export function DepartmentFormsClient() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Yüklü formlar</CardTitle>
+          <CardTitle>Yüklü prosedürler</CardTitle>
           <CardDescription>
-            Satıra tıklayarak önizleyin. Eski revizyonlar her satırın altındaki
-            akordeonda.
+            Satıra tıklayarak önizleyin; eski revizyonlar her satırın altındaki akordeonda
+            (Formlar sayfasıyla aynı mantık). Yükleme ve revizyon yalnızca Admin içindir.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -1019,7 +993,7 @@ export function DepartmentFormsClient() {
             </div>
           ) : filteredCurrent.length === 0 ? (
             <p className="text-muted-foreground text-sm">
-              {items.length === 0 ? "Henüz form yok." : "Filtre veya arama sonucu yok."}
+              {items.length === 0 ? "Henüz prosedür yok." : "Filtre veya arama sonucu yok."}
             </p>
           ) : (
             <ul className="divide-y rounded-md border">
@@ -1033,13 +1007,13 @@ export function DepartmentFormsClient() {
                         tabIndex={0}
                         className="min-w-0 flex-1 cursor-pointer rounded-md px-3 py-3 text-left outline-none ring-offset-background hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring"
                         onClick={() => {
-                          setDetailForm(m)
+                          setDetailProcedure(m)
                           setDetailOpen(true)
                         }}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault()
-                            setDetailForm(m)
+                            setDetailProcedure(m)
                             setDetailOpen(true)
                           }
                         }}
@@ -1049,8 +1023,8 @@ export function DepartmentFormsClient() {
                             className="text-muted-foreground size-4 shrink-0"
                             aria-hidden
                           />
-                          {(m.formNumber ?? "").trim()
-                            ? `[${(m.formNumber ?? "").trim()}] `
+                          {(m.procedureNumber ?? "").trim()
+                            ? `[${(m.procedureNumber ?? "").trim()}] `
                             : ""}
                           {m.title}
                         </p>
@@ -1064,7 +1038,7 @@ export function DepartmentFormsClient() {
                           {formatDateTimeIstanbul(m.updatedAt)} (güncelleme) · {m.slug}
                         </p>
                       </div>
-                      {canWriteAny ? (
+                      {canManageAll ? (
                         <div className="flex shrink-0 flex-wrap items-center gap-1 border-t p-2 sm:border-border sm:border-l sm:border-t-0 sm:px-2">
                           <Button
                             type="button"
@@ -1127,8 +1101,8 @@ export function DepartmentFormsClient() {
                               >
                                 <p className="font-medium text-muted-foreground">
                                   Rev. {p.revision}
-                                  {(p.formNumber ?? "").trim()
-                                    ? ` · No: ${(p.formNumber ?? "").trim()}`
+                                  {(p.procedureNumber ?? "").trim()
+                                    ? ` · No: ${(p.procedureNumber ?? "").trim()}`
                                     : ""}
                                 </p>
                                 <p className="text-muted-foreground">
@@ -1136,7 +1110,7 @@ export function DepartmentFormsClient() {
                                 </p>
                                 <a
                                   className="mt-1 inline-block text-primary underline-offset-2 hover:underline"
-                                  href={`/api/department-forms/${p.id}/file`}
+                                  href={`/api/department-procedures/${p.id}/file`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                 >

@@ -1,18 +1,32 @@
+/**
+ * Departman alanındaki görünmez karakterleri (RTL işaretleri, NBSP) temizleyip küçük harfe çevirir.
+ * Aksi halde veritabanında "Admin" görünüp string eşleşmeyebiliyor.
+ */
+export function normalizeDepartmentKey(
+  departman: string | null | undefined
+): string {
+  return (departman ?? "")
+    .replace(/[\u200e\u200f\u00a0]/g, "")
+    .trim()
+    .toLowerCase()
+}
+
 /** Kullanıcı yönetimindeki "Admin" departmanı — genişletilmiş uygulama yetkileri + manuel arşivi. */
 export function isAdminDepartment(
   departman: string | null | undefined
 ): boolean {
-  return (departman ?? "").trim().toLowerCase() === "admin"
+  return normalizeDepartmentKey(departman) === "admin"
 }
 
 /** HR / Quality / Admin — yapılandırma, kullanıcı ayarları, yazışmalar vb. tam erişim. */
 export function canAccessConfigurationsArea(
   departman: string | null | undefined
 ): boolean {
+  const x = normalizeDepartmentKey(departman)
   return (
-    isAdminDepartment(departman) ||
-    departman === "Human Resources" ||
-    departman === "Quality"
+    x === "admin" ||
+    x === "human resources" ||
+    x === "quality"
   )
 }
 
@@ -20,7 +34,8 @@ export function canAccessConfigurationsArea(
 export function canAccessQualityOrAdminSettings(
   departman: string | null | undefined
 ): boolean {
-  return departman === "Quality" || isAdminDepartment(departman)
+  const x = normalizeDepartmentKey(departman)
+  return x === "quality" || x === "admin"
 }
 
 /**

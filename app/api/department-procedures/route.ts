@@ -22,9 +22,9 @@ export const runtime = "nodejs"
 
 const MAX_UPLOAD_BYTES = 32 * 1024 * 1024
 
-const formSelect = {
+const procedureSelect = {
   id: true,
-  formNumber: true,
+  procedureNumber: true,
   title: true,
   slug: true,
   createdAt: true,
@@ -55,11 +55,11 @@ function documentPreviewKind(
   return "unsupported"
 }
 
-function mapFormRowToClient(
+function mapProcedureRowToClient(
   r: {
     fileStoragePath: string | null
     originalFileName: string | null
-    formNumber: string
+    procedureNumber: string
     id: number
     title: string
     slug: string
@@ -112,10 +112,10 @@ export async function GET() {
           department: normalizeDeptLabel(departman) || "__none__",
         }
 
-    const forms = await prisma.departmentForm.findMany({
+    const procedures = await prisma.departmentProcedure.findMany({
       where: currentWhere,
       orderBy: [{ department: "asc" }, { title: "asc" }],
-      select: formSelect,
+      select: procedureSelect,
     })
 
     const historicWhere = manageAll
@@ -125,25 +125,25 @@ export async function GET() {
           department: normalizeDeptLabel(departman) || "__none__",
         }
 
-    const historicForms = await prisma.departmentForm.findMany({
+    const historicProcedures = await prisma.departmentProcedure.findMany({
       where: historicWhere,
       orderBy: [{ seriesId: "asc" }, { revision: "desc" }],
-      select: formSelect,
+      select: procedureSelect,
     })
 
-    const mapList = (rows: typeof forms) =>
-      rows.map((row) => mapFormRowToClient(row))
+    const mapList = (rows: typeof procedures) =>
+      rows.map((row) => mapProcedureRowToClient(row))
 
-    const mappedForms =
-      manageAll || normalizeDeptLabel(departman) ? mapList(forms) : []
-    const seriesIds = [...new Set(mappedForms.map((m) => m.seriesId))]
+    const mapped =
+      manageAll || normalizeDeptLabel(departman) ? mapList(procedures) : []
+    const seriesIds = [...new Set(mapped.map((m) => m.seriesId))]
     const historicInSeries =
       seriesIds.length === 0
         ? []
-        : await prisma.departmentForm.findMany({
+        : await prisma.departmentProcedure.findMany({
             where: { isCurrent: false, seriesId: { in: seriesIds } },
             orderBy: [{ seriesId: "asc" }, { revision: "desc" }],
-            select: formSelect,
+            select: procedureSelect,
           })
 
     const previousBySeries = new Map<string, typeof historicInSeries>()
@@ -153,45 +153,44 @@ export async function GET() {
       previousBySeries.set(row.seriesId, list)
     }
 
-    const formsWithHistory = mappedForms.map((m) => {
+    const withHistory = mapped.map((m) => {
       const prevRows = previousBySeries.get(m.seriesId) ?? []
       return {
         ...m,
         previousRevisions: prevRows.map((p) => {
-          const mapped = mapFormRowToClient(p)
+          const mappedP = mapProcedureRowToClient(p)
           return {
-            ...mapped,
-            createdAt: mapped.createdAt.toISOString(),
-            updatedAt: mapped.updatedAt.toISOString(),
+            ...mappedP,
+            createdAt: mappedP.createdAt.toISOString(),
+            updatedAt: mappedP.updatedAt.toISOString(),
           }
         }),
       }
     })
 
-    // Seri tarihleri JSON için
-    const formsWithHistorySerialized = formsWithHistory.map((m) => ({
+    const serialized = withHistory.map((m) => ({
       ...m,
       createdAt: m.createdAt.toISOString(),
       updatedAt: m.updatedAt.toISOString(),
     }))
 
     return NextResponse.json({
-      forms: formsWithHistorySerialized,
-      historicForms: mapList(historicForms).map((h) => ({
+      procedures: serialized,
+      historicProcedures: mapList(historicProcedures).map((h) => ({
         ...h,
         createdAt: h.createdAt.toISOString(),
         updatedAt: h.updatedAt.toISOString(),
       })),
-      canManageAllDepartmentForms: manageAll,
+      canManageAllDepartmentProcedures: manageAll,
       viewerDepartman: departman,
       departmentOptions: getOrganizationDepartmentOptions(),
     })
   } catch (e) {
-    console.error("[department-forms] GET:", e)
+    console.error("[department-procedures] GET:", e)
     return NextResponse.json(
       {
         error:
-          "Form listesi alınamadı. Oturumu yenileyin veya veritabanı şemasının güncel olduğundan emin olun.",
+          "Prosedür listesi alınamadı. Oturumu yenileyin veya veritabanı şemasının güncel olduğundan emin olun.",
       },
       { status: 500 }
     )
@@ -229,34 +228,34 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const form = await req.formData()
-  const titleRaw = form.get("title")
+  const body = await req.formData()
+  const titleRaw = body.get("title")
   const title =
     typeof titleRaw === "string" ? titleRaw.trim().slice(0, 300) : ""
-  const deptRaw = form.get("department")
+  const deptRaw = body.get("department")
   const department =
     typeof deptRaw === "string" ? deptRaw.trim() : ""
-  const revRaw = form.get("revision")
+  const revRaw = body.get("revision")
   const revisionNum =
     typeof revRaw === "string" && revRaw.trim()
       ? Number.parseInt(revRaw.trim(), 10)
       : Number.NaN
-  const file = form.get("file")
-  const supersedesRaw = form.get("supersedesId")
+  const file = body.get("file")
+  const supersedesRaw = body.get("supersedesId")
   const supersedesId =
     typeof supersedesRaw === "string" && supersedesRaw.trim()
       ? Number.parseInt(supersedesRaw.trim(), 10)
       : Number.NaN
-  const formNumberRaw = form.get("formNumber")
-  const formNumberInput =
-    typeof formNumberRaw === "string" ? formNumberRaw.trim().slice(0, 80) : ""
+  const procNumRaw = body.get("procedureNumber")
+  const procedureNumberInput =
+    typeof procNumRaw === "string" ? procNumRaw.trim().slice(0, 80) : ""
 
   const isRevisionPost =
     Number.isFinite(supersedesId) && !Number.isNaN(supersedesId) && supersedesId > 0
 
-  if (!isRevisionPost && !formNumberInput) {
+  if (!isRevisionPost && !procedureNumberInput) {
     return NextResponse.json(
-      { error: "Form numarası gerekli (yeni form serisi)." },
+      { error: "Prosedür numarası gerekli (yeni prosedür serisi)." },
       { status: 400 }
     )
   }
@@ -268,18 +267,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Geçerli bir departman seçin." }, { status: 400 })
   }
   if (!manageAll) {
-    if (!normalizeDeptLabel(departman)) {
-      return NextResponse.json(
-        { error: "Departman atanmamış hesaplar form yükleyemez." },
-        { status: 403 }
-      )
-    }
-    if (normalizeDeptLabel(departman) !== normalizeDeptLabel(department)) {
-      return NextResponse.json(
-        { error: "Yalnızca kendi departmanınızın formlarını yükleyebilirsiniz." },
-        { status: 403 }
-      )
-    }
+    return NextResponse.json(
+      {
+        error:
+          "Yalnızca Admin departman prosedürü yükleyebilir veya revize edebilir.",
+      },
+      { status: 403 }
+    )
   }
   if (!Number.isFinite(revisionNum) || revisionNum < 0 || revisionNum > 999999) {
     return NextResponse.json(
@@ -301,7 +295,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "Departman formları için yalnızca PDF, Word (.doc, .docx) veya Excel (.xls, .xlsx) kabul edilir.",
+          "Departman prosedürleri için yalnızca PDF, Word (.doc, .docx) veya Excel (.xls, .xlsx) kabul edilir.",
       },
       { status: 400 }
     )
@@ -314,7 +308,7 @@ export async function POST(req: NextRequest) {
     const extracted = await extractPlainTextFromUploadedDocument(buf, file.name)
     contentText = extracted.text
   } catch (e) {
-    console.error("[department-forms] extract:", e)
+    console.error("[department-procedures] extract:", e)
     contentText = ""
     textExtractionFallback = true
   }
@@ -322,9 +316,9 @@ export async function POST(req: NextRequest) {
   if (!contentText.trim()) {
     textExtractionFallback = true
     contentText = [
-      "[Metin otomatik çıkarılamadı — form dosyası ve kayıt yine de saklanır.]",
+      "[Metin otomatik çıkarılamadı — dosya ve kayıt yine de saklanır.]",
       `Başlık: ${title.trim()}`,
-      formNumberInput ? `Form no: ${formNumberInput}` : "",
+      procedureNumberInput ? `Prosedür no: ${procedureNumberInput}` : "",
       `Kaynak dosya: ${file.name}`,
     ]
       .filter((line) => line.length > 0)
@@ -334,7 +328,7 @@ export async function POST(req: NextRequest) {
   const baseSlug = slugifyManualTitle(`${department}-${title}`)
   let slug = baseSlug
   let n = 0
-  while (await prisma.departmentForm.findUnique({ where: { slug } })) {
+  while (await prisma.departmentProcedure.findUnique({ where: { slug } })) {
     n += 1
     slug = `${baseSlug}-${n}`.slice(0, 160)
   }
@@ -348,18 +342,18 @@ export async function POST(req: NextRequest) {
 
   let seriesIdForUpload: string
 
-  let formNumberResolved = formNumberInput
+  let procedureNumberResolved = procedureNumberInput
 
   if (isRevision) {
-    const priorCheck = await prisma.departmentForm.findFirst({
+    const priorCheck = await prisma.departmentProcedure.findFirst({
       where: { id: supersedesId, isCurrent: true },
-      select: { id: true, seriesId: true, department: true, formNumber: true },
+      select: { id: true, seriesId: true, department: true, procedureNumber: true },
     })
     if (!priorCheck) {
       return NextResponse.json(
         {
           error:
-            "Yeni revizyon için seçilen form bulunamadı, güncel değil veya erişiminiz yok.",
+            "Yeni revizyon için seçilen prosedür bulunamadı, güncel değil veya erişiminiz yok.",
         },
         { status: 400 }
       )
@@ -367,7 +361,7 @@ export async function POST(req: NextRequest) {
     if (!canViewDepartmentFormRow(departman, priorCheck.department)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
-    const clash = await prisma.departmentForm.findFirst({
+    const clash = await prisma.departmentProcedure.findFirst({
       where: { seriesId: priorCheck.seriesId, revision: revisionNum },
       select: { id: true },
     })
@@ -381,14 +375,14 @@ export async function POST(req: NextRequest) {
       )
     }
     seriesIdForUpload = priorCheck.seriesId
-    if (!formNumberResolved) {
-      formNumberResolved = (priorCheck.formNumber ?? "").trim().slice(0, 80)
+    if (!procedureNumberResolved) {
+      procedureNumberResolved = (priorCheck.procedureNumber ?? "").trim().slice(0, 80)
     }
   } else {
     seriesIdForUpload = randomUUID()
   }
 
-  const uploadRes = await uploadPdfToStorage(file, `department-forms/${seriesIdForUpload}`, {
+  const uploadRes = await uploadPdfToStorage(file, `department-procedures/${seriesIdForUpload}`, {
     storageFileName: storageLeaf,
   })
   if (!uploadRes.ok) {
@@ -410,7 +404,7 @@ export async function POST(req: NextRequest) {
 
   const createdSelect = {
     id: true,
-    formNumber: true,
+    procedureNumber: true,
     title: true,
     slug: true,
     createdAt: true,
@@ -438,12 +432,12 @@ export async function POST(req: NextRequest) {
     if (isRevision) {
       let duplicateRevision = false
       const created = await prisma.$transaction(async (tx) => {
-        const prior = await tx.departmentForm.findFirst({
+        const prior = await tx.departmentProcedure.findFirst({
           where: { id: supersedesId, isCurrent: true },
           select: { id: true, seriesId: true, department: true },
         })
         if (!prior || prior.seriesId !== seriesIdForUpload) return null
-        const clashInTx = await tx.departmentForm.findFirst({
+        const clashInTx = await tx.departmentProcedure.findFirst({
           where: { seriesId: prior.seriesId, revision: revisionNum },
           select: { id: true },
         })
@@ -451,13 +445,13 @@ export async function POST(req: NextRequest) {
           duplicateRevision = true
           return null
         }
-        await tx.departmentForm.updateMany({
+        await tx.departmentProcedure.updateMany({
           where: { seriesId: prior.seriesId, isCurrent: true },
           data: { isCurrent: false },
         })
-        return tx.departmentForm.create({
+        return tx.departmentProcedure.create({
           data: {
-            formNumber: formNumberResolved,
+            procedureNumber: procedureNumberResolved,
             title,
             slug,
             contentText,
@@ -486,7 +480,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           {
             error:
-              "Yeni revizyon için seçilen form bulunamadı, güncel değil veya erişiminiz yok.",
+              "Yeni revizyon için seçilen prosedür bulunamadı, güncel değil veya erişiminiz yok.",
           },
           { status: 400 }
         )
@@ -496,9 +490,9 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const row = await prisma.departmentForm.create({
+    const row = await prisma.departmentProcedure.create({
       data: {
-        formNumber: formNumberResolved,
+        procedureNumber: procedureNumberResolved,
         title,
         slug,
         contentText,
@@ -514,7 +508,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(toClientJson(row, { textExtractionFallback }))
   } catch (e) {
     await deletePdfFromStorage(uploadRes.path)
-    console.error("[department-forms] POST create:", e)
+    console.error("[department-procedures] POST create:", e)
     return NextResponse.json({ error: "Kayıt oluşturulamadı." }, { status: 500 })
   }
 }

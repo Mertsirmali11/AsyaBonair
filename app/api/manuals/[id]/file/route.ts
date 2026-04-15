@@ -2,7 +2,6 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
 import { contentTypeFromFileName } from "@/lib/allowed-document-uploads"
-import { isAdminDepartment } from "@/lib/department-access"
 import { downloadCompanyManualFile } from "@/lib/company-manuals-storage"
 
 export const runtime = "nodejs"
@@ -28,15 +27,10 @@ export async function GET(
       select: {
         fileStoragePath: true,
         fileName: true,
-        isCurrent: true,
       },
     })
 
     if (!manual?.fileStoragePath) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 })
-    }
-
-    if (!manual.isCurrent && !isAdminDepartment(session.user.departman)) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
 
