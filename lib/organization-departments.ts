@@ -26,6 +26,35 @@ export function getOrganizationDepartmentOptions(): string[] {
   return [...ORGANIZATION_DEPARTMENTS]
 }
 
+/** Varsayılan sıra korunur; ek isimler alfabetik sonda, tekrarsız (büyük/küçük harf). */
+export function mergeDepartmentLists(
+  base: readonly string[],
+  extra: string[]
+): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  const tryPush = (raw: string) => {
+    const t = raw.trim()
+    if (!t) return
+    const key = t.toLowerCase()
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push(t)
+  }
+  for (const b of base) tryPush(b)
+  const extras: string[] = []
+  for (const e of extra) {
+    const t = e.trim()
+    if (!t) continue
+    const key = t.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    extras.push(t)
+  }
+  extras.sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }))
+  return [...out, ...extras]
+}
+
 export function isOrganizationDepartment(
   value: string | null | undefined
 ): value is OrganizationDepartment {

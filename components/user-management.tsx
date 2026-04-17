@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { usePathname } from "next/navigation"
-import { IconArrowsSort, IconDotsVertical, IconPencil, IconPlus, IconSortAscending, IconSortDescending, IconTrash } from "@tabler/icons-react"
+import { IconArrowsSort, IconDotsVertical, IconFileSpreadsheet, IconFileTypePdf, IconPencil, IconPlus, IconSortAscending, IconSortDescending, IconTrash } from "@tabler/icons-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -33,7 +33,15 @@ import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { DatePicker } from "@/components/ui/date-picker"
 import { ProfilePhotoCropDialog } from "@/components/profile-photo-crop-dialog"
-import { ORGANIZATION_DEPARTMENTS } from "@/lib/organization-departments"
+import {
+  mergeDepartmentLists,
+  ORGANIZATION_DEPARTMENTS,
+} from "@/lib/organization-departments"
+import {
+  downloadUserSettingsTablePdf,
+  downloadUserSettingsTableXlsx,
+} from "@/lib/user-management-export"
+import { toast } from "sonner"
 
 interface Calisan {
   id: number
@@ -77,6 +85,13 @@ interface ColumnDef {
 const defaultColumns: ColumnDef[] = [
   { key: "fullName", label: "NAME-SURNAME", sortKey: "fullName", getValue: (c) => `${c.isim || ""} ${c.soyisim || ""}`.trim() },
   { key: "departman", label: "Department", sortKey: "departman", getValue: (c) => c.departman || "-" },
+  {
+    key: "titleCol",
+    label: "Title",
+    sortKey: "ekstra2",
+    getValue: (c) =>
+      c.departman === "Pilot" ? (c.ekstra3 || "-") : (c.ekstra2 || "-"),
+  },
   { key: "tcNo", label: "ID Number", sortKey: "tcNo", getValue: (c) => c.tcNo || "-" },
   { key: "dogumTarihi", label: "Date of Birth", sortKey: "dogumTarihi", getValue: (c) => c.dogumTarihi || "" },
   { key: "telNo", label: "Phone Number", sortKey: "telNo", getValue: (c) => c.telNo || "-" },
@@ -95,13 +110,6 @@ const defaultColumns: ColumnDef[] = [
   { key: "iban", label: "IBAN", sortKey: "iban", getValue: (c) => c.iban || "-" },
   { key: "iseGirisTarihi", label: "Hire Date", sortKey: "iseGirisTarihi", getValue: (c) => c.iseGirisTarihi || "" },
   { key: "istenCikisTarihi", label: "Termination Date", sortKey: "istenCikisTarihi", getValue: (c) => c.istenCikisTarihi || "" },
-]
-
-const pilotColumns: ColumnDef[] = [
-  { key: "fullName", label: "Ad Soyad", sortKey: "fullName", getValue: (c) => `${c.isim || ""} ${c.soyisim || ""}`.trim() },
-  { key: "telNo", label: "Telefon", sortKey: "telNo", getValue: (c) => c.telNo || "-" },
-  { key: "email", label: "Mail", sortKey: "email", getValue: (c) => c.email || "-" },
-  { key: "ekstra3", label: "Captain / F/O", sortKey: "ekstra3", getValue: (c) => c.ekstra3 || "-" },
 ]
 
 const pilotRanks = ["Captain", "F/O"] as const
@@ -139,19 +147,16 @@ const initialFormData = {
 }
 
 interface UserManagementProps {
-  departmentFilter?: string | null
   title?: string
   /** When true, omit the in-component page title (shell provides the H1). */
   hidePageTitle?: boolean
 }
 
 export function UserManagement({
-  departmentFilter,
   title = "User Management",
   hidePageTitle = false,
 }: UserManagementProps) {
   const pathname = usePathname()
-  const isPilotSettings = departmentFilter === "Pilot"
   const [calisanlar, setCalisanlar] = useState<Calisan[]>([])
   const [loading, setLoading] = useState(true)
   const [listError, setListError] = useState<string | null>(null)
@@ -170,8 +175,13 @@ export function UserManagement({
   const [avatarCropFile, setAvatarCropFile] = useState<File | null>(null)
   const [sortField, setSortField] = useState<SortField>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
-  const activeColumns = isPilotSettings ? pilotColumns : defaultColumns
-  const selectedDepartment = departmentFilter || formData.departman
+  const [departmentOptions, setDepartmentOptions] = useState<string[]>(() =>
+    mergeDepartmentLists(ORGANIZATION_DEPARTMENTS, [])
+  )
+  /** Boş = tüm departmanlar */
+  const [departmentFilter, setDepartmentFilter] = useState("")
+  const activeColumns = defaultColumns
+  const selectedDepartment = formData.departman
   const shouldShowPilotRankField = selectedDepartment === "Pilot"
 
   const fetchCalisanlar = useCallback(async (mode: "initial" | "refresh" = "initial") => {
@@ -229,6 +239,24 @@ export function UserManagement({
     document.addEventListener("visibilitychange", onVisible)
     return () => document.removeEventListener("visibilitychange", onVisible)
   }, [fetchCalisanlar, listError])
+
+  const fetchDepartmentOptions = useCallback(async () => {
+    try {
+      const res = await fetch("/api/organization-departments", { cache: "no-store" })
+      if (res.ok) {
+        const data = (await res.json()) as { departments?: string[] }
+        if (Array.isArray(data.departments)) {
+          setDepartmentOptions(data.departments)
+        }
+      }
+    } catch {
+      /* keep defaults */
+    }
+  }, [])
+
+  useEffect(() => {
+    void fetchDepartmentOptions()
+  }, [fetchDepartmentOptions, pathname])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
@@ -320,8 +348,9 @@ export function UserManagement({
       
       const submitData = {
         ...formData,
-        departman: departmentFilter || formData.departman,
+        departman: formData.departman,
         ekstra3: shouldShowPilotRankField ? formData.ekstra3 : "",
+        ekstra2: shouldShowPilotRankField ? "" : (formData.ekstra2 || "").trim(),
         dogumTarihi: turkeyToIsoFormat(formData.dogumTarihi),
         iseGirisTarihi: turkeyToIsoFormat(formData.iseGirisTarihi),
         istenCikisTarihi: turkeyToIsoFormat(formData.istenCikisTarihi),
@@ -335,10 +364,7 @@ export function UserManagement({
 
       if (response.ok) {
         setDialogOpen(false)
-        const newFormData = departmentFilter 
-          ? { ...initialFormData, departman: departmentFilter }
-          : initialFormData
-        setFormData(newFormData)
+        setFormData(initialFormData)
         setIsEditMode(false)
         setSelectedCalisan(null)
         void fetchCalisanlar("refresh")
@@ -414,31 +440,44 @@ export function UserManagement({
     return <IconSortDescending className="h-4 w-4 text-gray-700" />
   }
 
+  const departmentFilterOptions = useMemo(() => {
+    const fromData = calisanlar
+      .map((c) => (c.departman || "").trim())
+      .filter(Boolean)
+    return mergeDepartmentLists(departmentOptions, fromData)
+  }, [calisanlar, departmentOptions])
+
   const filteredAndSortedData = useMemo(() => {
     let data = [...calisanlar]
 
     if (departmentFilter) {
-      data = data.filter((calisan) => calisan.departman === departmentFilter)
+      data = data.filter(
+        (c) => (c.departman || "").trim() === departmentFilter
+      )
     }
 
     if (searchTerm) {
       const lowerSearch = searchTerm.toLowerCase()
       data = data.filter((calisan) => {
         const fullName = `${calisan.isim || ""} ${calisan.soyisim || ""}`.toLowerCase()
-        const searchableFields = isPilotSettings
-          ? [fullName, calisan.telNo, calisan.email, calisan.ekstra3]
-          : [
-              fullName,
-              calisan.departman,
-              calisan.tcNo,
-              calisan.telNo,
-              calisan.adres,
-              calisan.email,
-              calisan.anneAdi,
-              calisan.babaAdi,
-              calisan.medeniDurum,
-            ]
-        return searchableFields.some((field) => field?.toLowerCase().includes(lowerSearch))
+        const searchableFields = [
+          fullName,
+          calisan.departman,
+          calisan.ekstra2,
+          calisan.ekstra3,
+          calisan.tcNo,
+          calisan.telNo,
+          calisan.adres,
+          calisan.email,
+          calisan.anneAdi,
+          calisan.babaAdi,
+          calisan.medeniDurum,
+        ]
+        return searchableFields.some((field) =>
+          String(field ?? "")
+            .toLowerCase()
+            .includes(lowerSearch)
+        )
       })
     }
 
@@ -462,7 +501,30 @@ export function UserManagement({
     }
 
     return data
-  }, [calisanlar, searchTerm, sortField, sortDirection, departmentFilter, isPilotSettings])
+  }, [calisanlar, departmentFilter, searchTerm, sortField, sortDirection])
+
+  const exportTableData = useMemo(() => {
+    const headers = activeColumns.map((c) => c.label)
+    const rows = filteredAndSortedData.map((calisan) =>
+      activeColumns.map((col) => {
+        if (col.key === "titleCol") {
+          return calisan.departman === "Pilot"
+            ? (calisan.ekstra3 || "-")
+            : (calisan.ekstra2 || "-")
+        }
+        if (
+          col.sortKey === "dogumTarihi" ||
+          col.sortKey === "iseGirisTarihi" ||
+          col.sortKey === "istenCikisTarihi"
+        ) {
+          return formatDate(calisan[col.sortKey] as string | null)
+        }
+        const v = col.getValue(calisan)
+        return String(v === "" || v === null ? "-" : v)
+      })
+    )
+    return { headers, rows }
+  }, [filteredAndSortedData])
 
   const totalEntries = filteredAndSortedData.length
   const totalPages = Math.ceil(totalEntries / itemsPerPage)
@@ -472,7 +534,7 @@ export function UserManagement({
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchTerm])
+  }, [searchTerm, departmentFilter])
 
   return (
     <div className="space-y-4">
@@ -496,12 +558,16 @@ export function UserManagement({
       <div
         className={
           hidePageTitle
-            ? "flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-end"
-            : "flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+            ? "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end"
+            : "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
         }
       >
-        {!hidePageTitle && <h2 className="text-2xl font-bold tracking-tight">{title}</h2>}
-        <div className="flex shrink-0 justify-end sm:justify-end">
+        {!hidePageTitle && (
+          <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+            {title}
+          </h2>
+        )}
+        <div className="flex w-full shrink-0 justify-stretch sm:w-auto sm:justify-end">
         <Dialog open={dialogOpen} onOpenChange={(open) => {
           setDialogOpen(open)
           if (!open) {
@@ -509,22 +575,16 @@ export function UserManagement({
             setSelectedCalisan(null)
             setAvatarCropOpen(false)
             setAvatarCropFile(null)
-            const newFormData = departmentFilter 
-              ? { ...initialFormData, departman: departmentFilter }
-              : initialFormData
-            setFormData(newFormData)
+            setFormData(initialFormData)
           }
         }}>
           <DialogTrigger asChild>
             <Button
-              className="gap-2"
+              className="h-10 w-full gap-2 sm:w-auto"
               onClick={() => {
                 setIsEditMode(false)
                 setSelectedCalisan(null)
-                const newFormData = departmentFilter 
-                  ? { ...initialFormData, departman: departmentFilter }
-                  : initialFormData
-                setFormData(newFormData)
+                setFormData(initialFormData)
               }}
             >
               <IconPlus className="size-4 shrink-0" />
@@ -638,46 +698,17 @@ export function UserManagement({
                         </div>
                       </div>
                     )}
-                    {isPilotSettings ? (
-                      <>
-                        <div className="space-y-2">
-                          <Label htmlFor="ekstra3">Position *</Label>
-                          <Select
-                            value={formData.ekstra3}
-                            onValueChange={(value) => setFormData((prev) => ({ ...prev, ekstra3: value }))}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select position" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Captain">Captain</SelectItem>
-                              <SelectItem value="F/O">F/O</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="telNo">Phone Number</Label>
-                          <Input
-                            id="telNo"
-                            name="telNo"
-                            value={formData.telNo}
-                            onChange={handleInputChange}
-                          />
-                        </div>
-                      </>
-                    ) : (
-                      <>
                         {shouldShowPilotRankField && (
                           <div className="col-span-2 space-y-2">
-                            <Label htmlFor="ekstra3">Position *</Label>
+                            <Label htmlFor="ekstra3">Title *</Label>
                             <Select
                               value={formData.ekstra3}
                               onValueChange={(value) =>
                                 setFormData((prev) => ({ ...prev, ekstra3: value }))
                               }
                             >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select position" />
+                              <SelectTrigger id="ekstra3">
+                                <SelectValue placeholder="Captain / F/O" />
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="Captain">Captain</SelectItem>
@@ -717,14 +748,15 @@ export function UserManagement({
                           <Label htmlFor="departman">Department</Label>
                           <Select
                             value={formData.departman}
-                            onValueChange={(value) => setFormData((prev) => ({ ...prev, departman: value }))}
-                            disabled={!!departmentFilter}
+                            onValueChange={(value) =>
+                              setFormData((prev) => ({ ...prev, departman: value }))
+                            }
                           >
                             <SelectTrigger id="departman">
                               <SelectValue placeholder="Select department" />
                             </SelectTrigger>
                             <SelectContent>
-                              {ORGANIZATION_DEPARTMENTS.map((d) => (
+                              {departmentOptions.map((d) => (
                                 <SelectItem key={d} value={d}>
                                   {d}
                                 </SelectItem>
@@ -732,23 +764,32 @@ export function UserManagement({
                             </SelectContent>
                           </Select>
                         </div>
-                      </>
-                    )}
+                        {!shouldShowPilotRankField && (
+                          <div className="col-span-2 space-y-2">
+                            <Label htmlFor="ekstra2">Title</Label>
+                            <Input
+                              id="ekstra2"
+                              name="ekstra2"
+                              value={formData.ekstra2}
+                              onChange={handleInputChange}
+                              placeholder="Job title or role (optional)"
+                              autoComplete="organization-title"
+                            />
+                          </div>
+                        )}
                   </div>
-                  {!isPilotSettings && (
-                    <div className="space-y-2">
-                      <Label htmlFor="adres">Address</Label>
-                      <Input
-                        id="adres"
-                        name="adres"
-                        value={formData.adres}
-                        onChange={handleInputChange}
-                      />
-                    </div>
-                  )}
+                  <div className="space-y-2">
+                    <Label htmlFor="adres">Address</Label>
+                    <Input
+                      id="adres"
+                      name="adres"
+                      value={formData.adres}
+                      onChange={handleInputChange}
+                    />
+                  </div>
                 </div>
 
-                {!isPilotSettings && <div className="space-y-4">
+                <div className="space-y-4">
                   <h3 className="font-semibold text-lg border-b pb-2">Family Information</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -828,9 +869,9 @@ export function UserManagement({
                       />
                     </div>
                   </div>
-                </div>}
+                </div>
 
-                {!isPilotSettings && <div className="space-y-4">
+                <div className="space-y-4">
                   <h3 className="font-semibold text-lg border-b pb-2">Emergency Contact</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -852,9 +893,9 @@ export function UserManagement({
                       />
                     </div>
                   </div>
-                </div>}
+                </div>
 
-                {!isPilotSettings && <div className="space-y-4">
+                <div className="space-y-4">
                   <h3 className="font-semibold text-lg border-b pb-2">Employment Information</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -901,7 +942,7 @@ export function UserManagement({
                       />
                     </div>
                   </div>
-                </div>}
+                </div>
 
                 <div className="flex justify-end gap-2 pt-4 border-t">
                   <Button
@@ -922,18 +963,85 @@ export function UserManagement({
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        <Label htmlFor="search" className="text-sm font-medium whitespace-nowrap">
-          Search:
-        </Label>
-        <Input
-          id="search"
-          type="text"
-          placeholder="Search all columns..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="max-w-xs h-9"
-        />
+      <div className="rounded-xl border border-border/80 bg-muted/40 p-4 shadow-sm dark:bg-muted/20">
+        <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Filter & export
+        </p>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:items-end lg:gap-x-4 lg:gap-y-3">
+          <div className="space-y-1.5 lg:col-span-5">
+            <Label htmlFor="search" className="text-xs font-medium text-muted-foreground">
+              Search
+            </Label>
+            <Input
+              id="search"
+              type="text"
+              placeholder="Name, email, phone, department…"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="h-10 w-full bg-background"
+            />
+          </div>
+          <div className="space-y-1.5 lg:col-span-3">
+            <Label htmlFor="department-filter" className="text-xs font-medium text-muted-foreground">
+              Department
+            </Label>
+            <Select
+              value={departmentFilter || "__all__"}
+              onValueChange={(v) =>
+                setDepartmentFilter(v === "__all__" ? "" : v)
+              }
+            >
+              <SelectTrigger id="department-filter" className="h-10 w-full bg-background">
+                <SelectValue placeholder="All departments" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">All departments</SelectItem>
+                {departmentFilterOptions.map((d) => (
+                  <SelectItem key={d} value={d}>
+                    {d}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5 lg:col-span-4">
+            <span className="block text-xs font-medium text-muted-foreground">
+              Export table
+            </span>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="h-10 flex-1 gap-2 sm:flex-initial sm:min-w-[7.5rem]"
+                disabled={filteredAndSortedData.length === 0}
+                onClick={() => {
+                  const { headers, rows } = exportTableData
+                  downloadUserSettingsTablePdf(headers, rows)
+                  toast.success("PDF downloaded.")
+                }}
+              >
+                <IconFileTypePdf className="size-4 shrink-0 opacity-80" />
+                PDF
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="h-10 flex-1 gap-2 sm:flex-initial sm:min-w-[7.5rem]"
+                disabled={filteredAndSortedData.length === 0}
+                onClick={() => {
+                  const { headers, rows } = exportTableData
+                  downloadUserSettingsTableXlsx(headers, rows)
+                  toast.success("Excel downloaded.")
+                }}
+              >
+                <IconFileSpreadsheet className="size-4 shrink-0 opacity-80" />
+                Excel
+              </Button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="rounded-lg border bg-card">
@@ -981,41 +1089,35 @@ export function UserManagement({
               ) : (
                 paginatedCalisanlar.map((calisan) => (
                   <TableRow key={calisan.id} className="hover:bg-slate-50 border-b border-gray-300">
-                    {isPilotSettings ? (
-                      <>
-                        <TableCell className="whitespace-nowrap border-r border-gray-200">
-                          {calisan.isim} {calisan.soyisim}
-                        </TableCell>
-                        <TableCell className="border-r border-gray-200">{calisan.telNo || "-"}</TableCell>
-                        <TableCell className="border-r border-gray-200">{calisan.email}</TableCell>
-                        <TableCell className="border-r border-gray-200">{calisan.ekstra3 || "-"}</TableCell>
-                      </>
-                    ) : (
-                      <>
-                        <TableCell className="whitespace-nowrap border-r border-gray-200">
-                          {calisan.isim} {calisan.soyisim}
-                        </TableCell>
-                        <TableCell className="border-r border-gray-200">{calisan.departman || "-"}</TableCell>
-                        <TableCell className="border-r border-gray-200">{calisan.tcNo || "-"}</TableCell>
-                        <TableCell className="border-r border-gray-200">{formatDate(calisan.dogumTarihi)}</TableCell>
-                        <TableCell className="border-r border-gray-200">{calisan.telNo || "-"}</TableCell>
-                        <TableCell className="max-w-xs truncate border-r border-gray-200">{calisan.adres || "-"}</TableCell>
-                        <TableCell className="border-r border-gray-200">{calisan.anneAdi || "-"}</TableCell>
-                        <TableCell className="border-r border-gray-200">{calisan.babaAdi || "-"}</TableCell>
-                        <TableCell className="border-r border-gray-200">{calisan.medeniDurum || "-"}</TableCell>
-                        <TableCell className="border-r border-gray-200">{calisan.cocuk ?? "-"}</TableCell>
-                        <TableCell className="border-r border-gray-200">{calisan.kanGrubu || "-"}</TableCell>
-                        <TableCell className="border-r border-gray-200">{calisan.email}</TableCell>
-                        <TableCell className="border-r border-gray-200">{calisan.egitimDurum || "-"}</TableCell>
-                        <TableCell className="border-r border-gray-200">{calisan.acilIletisim || "-"}</TableCell>
-                        <TableCell className="border-r border-gray-200">{calisan.acilIletisimTel || "-"}</TableCell>
-                        <TableCell className="border-r border-gray-200">{calisan.sgkSicilNo || "-"}</TableCell>
-                        <TableCell className="border-r border-gray-200">{calisan.bankaAdi || "-"}</TableCell>
-                        <TableCell className="border-r border-gray-200">{calisan.iban || "-"}</TableCell>
-                        <TableCell className="border-r border-gray-200">{formatDate(calisan.iseGirisTarihi)}</TableCell>
-                        <TableCell className="border-r border-gray-200">{formatDate(calisan.istenCikisTarihi)}</TableCell>
-                      </>
-                    )}
+                    <>
+                      <TableCell className="whitespace-nowrap border-r border-gray-200">
+                        {calisan.isim} {calisan.soyisim}
+                      </TableCell>
+                      <TableCell className="border-r border-gray-200">{calisan.departman || "-"}</TableCell>
+                      <TableCell className="border-r border-gray-200">
+                        {calisan.departman === "Pilot"
+                          ? (calisan.ekstra3 || "-")
+                          : (calisan.ekstra2 || "-")}
+                      </TableCell>
+                      <TableCell className="border-r border-gray-200">{calisan.tcNo || "-"}</TableCell>
+                      <TableCell className="border-r border-gray-200">{formatDate(calisan.dogumTarihi)}</TableCell>
+                      <TableCell className="border-r border-gray-200">{calisan.telNo || "-"}</TableCell>
+                      <TableCell className="max-w-xs truncate border-r border-gray-200">{calisan.adres || "-"}</TableCell>
+                      <TableCell className="border-r border-gray-200">{calisan.anneAdi || "-"}</TableCell>
+                      <TableCell className="border-r border-gray-200">{calisan.babaAdi || "-"}</TableCell>
+                      <TableCell className="border-r border-gray-200">{calisan.medeniDurum || "-"}</TableCell>
+                      <TableCell className="border-r border-gray-200">{calisan.cocuk ?? "-"}</TableCell>
+                      <TableCell className="border-r border-gray-200">{calisan.kanGrubu || "-"}</TableCell>
+                      <TableCell className="border-r border-gray-200">{calisan.email}</TableCell>
+                      <TableCell className="border-r border-gray-200">{calisan.egitimDurum || "-"}</TableCell>
+                      <TableCell className="border-r border-gray-200">{calisan.acilIletisim || "-"}</TableCell>
+                      <TableCell className="border-r border-gray-200">{calisan.acilIletisimTel || "-"}</TableCell>
+                      <TableCell className="border-r border-gray-200">{calisan.sgkSicilNo || "-"}</TableCell>
+                      <TableCell className="border-r border-gray-200">{calisan.bankaAdi || "-"}</TableCell>
+                      <TableCell className="border-r border-gray-200">{calisan.iban || "-"}</TableCell>
+                      <TableCell className="border-r border-gray-200">{formatDate(calisan.iseGirisTarihi)}</TableCell>
+                      <TableCell className="border-r border-gray-200">{formatDate(calisan.istenCikisTarihi)}</TableCell>
+                    </>
                     <TableCell>
                       <Button 
                         variant="ghost" 

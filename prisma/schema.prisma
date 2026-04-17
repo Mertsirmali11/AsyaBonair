@@ -120,6 +120,15 @@ model Calisan {
   @@map("calisanlar")
 }
 
+/// User settings → ek departman seçenekleri (sabit liste + kayıtlı ekler)
+model CustomDepartment {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique @db.VarChar(100)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("custom_departments")
+}
+
 enum WorkerRegistrationStatus {
   PENDING
   APPROVED

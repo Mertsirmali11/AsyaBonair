@@ -98,7 +98,6 @@ const configurationsSubItems: {
 }[] = [
   { title: "New worker", url: "/configurations/new-worker", approversOnly: true },
   { title: "User Settings", url: "/configurations" },
-  { title: "Pilot Settings", url: "/configurations/pilot-settings" },
   {
     title: "Safety settings",
     url: "/configurations/safety-settings",
