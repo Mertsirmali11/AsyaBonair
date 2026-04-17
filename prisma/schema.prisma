@@ -112,6 +112,9 @@ model Calisan {
   safetyRiskBoardsUpdated   SafetyRiskBoard[] @relation("SafetyRiskBoardUpdatedBy")
   auditPlanAuditors AuditPlanAuditor[] @relation("AuditPlanAuditorCalisan")
   auditPlanAuditees AuditPlanAuditee[] @relation("AuditPlanAuditeeCalisan")
+  auditFindingsAssigned   AuditFinding[]           @relation("AuditFindingAssignee")
+  auditFindingResponses   AuditFindingResponse[]   @relation("AuditFindingResponder")
+  auditFindingExtensions  AuditFindingExtension[]  @relation("AuditFindingExtensionRequester")
   supportTicketsCreated SupportTicket[] @relation("SupportTicketCreator")
   supportTicketsAdminUpdated SupportTicket[] @relation("SupportTicketAdmin")
 
@@ -783,6 +786,7 @@ model AuditPlanEntry {
   auditors             AuditPlanAuditor[]
   auditees             AuditPlanAuditee[]
   checklistAssignments AuditPlanChecklistAssignment[]
+  sessions             AuditSession[]
 
   @@index([plannedDate])
   @@index([auditCategoryTypeId])
@@ -811,6 +815,7 @@ model AuditChecklist {
   items        AuditChecklistItem[]
   revisions    AuditChecklistRevision[]
   assignments  AuditPlanChecklistAssignment[]
+  sessions     AuditSession[]
 
   @@index([sortOrder])
   @@index([isActive])
@@ -845,6 +850,8 @@ model AuditChecklistRevisionItem {
   section    String?  @db.VarChar(400) @map("section")
   sortOrder  Int      @default(0) @map("sort_order")
   isRequired Boolean  @default(true) @map("is_required")
+  /// Konu başlığı satırı ise true — bu satırda S/U/N/A işaretlenmez
+  isHeading  Boolean  @default(false) @map("is_heading")
   createdAt  DateTime @default(now()) @map("created_at")
 
   revision AuditChecklistRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
@@ -862,14 +869,149 @@ model AuditChecklistItem {
   section          String?  @db.VarChar(400) @map("section")
   sortOrder        Int      @default(0) @map("sort_order")
   isRequired       Boolean  @default(true) @map("is_required")
+  /// Konu başlığı satırı ise true — bu satırda S/U/N/A işaretlenmez
+  isHeading        Boolean  @default(false) @map("is_heading")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
-  checklist AuditChecklist @relation(fields: [auditChecklistId], references: [id], onDelete: Cascade)
+  checklist    AuditChecklist @relation(fields: [auditChecklistId], references: [id], onDelete: Cascade)
+  sessionItems AuditSessionItem[]
 
   @@index([auditChecklistId])
   @@index([sortOrder])
   @@map("audit_checklist_items")
+}
+
+/// Audit Plan'a bağlı gerçek denetim oturumu
+model AuditSession {
+  id               Int       @id @default(autoincrement())
+  auditPlanEntryId Int       @map("audit_plan_entry_id")
+  auditChecklistId Int       @map("audit_checklist_id")
+  startedAt        DateTime  @default(now()) @map("started_at")
+  completedAt      DateTime? @map("completed_at")
+  status           String    @default("InProgress") @db.VarChar(50) // InProgress | Completed
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  entry     AuditPlanEntry @relation(fields: [auditPlanEntryId], references: [id], onDelete: Cascade)
+  checklist AuditChecklist @relation(fields: [auditChecklistId], references: [id], onDelete: Restrict)
+  items     AuditSessionItem[]
+  findings  AuditFinding[]
+
+  @@index([auditPlanEntryId])
+  @@index([auditChecklistId])
+  @@map("audit_sessions")
+}
+
+/// Her checklist maddesinin denetim sonucu
+model AuditSessionItem {
+  id                   Int      @id @default(autoincrement())
+  auditSessionId       Int      @map("audit_session_id")
+  auditChecklistItemId Int      @map("audit_checklist_item_id")
+  /// S = Satisfactory, U = Unsatisfactory, NA = N/A, null = yanıtlanmadı
+  result               String?  @db.VarChar(2) @map("result")
+  notes                String?  @db.Text
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  session     AuditSession      @relation(fields: [auditSessionId], references: [id], onDelete: Cascade)
+  checklistItem AuditChecklistItem @relation(fields: [auditChecklistItemId], references: [id], onDelete: Restrict)
+  finding     AuditFinding?
+
+  @@unique([auditSessionId, auditChecklistItemId])
+  @@index([auditSessionId])
+  @@map("audit_session_items")
+}
+
+/// Denetimde tespit edilen bulgu (Unsatisfactory item → Finding)
+model AuditFinding {
+  id                 Int       @id @default(autoincrement())
+  /// BON-AF-XXX formatında otomatik kod
+  findingCode        String    @unique @db.VarChar(50) @map("finding_code")
+  auditSessionId     Int       @map("audit_session_id")
+  auditSessionItemId Int?      @unique @map("audit_session_item_id")
+  /// Bulgunun açıklaması / gözlem
+  explanation        String    @db.Text
+  /// Referans madde / doküman
+  reference          String?   @db.VarChar(500)
+  field              String?   @db.VarChar(400) // audit alanı (kategori/alt)
+  auditNumber        String?   @db.VarChar(100) @map("audit_number")
+  initializedOn      DateTime  @default(now()) @map("initialized_on")
+  dueDate            DateTime? @map("due_date") @db.Date
+  status             String    @default("Open") @db.VarChar(50) // Open | Closed
+  assignedToId       Int?      @map("assigned_to_id")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  session     AuditSession       @relation(fields: [auditSessionId], references: [id], onDelete: Cascade)
+  sessionItem AuditSessionItem?  @relation(fields: [auditSessionItemId], references: [id], onDelete: SetNull)
+  assignedTo  Calisan?           @relation("AuditFindingAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  responses   AuditFindingResponse[]
+  extensions  AuditFindingExtension[]
+
+  @@index([auditSessionId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("audit_findings")
+}
+
+/// Bulgulara verilen kök neden analizi cevabı
+model AuditFindingResponse {
+  id             Int      @id @default(autoincrement())
+  auditFindingId Int      @map("audit_finding_id")
+  respondedById  Int?     @map("responded_by_id")
+  /// Kök neden analizi metni
+  rootCause      String?  @db.Text @map("root_cause")
+  /// Düzeltici faaliyet
+  correctiveAction String? @db.Text @map("corrective_action")
+  /// Önleyici faaliyet
+  preventiveAction String? @db.Text @map("preventive_action")
+  /// CPA (Corrective & Preventive Action) durumu: Pending | Accepted | Rejected
+  cpaStatus      String   @default("Pending") @db.VarChar(50) @map("cpa_status")
+  submittedAt    DateTime @default(now()) @map("submitted_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  finding      AuditFinding @relation(fields: [auditFindingId], references: [id], onDelete: Cascade)
+  respondedBy  Calisan?     @relation("AuditFindingResponder", fields: [respondedById], references: [id], onDelete: SetNull)
+  attachments  AuditFindingAttachment[]
+
+  @@index([auditFindingId])
+  @@map("audit_finding_responses")
+}
+
+/// Cevaba veya bulgulara eklenen dosya ekleri
+model AuditFindingAttachment {
+  id                     Int      @id @default(autoincrement())
+  auditFindingResponseId Int      @map("audit_finding_response_id")
+  fileName               String   @db.VarChar(500) @map("file_name")
+  storagePath            String   @db.Text @map("storage_path")
+  mimeType               String?  @db.VarChar(200) @map("mime_type")
+  fileSizeBytes          Int?     @map("file_size_bytes")
+  uploadedAt             DateTime @default(now()) @map("uploaded_at")
+
+  response AuditFindingResponse @relation(fields: [auditFindingResponseId], references: [id], onDelete: Cascade)
+
+  @@index([auditFindingResponseId])
+  @@map("audit_finding_attachments")
+}
+
+/// Bulgulara talep edilen ek süre (Extension)
+model AuditFindingExtension {
+  id             Int      @id @default(autoincrement())
+  auditFindingId Int      @map("audit_finding_id")
+  requestedById  Int?     @map("requested_by_id")
+  newDueDate     DateTime @map("new_due_date") @db.Date
+  reason         String?  @db.Text
+  status         String   @default("Pending") @db.VarChar(50) // Pending | Approved | Rejected
+  isExpired      Boolean  @default(false) @map("is_expired")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  finding     AuditFinding @relation(fields: [auditFindingId], references: [id], onDelete: Cascade)
+  requestedBy Calisan?     @relation("AuditFindingExtensionRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+
+  @@index([auditFindingId])
+  @@map("audit_finding_extensions")
 }
 
 /// Denetim satırına atanmış checklist şablonu

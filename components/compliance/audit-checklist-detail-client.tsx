@@ -34,7 +34,7 @@ import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import type { AuditChecklistListRow } from "@/components/compliance/audit-checklists-client"
 
 type ChecklistDetail = AuditChecklistListRow & {
-  items: { id: number; label: string; sortOrder: number; isRequired: boolean }[]
+  items: { id: number; label: string; sortOrder: number; isRequired: boolean; isHeading?: boolean; reference?: string | null; section?: string | null }[]
 }
 
 async function parseJson(res: Response): Promise<unknown> {
@@ -191,7 +191,12 @@ export function AuditChecklistDetailClient({ checklistId }: { checklistId: numbe
             </div>
 
             <div>
-              <h2 className="mb-2 text-lg font-semibold">Maddeler ({row.items.length})</h2>
+              <h2 className="mb-2 text-lg font-semibold">
+                Maddeler ({row.items.filter((it) => !it.isHeading).length} soru
+                {row.items.some((it) => it.isHeading)
+                  ? `, ${row.items.filter((it) => it.isHeading).length} başlık`
+                  : ""})
+              </h2>
               <div className="bg-card overflow-hidden rounded-lg border">
                 <ScrollArea className="h-[min(50vh,480px)]">
                   <Table>
@@ -199,25 +204,43 @@ export function AuditChecklistDetailClient({ checklistId }: { checklistId: numbe
                       <TableRow className="bg-muted/50 hover:bg-muted/50">
                         <TableHead className="w-14">#</TableHead>
                         <TableHead>Madde</TableHead>
+                        <TableHead className="w-48">Referans</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {row.items.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={2} className="text-muted-foreground h-24 text-center">
+                          <TableCell colSpan={3} className="text-muted-foreground h-24 text-center">
                             Madde yok.
                           </TableCell>
                         </TableRow>
-                      ) : (
-                        row.items.map((it, idx) => (
-                          <TableRow key={it.id}>
-                            <TableCell className="text-muted-foreground font-mono text-sm">
-                              {idx + 1}
-                            </TableCell>
-                            <TableCell className="text-sm">{it.label}</TableCell>
-                          </TableRow>
-                        ))
-                      )}
+                      ) : (() => {
+                        let qNum = 0
+                        return row.items.map((it) => {
+                          if (it.isHeading) {
+                            return (
+                              <TableRow key={it.id} className="bg-amber-50/60 hover:bg-amber-50/80 dark:bg-amber-950/20 dark:hover:bg-amber-950/30">
+                                <TableCell className="font-mono text-xs text-amber-600">—</TableCell>
+                                <TableCell colSpan={2} className="font-semibold text-amber-800 dark:text-amber-300">
+                                  {it.label}
+                                </TableCell>
+                              </TableRow>
+                            )
+                          }
+                          qNum++
+                          return (
+                            <TableRow key={it.id}>
+                              <TableCell className="text-muted-foreground font-mono text-sm">
+                                {qNum}
+                              </TableCell>
+                              <TableCell className="text-sm">{it.label}</TableCell>
+                              <TableCell className="text-muted-foreground font-mono text-xs">
+                                {it.reference ?? ""}
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })
+                      })()}
                     </TableBody>
                   </Table>
                 </ScrollArea>

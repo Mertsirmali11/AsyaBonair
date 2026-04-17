@@ -174,6 +174,32 @@ export async function PATCH(req: Request, ctx: Ctx) {
   }
 
   const b = body as Record<string, unknown>
+
+  // Status-only update (quick action from table)
+  if (b.statusOnly === true) {
+    const validStatuses = ["Initialized", "Postponed", "Completed", "Cancelled"]
+    const newStatus = typeof b.status === "string" ? b.status : ""
+    if (!validStatuses.includes(newStatus)) {
+      return NextResponse.json({ error: "Invalid status" }, { status: 400 })
+    }
+    const statusData: Record<string, unknown> = { status: newStatus }
+    if (newStatus === "Initialized") statusData.initializedDate = new Date()
+    if (newStatus === "Postponed" && typeof b.datePostponed === "string") {
+      const { parseDdMmYyyyToUtcDate } = await import("@/lib/correspondence-date")
+      const d = parseDdMmYyyyToUtcDate(b.datePostponed)
+      if (d) statusData.datePostponed = d
+    }
+    const updated = await prisma.auditPlanEntry.update({ where: { id }, data: statusData })
+    return NextResponse.json(mapEntry({
+      ...updated,
+      auditCategoryType: await prisma.auditCategoryType.findUniqueOrThrow({ where: { id: updated.auditCategoryTypeId }, select: { name: true } }),
+      auditSubCategoryType: updated.auditSubCategoryTypeId
+        ? await prisma.auditSubCategoryType.findUnique({ where: { id: updated.auditSubCategoryTypeId }, select: { name: true } })
+        : null,
+      auditors: await prisma.auditPlanAuditor.findMany({ where: { auditPlanEntryId: id }, include: { calisan: { select: { isim: true, soyisim: true } } } }),
+      auditees: [],
+    } as EntryWithPeople))
+  }
   const plannedDateStr = typeof b.plannedDate === "string" ? b.plannedDate : ""
   const auditNumberPrefix =
     typeof b.auditNumberPrefix === "string" ? b.auditNumberPrefix.trim() : ""

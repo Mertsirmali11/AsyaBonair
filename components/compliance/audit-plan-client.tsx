@@ -4,7 +4,9 @@ import * as React from "react"
 import Link from "next/link"
 import {
   CalendarRange,
+  CheckCircle2,
   ChevronDown,
+  ClipboardCheck,
   ClipboardList,
   Clock,
   FileText,
@@ -62,6 +64,13 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { AuditCategoryCombobox } from "@/components/compliance/audit-category-combobox"
 import type { AuditChecklistListRow } from "@/components/compliance/audit-checklists-client"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
@@ -279,6 +288,21 @@ export function AuditPlanClient() {
 
   React.useEffect(() => {
     void refreshRows()
+  }, [refreshRows])
+
+  const updateStatus = React.useCallback(async (rowId: string, status: string) => {
+    try {
+      const res = await fetch(`/api/audit-plan/${rowId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ statusOnly: true, status }),
+      })
+      if (!res.ok) { toast.error("Durum güncellenemedi."); return }
+      toast.success(`Durum: ${status}`)
+      await refreshRows()
+    } catch {
+      toast.error("Bağlantı hatası.")
+    }
   }, [refreshRows])
 
   React.useEffect(() => {
@@ -752,17 +776,50 @@ export function AuditPlanClient() {
                   filtered.map((row) => (
                     <TableRow key={row.id} className="hover:bg-muted/30">
                       <TableCell className="w-10 px-1 align-middle">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="size-8 text-muted-foreground hover:text-foreground"
-                          title="Detay"
-                          aria-label="Denetim detayı"
-                          onClick={() => setDetailEntryId(row.id)}
-                        >
-                          <MoreVertical className="size-4" />
-                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 text-muted-foreground hover:text-foreground"
+                              aria-label="İşlemler"
+                            >
+                              <MoreVertical className="size-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start">
+                            <DropdownMenuItem onClick={() => setDetailEntryId(row.id)}>
+                              <ClipboardList className="mr-2 size-4" />
+                              Detay
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                              <Link href={`/compliance/audit-plan/${row.id}/session`}>
+                                <ClipboardCheck className="mr-2 size-4 text-emerald-600" />
+                                Denetime Başla
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            {row.status !== "Initialized" && (
+                              <DropdownMenuItem onClick={() => void updateStatus(row.id, "Initialized")}>
+                                <Clock className="mr-2 size-4 text-emerald-600" />
+                                Initialize
+                              </DropdownMenuItem>
+                            )}
+                            {row.status !== "Postponed" && (
+                              <DropdownMenuItem onClick={() => void updateStatus(row.id, "Postponed")}>
+                                <CalendarRange className="mr-2 size-4 text-sky-600" />
+                                Postpone
+                              </DropdownMenuItem>
+                            )}
+                            {row.status !== "Completed" && (
+                              <DropdownMenuItem onClick={() => void updateStatus(row.id, "Completed")}>
+                                <CheckCircle2 className="mr-2 size-4 text-teal-600" />
+                                Complete
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                       <TableCell className="whitespace-nowrap font-mono text-sm">
                         {row.datePlanned}

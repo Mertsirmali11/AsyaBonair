@@ -142,6 +142,7 @@ const complianceMonitoringSubItems = [
   { title: "Overview", url: "/compliance" },
   { title: "Audit Plan", url: "/compliance/audit-plan" },
   { title: "Checklists", url: "/compliance/checklists" },
+  { title: "Findings Follow Up", url: "/compliance/findings-follow-up" },
 ]
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
@@ -206,7 +207,8 @@ export function AppSidebar({
       complianceMonitoringSubItems.filter((item) => {
         if (
           item.url === "/compliance/audit-plan" ||
-          item.url === "/compliance/checklists"
+          item.url === "/compliance/checklists" ||
+          item.url === "/compliance/findings-follow-up"
         ) {
           return showAuditPlanNav
         }

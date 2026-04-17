@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
+      "Bash(wc -l /c/Users/user/Desktop/AsyaBonair/.claude/worktrees/cranky-jemison/components/compliance/*.tsx)",
+      "Bash(npx prisma:*)",
+      "Bash(npx --no prisma migrate dev --name \"audit_session_findings\")",
+      "Bash(node -e \"require\\('dotenv'\\)\")",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm prisma:*)",
+      "Bash(mkdir -p \"C:\\\\Users\\\\user\\\\Desktop\\\\AsyaBonair\\\\.claude\\\\worktrees\\\\cranky-jemison\\\\app\\\\api\\\\audit-sessions\\\\[id]\")",
+      "Bash(mkdir -p \"C:\\\\Users\\\\user\\\\Desktop\\\\AsyaBonair\\\\.claude\\\\worktrees\\\\cranky-jemison\\\\app\\\\api\\\\audit-sessions\\\\[id]\\\\items\")",
+      "Bash(mkdir -p \"C:\\\\Users\\\\user\\\\Desktop\\\\AsyaBonair\\\\.claude\\\\worktrees\\\\cranky-jemison\\\\app\\\\api\\\\audit-findings\\\\[id]\")",
+      "Bash(mkdir -p \"C:\\\\Users\\\\user\\\\Desktop\\\\AsyaBonair\\\\.claude\\\\worktrees\\\\cranky-jemison\\\\app\\\\api\\\\audit-findings\\\\[id]\\\\responses\")",
+      "Bash(mkdir -p \"C:\\\\Users\\\\user\\\\Desktop\\\\AsyaBonair\\\\.claude\\\\worktrees\\\\cranky-jemison\\\\app\\\\api\\\\audit-findings\\\\[id]\\\\attachments\")",
+      "Bash(pnpm tsc:*)"
+    ]
+  }
+}

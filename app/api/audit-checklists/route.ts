@@ -116,9 +116,10 @@ export async function POST(req: Request) {
             create: items.map((it) => ({
               label: it.label,
               sortOrder: it.sortOrder,
-              isRequired: true,
+              isRequired: !it.isHeading,
               reference: it.reference,
               section: it.section,
+              isHeading: it.isHeading,
             })),
           },
         },

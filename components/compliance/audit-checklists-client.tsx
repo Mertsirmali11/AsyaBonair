@@ -81,6 +81,7 @@ type ChecklistItemRow = {
   sortOrder: number
   reference: string
   section: string
+  isHeading: boolean
 }
 
 type ChecklistDetail = AuditChecklistListRow & {
@@ -91,6 +92,7 @@ type ChecklistDetail = AuditChecklistListRow & {
     isRequired: boolean
     reference?: string | null
     section?: string | null
+    isHeading?: boolean
   }[]
 }
 
@@ -135,7 +137,7 @@ export function AuditChecklistsClient() {
   const [description, setDescription] = React.useState("")
   const [isActive, setIsActive] = React.useState(true)
   const [itemRows, setItemRows] = React.useState<ChecklistItemRow[]>([
-    { label: "", sortOrder: 0, reference: "", section: "" },
+    { label: "", sortOrder: 0, reference: "", section: "", isHeading: false },
   ])
   const [saving, setSaving] = React.useState(false)
 
@@ -185,7 +187,7 @@ export function AuditChecklistsClient() {
     setInitialRevDate(todayLocalDdMmYyyy())
     setDescription("")
     setIsActive(true)
-    setItemRows([{ label: "", sortOrder: 0, reference: "", section: "" }])
+    setItemRows([{ label: "", sortOrder: 0, reference: "", section: "", isHeading: false }])
     setFormOpen(true)
   }
 
@@ -205,7 +207,7 @@ export function AuditChecklistsClient() {
       const data = await parseJson(res)
       if (!res.ok || !data || typeof data !== "object") {
         toast.error("Detay yüklenemedi.")
-        setItemRows([{ label: "", sortOrder: 0, reference: "", section: "" }])
+        setItemRows([{ label: "", sortOrder: 0, reference: "", section: "", isHeading: false }])
         return
       }
       const d = data as ChecklistDetail
@@ -217,11 +219,12 @@ export function AuditChecklistsClient() {
               sortOrder: it.sortOrder ?? i,
               reference: it.reference ?? "",
               section: it.section ?? "",
+              isHeading: it.isHeading ?? false,
             }))
-          : [{ label: "", sortOrder: 0, reference: "", section: "" }]
+          : [{ label: "", sortOrder: 0, reference: "", section: "", isHeading: false }]
       )
     } catch {
-      setItemRows([{ label: "", sortOrder: 0, reference: "", section: "" }])
+      setItemRows([{ label: "", sortOrder: 0, reference: "", section: "", isHeading: false }])
     }
   }, [])
 
@@ -245,8 +248,9 @@ export function AuditChecklistsClient() {
       .map((row, idx) => ({
         label: row.label.trim(),
         sortOrder: row.sortOrder ?? idx,
-        reference: row.reference.trim() || undefined,
-        section: row.section.trim() || undefined,
+        reference: row.isHeading ? undefined : row.reference.trim() || undefined,
+        section: row.isHeading ? undefined : row.section.trim() || undefined,
+        isHeading: row.isHeading,
       }))
       .filter((row) => row.label.length > 0)
   }, [itemRows])
@@ -330,8 +334,9 @@ export function AuditChecklistsClient() {
                   sortOrder: it.sortOrder ?? i,
                   reference: it.reference ?? "",
                   section: it.section ?? "",
+                  isHeading: it.isHeading ?? false,
                 }))
-              : [{ label: "", sortOrder: 0, reference: "", section: "" }]
+              : [{ label: "", sortOrder: 0, reference: "", section: "", isHeading: false }]
           )
         }
       } catch {
@@ -370,10 +375,10 @@ export function AuditChecklistsClient() {
     }
   }
 
-  const addItemRow = () => {
+  const addItemRow = (asHeading = false) => {
     setItemRows((prev) => [
       ...prev,
-      { label: "", sortOrder: prev.length, reference: "", section: "" },
+      { label: "", sortOrder: prev.length, reference: "", section: "", isHeading: asHeading },
     ])
   }
 
@@ -677,46 +682,87 @@ export function AuditChecklistsClient() {
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <Label>Maddeler</Label>
-                      <Button type="button" variant="outline" size="sm" onClick={addItemRow}>
-                        Satır ekle
-                      </Button>
+                      <div className="flex gap-1.5">
+                        <Button type="button" variant="outline" size="sm" onClick={() => addItemRow(true)}>
+                          + Başlık ekle
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" onClick={() => addItemRow(false)}>
+                          + Soru ekle
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-2">
                       {itemRows.map((row, idx) => (
                         <div
                           key={idx}
-                          className="bg-muted/30 flex flex-col gap-2 rounded-md border p-2 sm:flex-row sm:flex-wrap sm:items-start"
+                          className={cn(
+                            "flex flex-col gap-2 rounded-md border p-2 sm:flex-row sm:flex-wrap sm:items-start",
+                            row.isHeading ? "bg-amber-50/60 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800" : "bg-muted/30"
+                          )}
                         >
-                          <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-1">
-                            <Input
-                              value={row.section}
-                              onChange={(e) => patchItemRow(idx, { section: e.target.value })}
-                              placeholder="Bölüm (isteğe bağlı)"
-                              className="text-sm"
-                            />
-                            <Input
-                              value={row.reference}
-                              onChange={(e) => patchItemRow(idx, { reference: e.target.value })}
-                              placeholder="Referans (örn. SHT-17.3 Md.5)"
-                              className="text-sm"
-                            />
-                            <Input
-                              value={row.label}
-                              onChange={(e) => patchItemRow(idx, { label: e.target.value })}
-                              placeholder={`Madde ${idx + 1}`}
-                              className="text-sm"
-                            />
+                          <div className="grid min-w-0 flex-1 gap-2">
+                            {row.isHeading ? (
+                              <>
+                                <div className="flex items-center gap-2">
+                                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                                    BAŞLIK
+                                  </span>
+                                  <span className="text-muted-foreground text-xs">
+                                    Konu başlığı — denetimde S/U/N/A işaretlenmez
+                                  </span>
+                                </div>
+                                <Input
+                                  value={row.label}
+                                  onChange={(e) => patchItemRow(idx, { label: e.target.value })}
+                                  placeholder="Konu başlığı (örn. 1. Genel Durum)"
+                                  className="text-sm font-semibold"
+                                />
+                              </>
+                            ) : (
+                              <>
+                                <Input
+                                  value={row.section}
+                                  onChange={(e) => patchItemRow(idx, { section: e.target.value })}
+                                  placeholder="Bölüm (isteğe bağlı)"
+                                  className="text-sm"
+                                />
+                                <Input
+                                  value={row.reference}
+                                  onChange={(e) => patchItemRow(idx, { reference: e.target.value })}
+                                  placeholder="Referans (örn. SHT-17.3 Md.5)"
+                                  className="text-sm"
+                                />
+                                <Input
+                                  value={row.label}
+                                  onChange={(e) => patchItemRow(idx, { label: e.target.value })}
+                                  placeholder={`Soru ${idx + 1}`}
+                                  className="text-sm"
+                                />
+                              </>
+                            )}
                           </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="shrink-0 self-end text-destructive sm:self-start"
-                            title="Kaldır"
-                            onClick={() => removeItemRow(idx)}
-                          >
-                            ×
-                          </Button>
+                          <div className="flex items-center gap-1 self-end sm:self-start">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="text-muted-foreground h-8 px-2 text-xs"
+                              title={row.isHeading ? "Soruya çevir" : "Başlığa çevir"}
+                              onClick={() => patchItemRow(idx, { isHeading: !row.isHeading, reference: "", section: "" })}
+                            >
+                              {row.isHeading ? "Soru↓" : "Başlık↑"}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 shrink-0 text-destructive"
+                              title="Kaldır"
+                              onClick={() => removeItemRow(idx)}
+                            >
+                              ×
+                            </Button>
+                          </div>
                         </div>
                       ))}
                     </div>

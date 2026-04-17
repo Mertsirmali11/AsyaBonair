@@ -3,6 +3,7 @@ export type ParsedChecklistItem = {
   sortOrder: number
   reference: string | null
   section: string | null
+  isHeading: boolean
 }
 
 export function parseAuditChecklistItemsFromBody(itemsRaw: unknown): ParsedChecklistItem[] {
@@ -25,11 +26,13 @@ export function parseAuditChecklistItemsFromBody(itemsRaw: unknown): ParsedCheck
         typeof r.section === "string" && r.section.trim()
           ? r.section.trim().slice(0, 400)
           : null
+      const isHeading = r.isHeading === true
       return {
         label: label.slice(0, 8000),
         sortOrder,
         reference,
         section,
+        isHeading,
       }
     })
     .filter(Boolean) as ParsedChecklistItem[]

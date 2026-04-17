@@ -135,9 +135,10 @@ export async function PATCH(req: Request, ctx: Ctx) {
             auditChecklistId: id,
             label: it.label,
             sortOrder: it.sortOrder,
-            isRequired: true,
+            isRequired: !it.isHeading,
             reference: it.reference,
             section: it.section,
+            isHeading: it.isHeading,
           })),
         })
       }
