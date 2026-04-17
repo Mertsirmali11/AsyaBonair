@@ -177,7 +177,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
 
   // Status-only update (quick action from table)
   if (b.statusOnly === true) {
-    const validStatuses = ["Initialized", "Postponed", "Completed", "Cancelled"]
+    const validStatuses = ["Planned", "Initialized", "Postponed", "Completed", "Cancelled"]
     const newStatus = typeof b.status === "string" ? b.status : ""
     if (!validStatuses.includes(newStatus)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 })

@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
 import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import { prisma } from "@/lib/prisma-server"
-import { dbDateToDdMmYyyy } from "@/lib/correspondence-date"
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -16,7 +15,11 @@ export async function GET(_req: Request, ctx: Ctx) {
 
   const items = await prisma.auditSessionItem.findMany({
     where: { auditSessionId: id },
-    include: { checklistItem: true },
+    include: {
+      checklistItem: true,
+      finding: { select: { id: true, findingCode: true, findingLevel: true, status: true } },
+      attachments: true,
+    },
   })
 
   return NextResponse.json(items)
@@ -36,15 +39,24 @@ export async function PUT(req: Request, ctx: Ctx) {
 
   const b = body as Record<string, unknown>
   const auditChecklistItemId = Number(b.auditChecklistItemId)
-  const result = typeof b.result === "string" ? b.result : null // S | U | NA | null
+  // S | U | NA | OBS | null
+  const result = typeof b.result === "string" ? b.result : null
   const notes = typeof b.notes === "string" ? b.notes.trim() : null
+  const auditeeNotes = typeof b.auditeeNotes === "string" ? b.auditeeNotes.trim() : null
+  // findingLevel: Level1 | Level2 | Observation (required when result=U, optional otherwise)
+  const findingLevel =
+    typeof b.findingLevel === "string" ? b.findingLevel : "Level1"
 
   if (!Number.isInteger(auditChecklistItemId) || auditChecklistItemId < 1)
     return NextResponse.json({ error: "Invalid auditChecklistItemId" }, { status: 400 })
 
-  const validResults = ["S", "U", "NA", null]
+  const validResults = ["S", "U", "NA", "OBS", null]
   if (!validResults.includes(result))
-    return NextResponse.json({ error: "Invalid result. Use S, U, NA or null" }, { status: 400 })
+    return NextResponse.json({ error: "Invalid result. Use S, U, NA, OBS or null" }, { status: 400 })
+
+  const validLevels = ["Level1", "Level2", "Observation"]
+  if (!validLevels.includes(findingLevel))
+    return NextResponse.json({ error: "Invalid findingLevel" }, { status: 400 })
 
   // Verify session exists and get context
   const auditSession = await prisma.auditSession.findUnique({
@@ -66,7 +78,7 @@ export async function PUT(req: Request, ctx: Ctx) {
   })
   if (!clItem) return NextResponse.json({ error: "Checklist item not found in this session" }, { status: 404 })
 
-  // Upsert session item
+  // Upsert session item (include auditeeNotes)
   const sessionItem = await prisma.auditSessionItem.upsert({
     where: {
       auditSessionId_auditChecklistItemId: {
@@ -74,8 +86,8 @@ export async function PUT(req: Request, ctx: Ctx) {
         auditChecklistItemId,
       },
     },
-    create: { auditSessionId: id, auditChecklistItemId, result, notes },
-    update: { result, notes },
+    create: { auditSessionId: id, auditChecklistItemId, result, notes, auditeeNotes },
+    update: { result, notes, auditeeNotes },
   })
 
   // Auto-create or remove finding based on result
@@ -98,16 +110,24 @@ export async function PUT(req: Request, ctx: Ctx) {
         ? `${auditSession.entry.auditNumberPrefix}-${auditSession.entry.id}`
         : `AP-${auditSession.entry.id}`
 
-      // Due date = 60 days from now
-      const dueDate = new Date()
-      dueDate.setDate(dueDate.getDate() + 60)
+      // Due date based on findingLevel
+      let dueDate: Date | null = null
+      if (findingLevel === "Level1") {
+        dueDate = new Date()
+        dueDate.setDate(dueDate.getDate() + 10)
+      } else if (findingLevel === "Level2") {
+        dueDate = new Date()
+        dueDate.setDate(dueDate.getDate() + 90)
+      }
+      // Observation: no deadline
 
       await prisma.auditFinding.create({
         data: {
           findingCode,
           auditSessionId: id,
           auditSessionItemId: sessionItem.id,
-          explanation: clItem.label,
+          findingLevel,
+          explanation: notes ?? clItem.label,
           reference: clItem.reference,
           field,
           auditNumber,
@@ -115,14 +135,27 @@ export async function PUT(req: Request, ctx: Ctx) {
           status: "Open",
         },
       })
+    } else if (existingFinding.findingLevel !== findingLevel) {
+      // Update findingLevel and recalculate due date if level changed
+      let dueDate: Date | null = null
+      if (findingLevel === "Level1") {
+        dueDate = new Date()
+        dueDate.setDate(dueDate.getDate() + 10)
+      } else if (findingLevel === "Level2") {
+        dueDate = new Date()
+        dueDate.setDate(dueDate.getDate() + 90)
+      }
+      await prisma.auditFinding.update({
+        where: { id: existingFinding.id },
+        data: { findingLevel, dueDate },
+      })
     }
   } else {
-    // If result changed from U to something else, mark finding as closed or remove
+    // If result changed from U to something else, remove finding if no responses
     const existingFinding = await prisma.auditFinding.findUnique({
       where: { auditSessionItemId: sessionItem.id },
     })
     if (existingFinding && existingFinding.status === "Open") {
-      // Check if there are responses — if so, just leave it, otherwise delete
       const responseCount = await prisma.auditFindingResponse.count({
         where: { auditFindingId: existingFinding.id },
       })
@@ -132,5 +165,14 @@ export async function PUT(req: Request, ctx: Ctx) {
     }
   }
 
-  return NextResponse.json(sessionItem)
+  // Return updated item with finding info
+  const updated = await prisma.auditSessionItem.findUnique({
+    where: { id: sessionItem.id },
+    include: {
+      finding: { select: { id: true, findingCode: true, findingLevel: true, status: true } },
+      attachments: true,
+    },
+  })
+
+  return NextResponse.json(updated)
 }

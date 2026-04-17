@@ -181,7 +181,7 @@ export async function POST(req: Request) {
       auditSubCategoryTypeId: auditSubCategoryTypeId ?? null,
       auditNumberPrefix: auditNumberPrefix || null,
       remarks: remarks || null,
-      status: "Initialized",
+      status: "Planned",
       auditors: { create: auditorCreate },
       auditees: { create: auditeeCreate },
     },

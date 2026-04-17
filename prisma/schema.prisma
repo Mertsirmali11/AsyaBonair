@@ -908,19 +908,40 @@ model AuditSessionItem {
   id                   Int      @id @default(autoincrement())
   auditSessionId       Int      @map("audit_session_id")
   auditChecklistItemId Int      @map("audit_checklist_item_id")
-  /// S = Satisfactory, U = Unsatisfactory, NA = N/A, null = yanıtlanmadı
-  result               String?  @db.VarChar(2) @map("result")
+  /// S = Satisfactory, U = Unsatisfactory, NA = N/A, OBS = Observation, null = yanıtlanmadı
+  result               String?  @db.VarChar(3) @map("result")
+  /// Denetçi notu
   notes                String?  @db.Text
+  /// Denetlenenin cevabı / yorumu
+  auditeeNotes         String?  @db.Text @map("auditee_notes")
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
 
-  session     AuditSession      @relation(fields: [auditSessionId], references: [id], onDelete: Cascade)
+  session       AuditSession      @relation(fields: [auditSessionId], references: [id], onDelete: Cascade)
   checklistItem AuditChecklistItem @relation(fields: [auditChecklistItemId], references: [id], onDelete: Restrict)
-  finding     AuditFinding?
+  finding       AuditFinding?
+  attachments   AuditSessionItemAttachment[]
 
   @@unique([auditSessionId, auditChecklistItemId])
   @@index([auditSessionId])
   @@map("audit_session_items")
+}
+
+/// Denetim sırasında eklenen dosya ekleri (soru bazında)
+model AuditSessionItemAttachment {
+  id                 Int      @id @default(autoincrement())
+  auditSessionItemId Int      @map("audit_session_item_id")
+  uploadedBy         String   @default("auditor") @db.VarChar(20) @map("uploaded_by") // "auditor" | "auditee"
+  fileName           String   @db.VarChar(500) @map("file_name")
+  storagePath        String   @db.Text @map("storage_path")
+  mimeType           String?  @db.VarChar(200) @map("mime_type")
+  fileSizeBytes      Int?     @map("file_size_bytes")
+  uploadedAt         DateTime @default(now()) @map("uploaded_at")
+
+  sessionItem AuditSessionItem @relation(fields: [auditSessionItemId], references: [id], onDelete: Cascade)
+
+  @@index([auditSessionItemId])
+  @@map("audit_session_item_attachments")
 }
 
 /// Denetimde tespit edilen bulgu (Unsatisfactory item → Finding)
@@ -930,6 +951,8 @@ model AuditFinding {
   findingCode        String    @unique @db.VarChar(50) @map("finding_code")
   auditSessionId     Int       @map("audit_session_id")
   auditSessionItemId Int?      @unique @map("audit_session_item_id")
+  /// Level1 | Level2 | Observation
+  findingLevel       String    @default("Level1") @db.VarChar(20) @map("finding_level")
   /// Bulgunun açıklaması / gözlem
   explanation        String    @db.Text
   /// Referans madde / doküman

@@ -81,10 +81,11 @@ type CalisanLite = { id: number; isim: string | null; soyisim: string | null }
 
 /** Referans ekrandaki durum rozetleri */
 const statusStyles: Record<string, string> = {
-  Completed: "bg-teal-600/90 text-white hover:bg-teal-600",
-  Cancelled: "bg-slate-600 text-white hover:bg-slate-600",
-  Initialized: "bg-emerald-600 text-white hover:bg-emerald-600",
-  Postponed: "bg-sky-600 text-white hover:bg-sky-600",
+  Planned:     "bg-blue-500 text-white",
+  Initialized: "bg-emerald-600 text-white",
+  Postponed:   "bg-sky-600 text-white",
+  Completed:   "bg-teal-600 text-white",
+  Cancelled:   "bg-slate-500 text-white",
 }
 
 export type AuditPlanRow = {
@@ -789,33 +790,40 @@ export function AuditPlanClient() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="start">
-                            <DropdownMenuItem onClick={() => setDetailEntryId(row.id)}>
-                              <ClipboardList className="mr-2 size-4" />
-                              Detay
-                            </DropdownMenuItem>
                             <DropdownMenuItem asChild>
                               <Link href={`/compliance/audit-plan/${row.id}/session`}>
                                 <ClipboardCheck className="mr-2 size-4 text-emerald-600" />
-                                Denetime Başla
+                                Audit Screen
                               </Link>
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => setDetailEntryId(row.id)}>
+                              <ClipboardList className="mr-2 size-4" />
+                              Detay / Düzenle
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            {row.status !== "Planned" && (
+                              <DropdownMenuItem onClick={() => void updateStatus(row.id, "Planned")}>
+                                <FileText className="mr-2 size-4 text-blue-500" />
+                                Planned
+                              </DropdownMenuItem>
+                            )}
                             {row.status !== "Initialized" && (
                               <DropdownMenuItem onClick={() => void updateStatus(row.id, "Initialized")}>
                                 <Clock className="mr-2 size-4 text-emerald-600" />
-                                Initialize
+                                Initialized
                               </DropdownMenuItem>
                             )}
                             {row.status !== "Postponed" && (
                               <DropdownMenuItem onClick={() => void updateStatus(row.id, "Postponed")}>
                                 <CalendarRange className="mr-2 size-4 text-sky-600" />
-                                Postpone
+                                Postponed
                               </DropdownMenuItem>
                             )}
                             {row.status !== "Completed" && (
                               <DropdownMenuItem onClick={() => void updateStatus(row.id, "Completed")}>
                                 <CheckCircle2 className="mr-2 size-4 text-teal-600" />
-                                Complete
+                                Completed
                               </DropdownMenuItem>
                             )}
                           </DropdownMenuContent>

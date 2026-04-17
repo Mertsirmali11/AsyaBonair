@@ -7,11 +7,12 @@ import {
   AlertTriangle,
   ArrowLeft,
   CheckCircle2,
-  ChevronDown,
   ClipboardCheck,
-  HelpCircle,
+  Eye,
   Minus,
-  Save,
+  Paperclip,
+  Trash2,
+  Upload,
   XCircle,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -43,7 +44,9 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { TooltipProvider } from "@/components/ui/tooltip"
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 type ChecklistItem = {
   id: number
@@ -55,12 +58,34 @@ type ChecklistItem = {
   section?: string | null
 }
 
-type SessionItem = {
+type FindingInfo = {
   id: number
-  auditSessionId: number
-  auditChecklistItemId: number
-  result: string | null
-  notes: string | null
+  findingCode: string
+  findingLevel: string
+  status: string
+}
+
+type Attachment = {
+  id: number
+  fileName: string
+  storagePath: string
+  mimeType: string | null
+  fileSizeBytes: number | null
+  uploadedBy: string
+  uploadedAt: string
+}
+
+type SessionItemState = {
+  id?: number          // set after first save
+  result: string       // "" | "S" | "U" | "NA" | "OBS"
+  notes: string        // auditor notes
+  auditeeNotes: string // auditee response
+  finding: FindingInfo | null
+  attachments: Attachment[]
+  dirty: boolean
+  saving: boolean
+  pendingFiles: { file: File; uploadedBy: "auditor" | "auditee" }[]
+  uploading: boolean
 }
 
 type AssignedChecklist = {
@@ -85,31 +110,53 @@ type AuditSession = {
   auditChecklistId: number
   status: string
   checklist: { id: number; title: string; checklistNumber: string | null; items: ChecklistItem[] }
-  items: SessionItem[]
+  items: {
+    id: number
+    auditChecklistItemId: number
+    result: string | null
+    notes: string | null
+    auditeeNotes: string | null
+    finding: FindingInfo | null
+    attachments: Attachment[]
+  }[]
 }
 
-type ResultType = "S" | "U" | "NA" | ""
+// ─── Constants ───────────────────────────────────────────────────────────────
 
-const resultConfig: Record<string, { label: string; icon: React.ReactNode; cls: string; bg: string }> = {
+type ResultKey = "S" | "U" | "NA" | "OBS"
+
+const resultConfig: Record<ResultKey, { label: string; icon: React.ReactNode; cls: string; activeCls: string }> = {
   S: {
     label: "Satisfactory",
-    icon: <CheckCircle2 className="size-4" />,
-    cls: "text-emerald-700 border-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:text-emerald-400 dark:border-emerald-700 dark:bg-emerald-950/40",
-    bg: "bg-emerald-50/60 dark:bg-emerald-950/20",
+    icon: <CheckCircle2 className="size-3.5" />,
+    cls: "border-border text-muted-foreground hover:border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30",
+    activeCls: "border-emerald-400 text-emerald-700 bg-emerald-50 dark:text-emerald-400 dark:border-emerald-700 dark:bg-emerald-950/40",
   },
   U: {
     label: "Unsatisfactory",
-    icon: <XCircle className="size-4" />,
-    cls: "text-red-700 border-red-300 bg-red-50 hover:bg-red-100 dark:text-red-400 dark:border-red-700 dark:bg-red-950/40",
-    bg: "bg-red-50/60 dark:bg-red-950/20",
+    icon: <XCircle className="size-3.5" />,
+    cls: "border-border text-muted-foreground hover:border-red-300 hover:bg-red-50 dark:hover:bg-red-950/30",
+    activeCls: "border-red-400 text-red-700 bg-red-50 dark:text-red-400 dark:border-red-700 dark:bg-red-950/40",
   },
   NA: {
     label: "N/A",
-    icon: <Minus className="size-4" />,
-    cls: "text-slate-600 border-slate-300 bg-slate-50 hover:bg-slate-100 dark:text-slate-400 dark:border-slate-600 dark:bg-slate-900/40",
-    bg: "bg-slate-50/40 dark:bg-slate-900/20",
+    icon: <Minus className="size-3.5" />,
+    cls: "border-border text-muted-foreground hover:border-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900/30",
+    activeCls: "border-slate-400 text-slate-600 bg-slate-50 dark:text-slate-400 dark:border-slate-600 dark:bg-slate-900/40",
+  },
+  OBS: {
+    label: "Observation",
+    icon: <Eye className="size-3.5" />,
+    cls: "border-border text-muted-foreground hover:border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30",
+    activeCls: "border-amber-400 text-amber-700 bg-amber-50 dark:text-amber-400 dark:border-amber-700 dark:bg-amber-950/40",
   },
 }
+
+const FINDING_LEVELS = [
+  { value: "Level1", label: "Level 1 Bulgu", desc: "10 gün içinde yanıt beklenir", color: "text-red-700 dark:text-red-400" },
+  { value: "Level2", label: "Level 2 Bulgu", desc: "90 gün içinde yanıt beklenir", color: "text-orange-700 dark:text-orange-400" },
+  { value: "Observation", label: "Gözlem", desc: "Süre verilmez", color: "text-amber-700 dark:text-amber-400" },
+]
 
 async function parseJson(res: Response): Promise<unknown> {
   const t = await res.text()
@@ -117,19 +164,34 @@ async function parseJson(res: Response): Promise<unknown> {
   try { return JSON.parse(t) as unknown } catch { return null }
 }
 
+function formatBytes(n: number | null): string {
+  if (!n) return ""
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
 export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: number }) {
   const router = useRouter()
   const [entry, setEntry] = React.useState<AuditEntryData | null>(null)
-  const [session, setSession] = React.useState<AuditSession | null>(null)
+  const [sessionData, setSessionData] = React.useState<AuditSession | null>(null)
   const [selectedChecklistId, setSelectedChecklistId] = React.useState<number | null>(null)
-  const [results, setResults] = React.useState<Record<number, ResultType>>({})
-  const [notes, setNotes] = React.useState<Record<number, string>>({})
-  const [savingItem, setSavingItem] = React.useState<number | null>(null)
+  const [itemStates, setItemStates] = React.useState<Record<number, SessionItemState>>({})
+  const [loading, setLoading] = React.useState(true)
   const [completing, setCompleting] = React.useState(false)
   const [confirmComplete, setConfirmComplete] = React.useState(false)
-  const [loading, setLoading] = React.useState(true)
 
-  // Load audit plan entry details
+  // Finding level dialog
+  const [findingDialog, setFindingDialog] = React.useState<{
+    open: boolean
+    itemId: number
+    selectedLevel: string
+  }>({ open: false, itemId: 0, selectedLevel: "Level1" })
+
+  // ─── Load entry ──────────────────────────────────────────────────────────
+
   const loadEntry = React.useCallback(async () => {
     setLoading(true)
     try {
@@ -153,7 +215,8 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
     }
   }, [entry, selectedChecklistId])
 
-  // Start or load session when checklist is selected
+  // ─── Start/load session ──────────────────────────────────────────────────
+
   const startSession = React.useCallback(async (checklistId: number) => {
     try {
       const res = await fetch("/api/audit-sessions", {
@@ -164,16 +227,25 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
       const data = await parseJson(res)
       if (!res.ok) { toast.error("Oturum başlatılamadı."); return }
       const sess = data as AuditSession
-      setSession(sess)
-      // Load existing results
-      const resultMap: Record<number, ResultType> = {}
-      const notesMap: Record<number, string> = {}
-      for (const item of sess.items) {
-        resultMap[item.auditChecklistItemId] = (item.result ?? "") as ResultType
-        notesMap[item.auditChecklistItemId] = item.notes ?? ""
+      setSessionData(sess)
+
+      // Build item state map
+      const stateMap: Record<number, SessionItemState> = {}
+      for (const sItem of sess.items) {
+        stateMap[sItem.auditChecklistItemId] = {
+          id: sItem.id,
+          result: sItem.result ?? "",
+          notes: sItem.notes ?? "",
+          auditeeNotes: sItem.auditeeNotes ?? "",
+          finding: sItem.finding ?? null,
+          attachments: sItem.attachments ?? [],
+          dirty: false,
+          saving: false,
+          pendingFiles: [],
+          uploading: false,
+        }
       }
-      setResults(resultMap)
-      setNotes(notesMap)
+      setItemStates(stateMap)
     } catch {
       toast.error("Bağlantı hatası.")
     }
@@ -185,52 +257,138 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
     }
   }, [selectedChecklistId, startSession])
 
-  const setResult = async (itemId: number, result: ResultType) => {
-    if (!session) return
-    setResults((prev) => ({ ...prev, [itemId]: result }))
-    setSavingItem(itemId)
+  // ─── Helpers ─────────────────────────────────────────────────────────────
+
+  const getState = (itemId: number): SessionItemState =>
+    itemStates[itemId] ?? {
+      id: undefined, result: "", notes: "", auditeeNotes: "", finding: null,
+      attachments: [], dirty: false, saving: false, pendingFiles: [], uploading: false,
+    }
+
+  const patchState = (itemId: number, patch: Partial<SessionItemState>) => {
+    setItemStates((prev) => ({
+      ...prev,
+      [itemId]: { ...getState(itemId), ...patch },
+    }))
+  }
+
+  // ─── Save item to server ──────────────────────────────────────────────────
+
+  const saveItem = React.useCallback(async (
+    itemId: number,
+    result: string,
+    notes: string,
+    auditeeNotes: string,
+    findingLevel: string,
+  ) => {
+    if (!sessionData) return
+    patchState(itemId, { saving: true })
     try {
-      await fetch(`/api/audit-sessions/${session.id}/items`, {
+      const res = await fetch(`/api/audit-sessions/${sessionData.id}/items`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           auditChecklistItemId: itemId,
           result: result || null,
-          notes: notes[itemId] ?? null,
+          notes: notes || null,
+          auditeeNotes: auditeeNotes || null,
+          findingLevel,
         }),
       })
+      const data = await parseJson(res) as Record<string, unknown> | null
+      if (!res.ok) { toast.error("Kaydedilemedi."); return }
+      const finding = (data?.finding ?? null) as FindingInfo | null
+      const attachments = (data?.attachments ?? []) as Attachment[]
+      patchState(itemId, { id: data?.id as number | undefined, finding, attachments, dirty: false })
     } catch {
       toast.error("Kaydedilemedi.")
     } finally {
-      setSavingItem(null)
+      patchState(itemId, { saving: false })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionData])
+
+  // ─── Result click ─────────────────────────────────────────────────────────
+
+  const handleResultClick = (itemId: number, r: ResultKey) => {
+    if (!sessionData || sessionData.status === "Completed") return
+    const st = getState(itemId)
+    const newResult = st.result === r ? "" : r
+
+    if (newResult === "U") {
+      // Open finding level dialog
+      setFindingDialog({ open: true, itemId, selectedLevel: st.finding?.findingLevel ?? "Level1" })
+      return
+    }
+
+    patchState(itemId, { result: newResult, dirty: true })
+    void saveItem(itemId, newResult, st.notes, st.auditeeNotes, st.finding?.findingLevel ?? "Level1")
+  }
+
+  // ─── Finding level dialog confirm ─────────────────────────────────────────
+
+  const confirmFindingLevel = () => {
+    const { itemId, selectedLevel } = findingDialog
+    const st = getState(itemId)
+    setFindingDialog((p) => ({ ...p, open: false }))
+    patchState(itemId, { result: "U", dirty: true })
+    void saveItem(itemId, "U", st.notes, st.auditeeNotes, selectedLevel)
+  }
+
+  // ─── Notes save ───────────────────────────────────────────────────────────
+
+  const saveNotes = (itemId: number) => {
+    const st = getState(itemId)
+    if (!st.dirty) return
+    void saveItem(itemId, st.result, st.notes, st.auditeeNotes, st.finding?.findingLevel ?? "Level1")
+  }
+
+  // ─── File upload ──────────────────────────────────────────────────────────
+
+  const uploadFile = async (itemId: number, file: File, uploadedBy: "auditor" | "auditee") => {
+    const st = getState(itemId)
+    if (!st.id || !sessionData) { toast.error("Önce soruyu kaydedin."); return }
+    patchState(itemId, { uploading: true })
+    try {
+      const fd = new FormData()
+      fd.append("file", file)
+      fd.append("uploadedBy", uploadedBy)
+      const res = await fetch(
+        `/api/audit-sessions/${sessionData.id}/items/${st.id}/attachments`,
+        { method: "POST", body: fd }
+      )
+      if (!res.ok) { toast.error("Dosya yüklenemedi."); return }
+      const att = await parseJson(res) as Attachment
+      patchState(itemId, { attachments: [...(getState(itemId).attachments), att] })
+      toast.success("Dosya yüklendi.")
+    } catch {
+      toast.error("Yükleme başarısız.")
+    } finally {
+      patchState(itemId, { uploading: false })
     }
   }
 
-  const saveNotes = async (itemId: number) => {
-    if (!session) return
-    setSavingItem(itemId)
+  const removeAttachment = async (itemId: number, attachmentId: number) => {
+    const st = getState(itemId)
+    if (!st.id || !sessionData) return
     try {
-      await fetch(`/api/audit-sessions/${session.id}/items`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          auditChecklistItemId: itemId,
-          result: results[itemId] || null,
-          notes: notes[itemId] ?? null,
-        }),
-      })
+      await fetch(
+        `/api/audit-sessions/${sessionData.id}/items/${st.id}/attachments?attachmentId=${attachmentId}`,
+        { method: "DELETE" }
+      )
+      patchState(itemId, { attachments: getState(itemId).attachments.filter((a) => a.id !== attachmentId) })
     } catch {
-      toast.error("Not kaydedilemedi.")
-    } finally {
-      setSavingItem(null)
+      toast.error("Silinemedi.")
     }
   }
+
+  // ─── Complete session ────────────────────────────────────────────────────
 
   const completeSession = async () => {
-    if (!session) return
+    if (!sessionData) return
     setCompleting(true)
     try {
-      const res = await fetch(`/api/audit-sessions/${session.id}`, {
+      const res = await fetch(`/api/audit-sessions/${sessionData.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "Completed" }),
@@ -246,18 +404,23 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
     }
   }
 
-  const items = session?.checklist?.items ?? []
-  const questionItems = items.filter((it) => !it.isHeading)
-  const answeredCount = questionItems.filter((it) => results[it.id]).length
-  const unsatisfactoryCount = questionItems.filter((it) => results[it.id] === "U").length
+  // ─── Derived values ──────────────────────────────────────────────────────
 
-  // Group items under headings
+  const items = sessionData?.checklist?.items ?? []
+  const questionItems = items.filter((it) => !it.isHeading)
+  const answeredCount = questionItems.filter((it) => getState(it.id).result !== "").length
+  const unsatisfactoryCount = questionItems.filter((it) => getState(it.id).result === "U").length
+  const completed = sessionData?.status === "Completed"
+
   let questionNumber = 0
+
+  // ─── Render ──────────────────────────────────────────────────────────────
 
   return (
     <TooltipProvider>
       <SetWorkspacePageTitle title="Denetim Yürüt" />
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 md:p-6">
+
         {/* Breadcrumb */}
         <Breadcrumb className="text-xs sm:text-sm">
           <BreadcrumbList>
@@ -283,16 +446,13 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
                 {loading ? "Yükleniyor…" : entry ? `Denetim — ${entry.field}` : "Denetim"}
               </h1>
               {entry && (
-                <p className="text-muted-foreground text-sm mt-0.5">
-                  {entry.auditNumber}
-                </p>
+                <p className="text-muted-foreground text-sm mt-0.5">{entry.auditNumber}</p>
               )}
             </div>
           </div>
 
-          {/* Actions */}
           <div className="flex items-center gap-2">
-            {session && session.status !== "Completed" && (
+            {sessionData && !completed && (
               <Button
                 type="button"
                 size="sm"
@@ -303,14 +463,14 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
                 Denetimi Tamamla
               </Button>
             )}
-            {session?.status === "Completed" && (
+            {completed && (
               <Badge className="bg-teal-600 text-white">Tamamlandı</Badge>
             )}
           </div>
         </div>
 
         {/* Progress bar */}
-        {session && questionItems.length > 0 && (
+        {sessionData && questionItems.length > 0 && (
           <div className="flex items-center gap-3">
             <div className="flex-1 rounded-full bg-muted h-2 overflow-hidden">
               <div
@@ -321,9 +481,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
             <span className="text-muted-foreground text-sm whitespace-nowrap">
               {answeredCount}/{questionItems.length} yanıtlandı
               {unsatisfactoryCount > 0 && (
-                <span className="ml-2 text-red-600 font-medium">
-                  · {unsatisfactoryCount} bulgu
-                </span>
+                <span className="ml-2 text-red-600 font-medium">· {unsatisfactoryCount} bulgu</span>
               )}
             </span>
           </div>
@@ -351,20 +509,21 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
           </div>
         )}
 
-        {/* No checklists assigned */}
+        {/* No checklists */}
         {!loading && entry && entry.assignedChecklists.length === 0 && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 p-4 text-sm text-amber-800 dark:text-amber-300">
             <AlertTriangle className="inline mr-2 size-4" />
-            Bu denetim planına checklist atanmamış. Önce Audit Plan'dan bir checklist atayın.
+            Bu denetim planına checklist atanmamış. Önce Audit Plan&apos;dan bir checklist atayın.
           </div>
         )}
 
-        {/* Checklist items */}
-        {session && items.length > 0 && (
-          <div className="bg-card rounded-lg border shadow-sm overflow-hidden">
-            <ScrollArea className="h-[min(65vh,700px)]">
+        {/* Question list */}
+        {sessionData && items.length > 0 && (
+          <div className="bg-card rounded-xl border shadow-sm overflow-hidden">
+            <ScrollArea className="h-[min(70vh,800px)]">
               <div className="divide-y">
                 {items.map((item) => {
+                  // ── Heading ──
                   if (item.isHeading) {
                     return (
                       <div
@@ -378,20 +537,22 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
                     )
                   }
 
+                  // ── Question ──
                   questionNumber++
-                  const result = results[item.id] ?? ""
-                  const isU = result === "U"
+                  const st = getState(item.id)
+                  const isU = st.result === "U"
+                  const isOBS = st.result === "OBS"
+                  const finding = st.finding
 
                   return (
-                    <div
-                      key={item.id}
-                      className={cn(
-                        "px-4 py-3 transition-colors",
-                        isU && "bg-red-50/50 dark:bg-red-950/20"
-                      )}
-                    >
+                    <div key={item.id} className={cn(
+                      "px-4 py-4 transition-colors",
+                      isU && "bg-red-50/40 dark:bg-red-950/10",
+                      isOBS && "bg-amber-50/40 dark:bg-amber-950/10",
+                    )}>
+                      {/* Question row */}
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-4">
-                        {/* Question number + text */}
+                        {/* Number + text */}
                         <div className="flex min-w-0 flex-1 gap-3">
                           <span className="text-muted-foreground shrink-0 font-mono text-xs pt-0.5 w-6 text-right">
                             {questionNumber}
@@ -403,51 +564,173 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
                                 Ref: {item.reference}
                               </p>
                             )}
+                            {finding && (
+                              <div className="mt-1 flex items-center gap-1.5">
+                                <Badge
+                                  className={cn(
+                                    "text-xs px-1.5 py-0",
+                                    finding.findingLevel === "Level1" && "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400",
+                                    finding.findingLevel === "Level2" && "bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400",
+                                    finding.findingLevel === "Observation" && "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400",
+                                  )}
+                                >
+                                  {finding.findingCode}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground">
+                                  {finding.findingLevel === "Level1" && "Level 1"}
+                                  {finding.findingLevel === "Level2" && "Level 2"}
+                                  {finding.findingLevel === "Observation" && "Gözlem"}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </div>
 
-                        {/* S / U / N/A buttons */}
-                        <div className="flex shrink-0 gap-1.5">
-                          {(["S", "U", "NA"] as ResultType[]).map((r) => {
+                        {/* S / U / NA / OBS buttons */}
+                        <div className="flex shrink-0 gap-1">
+                          {(["S", "U", "NA", "OBS"] as ResultKey[]).map((r) => {
                             const cfg = resultConfig[r]
-                            const active = result === r
+                            const active = st.result === r
                             return (
                               <button
                                 key={r}
                                 type="button"
-                                disabled={session.status === "Completed" || savingItem === item.id}
-                                onClick={() => void setResult(item.id, active ? "" : r)}
+                                disabled={completed || st.saving}
+                                onClick={() => handleResultClick(item.id, r)}
                                 className={cn(
-                                  "inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-semibold transition-all",
-                                  active ? cfg.cls : "border-border text-muted-foreground hover:border-border/80 hover:bg-muted/50",
-                                  (session.status === "Completed" || savingItem === item.id) && "opacity-60 cursor-not-allowed"
+                                  "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-semibold transition-all",
+                                  active ? cfg.activeCls : cfg.cls,
+                                  (completed || st.saving) && "opacity-60 cursor-not-allowed"
                                 )}
-                                aria-label={cfg.label}
-                                aria-pressed={active}
+                                title={cfg.label}
                               >
                                 {cfg.icon}
-                                {r}
+                                <span className="hidden sm:inline">{r}</span>
+                                <span className="sm:hidden">{r === "OBS" ? "OBS" : r}</span>
                               </button>
                             )
                           })}
                         </div>
                       </div>
 
-                      {/* Unsatisfactory notice + notes */}
-                      {isU && (
-                        <div className="mt-2 ml-9 rounded-md border border-red-200 bg-red-50 dark:bg-red-950/30 p-2">
-                          <div className="flex items-start gap-1.5 text-red-700 dark:text-red-400 text-xs font-medium mb-1.5">
-                            <AlertTriangle className="size-3.5 mt-0.5 shrink-0" />
-                            Bu madde bulgu olarak kaydedilecek
+                      {/* Expanded section for U or OBS */}
+                      {(isU || isOBS || st.notes || st.auditeeNotes || st.attachments.length > 0) && (
+                        <div className="mt-3 ml-9 space-y-3">
+
+                          {/* U: finding notice */}
+                          {isU && (
+                            <div className="flex items-start gap-1.5 text-red-700 dark:text-red-400 text-xs font-medium">
+                              <AlertTriangle className="size-3.5 mt-0.5 shrink-0" />
+                              {finding
+                                ? <>Bulgu oluşturuldu: <span className="font-mono">{finding.findingCode}</span></>
+                                : "Bu madde bulgu olarak kaydedilecek"
+                              }
+                            </div>
+                          )}
+
+                          {/* OBS: observation notice */}
+                          {isOBS && (
+                            <div className="flex items-start gap-1.5 text-amber-700 dark:text-amber-400 text-xs font-medium">
+                              <Eye className="size-3.5 mt-0.5 shrink-0" />
+                              Gözlem olarak kaydedildi
+                            </div>
+                          )}
+
+                          {/* Auditor notes */}
+                          <div>
+                            <p className="text-xs font-medium text-muted-foreground mb-1">Denetçi Notu</p>
+                            <Textarea
+                              value={st.notes}
+                              onChange={(e) => patchState(item.id, { notes: e.target.value, dirty: true })}
+                              onBlur={() => saveNotes(item.id)}
+                              placeholder={isU ? "Bulgu açıklaması (zorunlu değil)…" : "Denetçi notu (isteğe bağlı)…"}
+                              className="min-h-[60px] text-xs"
+                              disabled={completed}
+                            />
                           </div>
-                          <Textarea
-                            value={notes[item.id] ?? ""}
-                            onChange={(e) => setNotes((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                            onBlur={() => void saveNotes(item.id)}
-                            placeholder="Bulguya not ekle (isteğe bağlı)…"
-                            className="min-h-[60px] text-xs border-red-200"
-                            disabled={session.status === "Completed"}
-                          />
+
+                          {/* Auditee response */}
+                          <div>
+                            <p className="text-xs font-medium text-muted-foreground mb-1">Denetlenenin Yanıtı</p>
+                            <Textarea
+                              value={st.auditeeNotes}
+                              onChange={(e) => patchState(item.id, { auditeeNotes: e.target.value, dirty: true })}
+                              onBlur={() => saveNotes(item.id)}
+                              placeholder="Denetlenenin açıklaması veya yanıtı…"
+                              className="min-h-[60px] text-xs"
+                              disabled={completed}
+                            />
+                          </div>
+
+                          {/* Attachments */}
+                          <div>
+                            <p className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1">
+                              <Paperclip className="size-3" />
+                              Ekler
+                            </p>
+                            {st.attachments.length > 0 && (
+                              <ul className="space-y-1 mb-2">
+                                {st.attachments.map((att) => (
+                                  <li key={att.id} className="flex items-center gap-2 text-xs rounded bg-muted/50 px-2 py-1">
+                                    <Paperclip className="size-3 shrink-0 text-muted-foreground" />
+                                    <span className="flex-1 truncate">{att.fileName}</span>
+                                    <span className="text-muted-foreground shrink-0">{formatBytes(att.fileSizeBytes)}</span>
+                                    <Badge variant="outline" className="text-[10px] px-1 py-0 shrink-0">
+                                      {att.uploadedBy === "auditee" ? "Denetlenen" : "Denetçi"}
+                                    </Badge>
+                                    {!completed && (
+                                      <button
+                                        type="button"
+                                        onClick={() => void removeAttachment(item.id, att.id)}
+                                        className="text-destructive hover:text-destructive/80 shrink-0"
+                                      >
+                                        <Trash2 className="size-3" />
+                                      </button>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                            {!completed && (
+                              <div className="flex flex-wrap gap-2">
+                                <label className={cn(
+                                  "inline-flex items-center gap-1.5 cursor-pointer rounded-md border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted/50 transition-colors",
+                                  st.uploading && "opacity-60 pointer-events-none"
+                                )}>
+                                  <Upload className="size-3.5" />
+                                  Denetçi Dosyası
+                                  <input
+                                    type="file"
+                                    className="sr-only"
+                                    disabled={st.uploading}
+                                    onChange={(e) => {
+                                      const f = e.target.files?.[0]
+                                      if (f) void uploadFile(item.id, f, "auditor")
+                                      e.target.value = ""
+                                    }}
+                                  />
+                                </label>
+                                <label className={cn(
+                                  "inline-flex items-center gap-1.5 cursor-pointer rounded-md border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted/50 transition-colors",
+                                  st.uploading && "opacity-60 pointer-events-none"
+                                )}>
+                                  <Upload className="size-3.5" />
+                                  Denetlenen Dosyası
+                                  <input
+                                    type="file"
+                                    className="sr-only"
+                                    disabled={st.uploading}
+                                    onChange={(e) => {
+                                      const f = e.target.files?.[0]
+                                      if (f) void uploadFile(item.id, f, "auditee")
+                                      e.target.value = ""
+                                    }}
+                                  />
+                                </label>
+                              </div>
+                            )}
+                          </div>
+
                         </div>
                       )}
                     </div>
@@ -459,20 +742,69 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
         )}
       </div>
 
-      {/* Complete confirmation dialog */}
+      {/* ── Finding Level Dialog ──────────────────────────────────────────── */}
+      <Dialog
+        open={findingDialog.open}
+        onOpenChange={(open) => {
+          if (!open) setFindingDialog((p) => ({ ...p, open: false }))
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <XCircle className="size-4 text-red-600" />
+              Bulgu Seviyesi Seçin
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            {FINDING_LEVELS.map((lvl) => (
+              <button
+                key={lvl.value}
+                type="button"
+                onClick={() => setFindingDialog((p) => ({ ...p, selectedLevel: lvl.value }))}
+                className={cn(
+                  "w-full rounded-lg border-2 px-4 py-3 text-left transition-colors",
+                  findingDialog.selectedLevel === lvl.value
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:bg-muted/50"
+                )}
+              >
+                <div className={cn("font-semibold text-sm", lvl.color)}>{lvl.label}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">{lvl.desc}</div>
+              </button>
+            ))}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setFindingDialog((p) => ({ ...p, open: false }))}
+            >
+              Vazgeç
+            </Button>
+            <Button
+              type="button"
+              className="bg-red-600 hover:bg-red-700"
+              onClick={confirmFindingLevel}
+            >
+              Bulgu Oluştur
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Complete Confirmation Dialog ──────────────────────────────────── */}
       <Dialog open={confirmComplete} onOpenChange={setConfirmComplete}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Denetimi tamamla?</DialogTitle>
           </DialogHeader>
           <div className="space-y-2 text-sm text-muted-foreground">
-            <p>
-              Denetim tamamlandıktan sonra değişiklik yapılamaz.
-            </p>
+            <p>Denetim tamamlandıktan sonra değişiklik yapılamaz.</p>
             {unsatisfactoryCount > 0 && (
               <p className="text-red-700 dark:text-red-400 font-medium">
                 <AlertTriangle className="inline mr-1.5 size-4" />
-                {unsatisfactoryCount} adet &ldquo;Unsatisfactory&rdquo; madde bulgu olarak Findings Follow Up&apos;a eklenecek.
+                {unsatisfactoryCount} adet &ldquo;Unsatisfactory&rdquo; bulgu Findings Follow Up&apos;a eklenecek.
               </p>
             )}
             {answeredCount < questionItems.length && (
