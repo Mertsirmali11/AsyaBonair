@@ -12,11 +12,6 @@ export async function GET(
     if (!session?.user?.email) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-    // Viewing is allowed for Quality + Admin (existing behavior)
-    if (session.user.departman !== "Quality" && !isAdminDepartment(session.user.departman)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    }
-
     const { id: idParam } = await params
     const id = Number.parseInt(idParam, 10)
     if (Number.isNaN(id)) {
@@ -67,6 +62,16 @@ export async function GET(
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
 
+    // Access: admin, quality, or involved parties (assignee / assigner)
+    const viewerId = calisan?.id ?? null
+    const isAdminOrQuality =
+      session.user.departman === "Quality" || isAdminDepartment(session.user.departman)
+    const isAssignee = viewerId != null && task.assigneeId === viewerId
+    const isAssigner = viewerId != null && task.assignedById === viewerId
+    if (!isAdminOrQuality && !isAssignee && !isAssigner) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
     const name = (c: { isim: string | null; soyisim: string | null } | null) => {
       if (!c) return "Unknown"
       const n = `${c.isim ?? ""} ${c.soyisim ?? ""}`.trim()
@@ -97,6 +102,19 @@ export async function GET(
     const assignedByName = task.assignedBy ? name(task.assignedBy) : null
     // Only Admin department may edit tasks (per requirement).
     const canEdit = isAdminDepartment(session.user.departman)
+    const staff =
+      session.user.departman === "Quality" || isAdminDepartment(session.user.departman)
+    const canReview = task.status === "Pending Review" && (isAssigner || (canEdit && task.assignedById == null))
+    const canSubmitProgress =
+      isAssignee &&
+      task.status !== "Completed" &&
+      task.status !== "Pending Review" &&
+      (task.status === "Pending Assessment" ||
+        task.status === "Revision Requested" ||
+        task.status === "Open" ||
+        task.status === "In Progress")
+    const canSendMessage =
+      task.status !== "Completed" && (staff || canSubmitProgress)
 
     return NextResponse.json({
       id: task.id,
@@ -104,6 +122,7 @@ export async function GET(
       status: task.status,
       assigneeId: task.assigneeId,
       assignedById: task.assignedById ?? null,
+      rejectionReason: task.rejectionReason ?? null,
       dueDate: task.dueDate ? task.dueDate.toISOString() : null,
       createdAt: task.createdAt.toISOString(),
       updatedAt: task.updatedAt.toISOString(),
@@ -116,7 +135,8 @@ export async function GET(
           }
         : null,
       assignedByName,
-      permissions: { canEdit },
+      currentCalisanId: viewerId,
+      permissions: { canEdit, canReview, canSubmitProgress, canSendMessage },
       assignee: task.assignee,
       filePath: task.filePath,
       fileName: task.fileName,

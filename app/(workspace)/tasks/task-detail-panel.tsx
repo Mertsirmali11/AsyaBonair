@@ -8,8 +8,16 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { Loader2, Info, Clock, Send, Paperclip } from "lucide-react"
+import { Loader2, Info, Clock, Send, Paperclip, CheckCircle2, XCircle } from "lucide-react"
+import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 export type TaskRow = {
   id: number
@@ -41,12 +49,14 @@ type HistoryRow = { at: string; text: string }
 export type TaskDetail = TaskRow & {
   assigneeId: number | null
   assignedById?: number | null
+  rejectionReason?: string | null
   updatedAt: string
   meetingId: number | null
   filePath: string | null
   fileName: string | null
   assignedByName: string | null
-  permissions?: { canEdit: boolean }
+  currentCalisanId?: number | null
+  permissions?: { canEdit: boolean; canReview?: boolean; canSubmitProgress?: boolean; canSendMessage?: boolean }
   messages: TaskMessage[]
   attachments: TaskAttachmentRow[]
   history: HistoryRow[]
@@ -56,7 +66,14 @@ type CalisanOption = { id: number; isim: string | null; soyisim: string | null }
 
 const MAX_ATTACHMENT_MB = 50
 const MAX_ATTACHMENT_BYTES = MAX_ATTACHMENT_MB * 1024 * 1024
-const STATUS_OPTIONS = ["Open", "In Progress", "Completed"] as const
+const STATUS_OPTIONS = [
+  "Pending Assessment",
+  "Pending Review",
+  "Revision Requested",
+  "Completed",
+  "Open",
+  "In Progress",
+] as const
 
 function formatName(p: { isim: string | null; soyisim: string | null } | null) {
   if (!p) return "Unknown"
@@ -83,23 +100,30 @@ function dueDateInputValue(iso: string | null) {
 
 function statusBadgeClass(status: string) {
   if (status === "Completed") return "bg-emerald-100 text-emerald-800 border-emerald-200"
+  if (status === "Pending Review") return "bg-amber-100 text-amber-900 border-amber-200"
+  if (status === "Revision Requested") return "bg-orange-100 text-orange-900 border-orange-200"
+  if (status === "Pending Assessment") return "bg-violet-100 text-violet-900 border-violet-200"
   if (status === "In Progress") return "bg-sky-100 text-sky-900 border-sky-200"
-  return "bg-violet-100 text-violet-900 border-violet-200"
+  return "bg-slate-100 text-slate-800 border-slate-200"
 }
 
+/** 0 = değerlendirme bekleniyor, 1 = atayan incelemesi, 2 = düzeltme turu, 3 = kapatıldı */
 function stepFromStatus(status: string): 0 | 1 | 2 | 3 {
-  if (status === "In Progress") return 1
   if (status === "Completed") return 3
+  if (status === "Revision Requested") return 2
+  if (status === "Pending Review") return 1
+  if (status === "Pending Assessment" || status === "Open") return 0
+  if (status === "In Progress") return 0
   return 0
 }
 
 function Stepper({ step }: { step: 0 | 1 | 2 | 3 }) {
   const items = useMemo(
     () => [
-      { key: "pending", label: "PENDING ASSIGNMENT" },
-      { key: "progress", label: "IN PROGRESS" },
-      { key: "eval", label: "PENDING EVALUATION" },
-      { key: "approved", label: "APPROVED" },
+      { key: "assess", label: "PENDING ASSESSMENT" },
+      { key: "review", label: "PENDING REVIEW" },
+      { key: "revise", label: "REVISION" },
+      { key: "done", label: "COMPLETED" },
     ],
     []
   )
@@ -161,13 +185,25 @@ export function TaskDetailPanel({
   const [employees, setEmployees] = useState<CalisanOption[]>([])
   const [uploadingFile, setUploadingFile] = useState(false)
   const [attachError, setAttachError] = useState<string | null>(null)
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [rejectReason, setRejectReason] = useState("")
+  const [reviewBusy, setReviewBusy] = useState<"accept" | "reject" | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const commFileInputRef = useRef<HTMLInputElement>(null)
   const panelFileInputRef = useRef<HTMLInputElement>(null)
 
-  const step = useMemo(() => stepFromStatus(detail?.status ?? "Open"), [detail?.status])
+  const step = useMemo(() => stepFromStatus(detail?.status ?? "Pending Assessment"), [detail?.status])
   const canEdit = detail?.permissions?.canEdit === true
+  const canReview = detail?.permissions?.canReview === true
+  const canSendMessage = detail?.permissions?.canSendMessage === true
   const isCompleted = detail?.status === "Completed"
+  // Assigner should not use message box when review is available — use Accept/Reject instead
+  const isAssigner =
+    detail?.currentCalisanId != null &&
+    detail?.assignedById != null &&
+    detail.currentCalisanId === detail.assignedById
+  const showMessageInput = canSendMessage && !canReview && !(isAssigner && detail?.status === "Pending Review")
+  const canUploadEvidence = !isCompleted && (canEdit || canSendMessage)
 
   const load = useCallback(async () => {
     if (taskId == null) return
@@ -250,7 +286,7 @@ export function TaskDetailPanel({
   }
 
   const sendMessage = async () => {
-    if (isCompleted) return
+    if (isCompleted || !canSendMessage) return
     const text = messageText.trim()
     if (!text || taskId == null || sending) return
     setSending(true)
@@ -260,13 +296,68 @@ export function TaskDetailPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text }),
       })
-      if (res.ok) {
-        setMessageText("")
-        void load()
-        onUpdated()
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) {
+        toast.error(typeof data.error === "string" ? data.error : "Mesaj gönderilemedi.")
+        return
       }
+      setMessageText("")
+      toast.success("Gönderildi.")
+      void load()
+      onUpdated()
     } finally {
       setSending(false)
+    }
+  }
+
+  const submitAccept = async () => {
+    if (taskId == null || reviewBusy) return
+    setReviewBusy("accept")
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision: "accept" }),
+      })
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) {
+        toast.error(typeof data.error === "string" ? data.error : "Kabul kaydedilemedi.")
+        return
+      }
+      toast.success("Görev kapatıldı.")
+      void load()
+      onUpdated()
+    } finally {
+      setReviewBusy(null)
+    }
+  }
+
+  const submitReject = async () => {
+    if (taskId == null || reviewBusy) return
+    const reason = rejectReason.trim()
+    if (!reason) {
+      toast.error("Ret sebebini yazın.")
+      return
+    }
+    setReviewBusy("reject")
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision: "reject", reason }),
+      })
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) {
+        toast.error(typeof data.error === "string" ? data.error : "Ret kaydedilemedi.")
+        return
+      }
+      toast.success("Ret bildirildi. Atanan kişi yanıtını güncelleyebilir.")
+      setRejectOpen(false)
+      setRejectReason("")
+      void load()
+      onUpdated()
+    } finally {
+      setReviewBusy(null)
     }
   }
 
@@ -297,8 +388,8 @@ export function TaskDetailPanel({
 
   const uploadAttachments = async (files: File[]) => {
     if (taskId == null || uploadingFile) return
-    if (isCompleted) {
-      setAttachError("This task is completed. You cannot add new attachments.")
+    if (!canUploadEvidence) {
+      setAttachError("Bu aşamada dosya ekleyemezsiniz.")
       return
     }
     const list = files.filter((f) => f && f.size > 0)
@@ -503,7 +594,7 @@ export function TaskDetailPanel({
                       variant="outline"
                       size="sm"
                       className="gap-2"
-                      disabled={uploadingFile}
+                      disabled={!canUploadEvidence || uploadingFile}
                       onClick={() => panelFileInputRef.current?.click()}
                     >
                       {uploadingFile ? (
@@ -591,7 +682,7 @@ export function TaskDetailPanel({
                 <div className="min-w-0">
                   <h3 className="text-sm font-semibold">Communication & Evidence</h3>
                   <p className="text-xs text-primary-foreground/80">
-                    Send action updates or attach evidence.
+                    Atanan güncelleme gönderir; atayan kabul veya ret verir.
                   </p>
                 </div>
                 <span className="flex items-center gap-2 text-xs">
@@ -601,31 +692,95 @@ export function TaskDetailPanel({
               </div>
 
               <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
+                {detail.status === "Revision Requested" && detail.rejectionReason ? (
+                  <div className="rounded-md border border-orange-300 bg-orange-50 px-3 py-2 text-sm text-orange-950 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-100">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-orange-800 dark:text-orange-200">
+                      Son ret sebebi (atayan)
+                    </p>
+                    <p className="mt-1 whitespace-pre-wrap">{detail.rejectionReason}</p>
+                  </div>
+                ) : null}
+
+                {canReview ? (
+                  <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-950/30">
+                    <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                      ⏳ Atanan kişi yanıt verdi — değerlendirmenizi yapın
+                    </p>
+                    <p className="text-amber-800 dark:text-amber-300 mt-1 text-xs">
+                      Yanıtı yeterli buluyorsanız görevi kapatın. Yetersizse ret sebebinizi yazın, görev atanana geri döner.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-3">
+                      <Button
+                        type="button"
+                        size="lg"
+                        className="gap-2 bg-emerald-600 text-white hover:bg-emerald-700 font-semibold"
+                        disabled={reviewBusy !== null}
+                        onClick={() => void submitAccept()}
+                      >
+                        {reviewBusy === "accept" ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="size-5" />
+                        )}
+                        Kabul Et — Görevi Kapat
+                      </Button>
+                      <Button
+                        type="button"
+                        size="lg"
+                        variant="destructive"
+                        className="gap-2 font-semibold"
+                        disabled={reviewBusy !== null}
+                        onClick={() => setRejectOpen(true)}
+                      >
+                        <XCircle className="size-5" />
+                        Reddet
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+
                 <div
                   ref={scrollRef}
                   className="min-h-[220px] flex-1 overflow-y-auto rounded-md border border-slate-200 bg-slate-50/80 p-3"
                 >
                   {detail.messages.length === 0 ? (
                     <div className="flex flex-col items-center justify-center gap-2 py-10 text-center text-muted-foreground">
-                      <p className="text-sm">No messages yet.</p>
-                      <p className="text-xs">Waiting for assignee to send an update.</p>
+                      <p className="text-sm">Henüz mesaj yok.</p>
+                      <p className="text-xs">
+                        {detail.status === "Pending Review"
+                          ? "Atayan kişi değerlendirme bekliyor."
+                          : "Atanan kişi güncelleme veya dosya gönderebilir."}
+                      </p>
                     </div>
                   ) : (
                     <div className="flex flex-col gap-3">
-                      {detail.messages.map((m) => (
-                        <div key={m.id} className="rounded-lg border bg-white p-3 text-sm shadow-sm">
-                          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                            <span className="font-semibold text-foreground">{formatName(m.sender)}</span>
-                            <span>
-                              {new Date(m.createdAt).toLocaleString("en-US", {
-                                dateStyle: "short",
-                                timeStyle: "short",
-                              })}
-                            </span>
+                      {detail.messages.map((m) => {
+                        const isRejection = m.message.startsWith("[Ret — atayan]")
+                        return (
+                          <div
+                            key={m.id}
+                            className={cn(
+                              "rounded-lg border bg-white p-3 text-sm shadow-sm",
+                              isRejection && "border-red-300 bg-red-50/80 dark:border-red-900 dark:bg-red-950/30"
+                            )}
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                              <span className="font-semibold text-foreground">
+                                {isRejection ? "Ret bildirimi" : formatName(m.sender)}
+                              </span>
+                              <span>
+                                {new Date(m.createdAt).toLocaleString("tr-TR", {
+                                  dateStyle: "short",
+                                  timeStyle: "short",
+                                })}
+                              </span>
+                            </div>
+                            <p className="mt-2 whitespace-pre-wrap text-slate-800">
+                              {isRejection ? m.message.replace(/^\[Ret — atayan\]\n?/, "") : m.message}
+                            </p>
                           </div>
-                          <p className="mt-2 whitespace-pre-wrap text-slate-800">{m.message}</p>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </div>
@@ -643,14 +798,14 @@ export function TaskDetailPanel({
                   }}
                 />
 
-                {!isCompleted ? (
+                {showMessageInput ? (
                   <div className="space-y-2 border-t pt-3">
                     <Label htmlFor="task-comm" className="sr-only">
                       Message
                     </Label>
                     <Textarea
                       id="task-comm"
-                      placeholder="Describe the action you took…"
+                      placeholder="Yaptığınız işi veya yanıtınızı yazın…"
                       value={messageText}
                       onChange={(e) => setMessageText(e.target.value)}
                       className="min-h-[74px] resize-none border-slate-200"
@@ -667,8 +822,8 @@ export function TaskDetailPanel({
                         variant="outline"
                         size="icon"
                         className="shrink-0"
-                        disabled={uploadingFile}
-                        title={`Attach file (max ${MAX_ATTACHMENT_MB} MB)`}
+                        disabled={!canUploadEvidence || uploadingFile}
+                        title={`Dosya ekle (en fazla ${MAX_ATTACHMENT_MB} MB)`}
                         onClick={() => commFileInputRef.current?.click()}
                       >
                         {uploadingFile ? (
@@ -684,19 +839,67 @@ export function TaskDetailPanel({
                         className="min-w-[96px] gap-2 bg-primary hover:bg-primary/90"
                       >
                         {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-                        Send
+                        Gönder
                       </Button>
                     </div>
                     <p className="text-muted-foreground text-right text-[11px]">
-                      Ctrl+Enter to send · Attachments up to {MAX_ATTACHMENT_MB} MB
+                      Ctrl+Enter ile gönder · Ek en fazla {MAX_ATTACHMENT_MB} MB
                     </p>
                   </div>
-                ) : null}
+                ) : isCompleted ? (
+                  <p className="text-muted-foreground border-t pt-3 text-center text-sm">
+                    Görev tamamlandı ve kapatıldı.
+                  </p>
+                ) : canReview ? (
+                  <p className="text-muted-foreground border-t pt-3 text-center text-sm">
+                    Atanan kişinin yanıtını yukarıdan kabul veya reddedebilirsiniz.
+                  </p>
+                ) : detail?.status === "Pending Review" ? (
+                  <p className="text-muted-foreground border-t pt-3 text-center text-sm">
+                    Yanıtınız iletildi. Atayan kişinin değerlendirmesi bekleniyor.
+                  </p>
+                ) : (
+                  <p className="text-muted-foreground border-t pt-3 text-center text-sm">
+                    Bu aşamada mesaj gönderemezsiniz.
+                  </p>
+                )}
               </div>
             </div>
           </div>
         )}
       </div>
+
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Görevi reddet</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="reject-reason">Ret sebebi (atanan kişi görecek)</Label>
+            <Textarea
+              id="reject-reason"
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Neyin yetersiz olduğunu veya ne beklediğinizi yazın…"
+              className="min-h-[100px]"
+            />
+          </div>
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" onClick={() => setRejectOpen(false)} disabled={reviewBusy !== null}>
+              Vazgeç
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={reviewBusy !== null || !rejectReason.trim()}
+              onClick={() => void submitReject()}
+            >
+              {reviewBusy === "reject" ? <Loader2 className="size-4 animate-spin" /> : null}
+              Reti gönder
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
