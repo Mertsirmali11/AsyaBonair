@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { BookOpen, ClipboardList, FileCheck } from "lucide-react"
+import { BarChart2, BookOpen, ClipboardList, FileCheck } from "lucide-react"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 
 const cards = [
@@ -20,6 +20,12 @@ const cards = [
     icon: <BookOpen className="size-6 text-amber-600" />,
     title: "Findings Follow Up",
     description: "Denetimlerde tespit edilen bulgular, CPA ve kök neden analizi.",
+  },
+  {
+    href: "/compliance/performance-reports",
+    icon: <BarChart2 className="size-6 text-indigo-600" />,
+    title: "Performance Reports",
+    description: "Son 3 yılın denetim, bulgu ve hazard raporlarına dayalı performans özeti.",
   },
 ]
 
