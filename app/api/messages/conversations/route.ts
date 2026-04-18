@@ -53,7 +53,20 @@ export async function GET() {
             attachmentFileName: true,
           },
         },
-        members: { select: { calisanId: true } },
+        members: {
+          select: {
+            calisanId: true,
+            calisan: {
+              select: {
+                id: true,
+                isim: true,
+                soyisim: true,
+                departman: true,
+                profilFotoStoragePath: true,
+              },
+            },
+          },
+        },
       },
     })
 
@@ -89,10 +102,24 @@ export async function GET() {
 
       if (c.isGroup) {
         const n = c.members.length
+        const members = c.members.map((m) => {
+          const cal = m.calisan
+          const displayName =
+            [cal?.isim, cal?.soyisim].filter(Boolean).join(" ").trim() ||
+            `Çalışan #${m.calisanId}`
+          return {
+            id: m.calisanId,
+            displayName,
+            departman: cal?.departman ?? null,
+            avatarUrl: calisanAvatarPublicUrl(cal?.profilFotoStoragePath),
+          }
+        })
+        members.sort((a, b) => a.displayName.localeCompare(b.displayName, "tr"))
         return {
           id: c.id,
           isGroup: true as const,
           updatedAt: c.updatedAt.toISOString(),
+          members,
           other: {
             id: 0,
             isim: null,
@@ -119,6 +146,7 @@ export async function GET() {
       return {
         id: c.id,
         isGroup: false as const,
+        members: [],
         updatedAt: c.updatedAt.toISOString(),
         other: {
           id: oid,

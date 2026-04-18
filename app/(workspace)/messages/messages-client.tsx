@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   BadgeCheck,
   Check,
+  ChevronDown,
   FileText,
   Loader2,
   MessageCirclePlus,
@@ -35,6 +36,13 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 
 type Colleague = {
   id: number
@@ -45,10 +53,18 @@ type Colleague = {
   avatarUrl?: string | null
 }
 
+type ConvMember = {
+  id: number
+  displayName: string
+  departman: string | null
+  avatarUrl?: string | null
+}
+
 type ConvRow = {
   id: number
   isGroup: boolean
   updatedAt: string
+  members?: ConvMember[]
   other: {
     id: number
     isim: string | null
@@ -142,6 +158,31 @@ function readAvatarPairFromPayload(data: unknown): ChatAvatars | null {
   }
 }
 
+function readMembersFromPayload(data: unknown): ConvMember[] {
+  if (!data || typeof data !== "object") return []
+  const raw = (data as Record<string, unknown>).members
+  if (raw == null) return []
+  if (!Array.isArray(raw)) return []
+  const out: ConvMember[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue
+    const x = item as Record<string, unknown>
+    const id = Number(x.id)
+    const displayName = String(x.displayName ?? "").trim()
+    if (!Number.isFinite(id) || !displayName) continue
+    out.push({
+      id,
+      displayName,
+      departman: x.departman != null ? String(x.departman) : null,
+      avatarUrl:
+        x.avatarUrl === undefined || x.avatarUrl === null
+          ? null
+          : String(x.avatarUrl),
+    })
+  }
+  return out
+}
+
 export function MessagesClient({
   currentCalisanId,
   currentUserName,
@@ -183,6 +224,9 @@ export function MessagesClient({
   const [deleteTarget, setDeleteTarget] = useState<ConvRow | null>(null)
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [chatAvatars, setChatAvatars] = useState<ChatAvatars | null>(null)
+  const [membersFromMessages, setMembersFromMessages] = useState<ConvMember[]>(
+    []
+  )
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const selectedRef = useRef<number | null>(null)
@@ -198,6 +242,37 @@ export function MessagesClient({
     () => conversations.find((c) => c.id === selectedId) ?? null,
     [conversations, selectedId]
   )
+
+  const displayMembers = useMemo((): ConvMember[] => {
+    if (!selectedConv) return []
+    if (selectedConv.isGroup) {
+      const fromList = selectedConv.members ?? []
+      if (fromList.length > 0) return fromList
+      return membersFromMessages
+    }
+    const o = selectedConv.other
+    return [
+      {
+        id: o.id,
+        displayName: o.displayName,
+        departman: o.departman,
+        avatarUrl: o.avatarUrl,
+      },
+    ]
+  }, [selectedConv, membersFromMessages])
+
+  const attachmentHistory = useMemo(() => {
+    return messages
+      .filter((m) => m.attachment)
+      .slice()
+      .sort((a, b) => b.id - a.id)
+      .map((m) => ({
+        id: m.id,
+        attachment: m.attachment!,
+      }))
+  }, [messages])
+
+  const [chatDetailsOpen, setChatDetailsOpen] = useState(false)
 
   const applyOtherRead = useCallback((otherRead: number, list: ChatMessage[]) => {
     return list.map((m) =>
@@ -231,6 +306,8 @@ export function MessagesClient({
         const data = await res.json()
         const av = readAvatarPairFromPayload(data)
         if (av) setChatAvatars(av)
+        const mem = readMembersFromPayload(data)
+        if (mem.length) setMembersFromMessages(mem)
         const otherRead = data.otherLastReadMessageId ?? 0
         const list = (data.messages ?? []) as ChatMessage[]
         setMessages(applyOtherRead(otherRead, list))
@@ -246,6 +323,8 @@ export function MessagesClient({
       const data = await res.json()
       const av = readAvatarPairFromPayload(data)
       if (av) setChatAvatars(av)
+      const mem = readMembersFromPayload(data)
+      if (mem.length) setMembersFromMessages(mem)
       const newMsgs = (data.messages ?? []) as ChatMessage[]
       const otherRead = data.otherLastReadMessageId ?? 0
 
@@ -270,6 +349,7 @@ export function MessagesClient({
     async (conversationId: number) => {
       setLoadingMessages(true)
       setMessages([])
+      setMembersFromMessages([])
       setHasOlder(false)
       const convRow = conversations.find((c) => c.id === conversationId)
       setChatAvatars({
@@ -284,6 +364,8 @@ export function MessagesClient({
         const data = await res.json()
         const av = readAvatarPairFromPayload(data)
         if (av) setChatAvatars(av)
+        const mem = readMembersFromPayload(data)
+        if (mem.length) setMembersFromMessages(mem)
         const otherRead = data.otherLastReadMessageId ?? 0
         const list = (data.messages ?? []) as ChatMessage[]
         setMessages(applyOtherRead(otherRead, list))
@@ -324,6 +406,8 @@ export function MessagesClient({
       const data = await res.json()
       const av = readAvatarPairFromPayload(data)
       if (av) setChatAvatars(av)
+      const mem = readMembersFromPayload(data)
+      if (mem.length) setMembersFromMessages(mem)
       const older = (data.messages ?? []) as ChatMessage[]
       const otherRead = data.otherLastReadMessageId ?? 0
       setHasOlder(!!data.hasOlder)
@@ -405,6 +489,10 @@ export function MessagesClient({
     setDraft("")
     setPendingFile(null)
     if (fileInputRef.current) fileInputRef.current.value = ""
+  }, [selectedId])
+
+  useEffect(() => {
+    setChatDetailsOpen(false)
   }, [selectedId])
 
   const openConversation = useCallback(
@@ -802,7 +890,8 @@ export function MessagesClient({
           )}
         >
           {selectedConv ? (
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <>
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               <div
                 className={cn(
                   "flex min-h-12 shrink-0 items-center gap-2 px-2.5 py-2 sm:min-h-[3.25rem] md:px-3",
@@ -821,29 +910,45 @@ export function MessagesClient({
                     <ArrowLeft className="size-5" />
                   </Button>
                 )}
-                <Avatar className="size-10 shrink-0 ring-2 ring-white/35 md:size-11">
-                  <AvatarImage
-                    src={
-                      (chatAvatars?.other ??
-                        selectedConv.other.avatarUrl) ||
-                      undefined
-                    }
-                    alt=""
+                <button
+                  type="button"
+                  className={cn(
+                    "flex min-w-0 flex-1 items-center gap-2 rounded-md py-0.5 text-left transition-colors",
+                    "text-primary-foreground hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35"
+                  )}
+                  onClick={() => setChatDetailsOpen(true)}
+                  aria-expanded={chatDetailsOpen}
+                  aria-haspopup="dialog"
+                  aria-label={`${selectedConv.other.displayName} — sohbet detayları`}
+                >
+                  <Avatar className="size-10 shrink-0 ring-2 ring-white/35 md:size-11">
+                    <AvatarImage
+                      src={
+                        (chatAvatars?.other ??
+                          selectedConv.other.avatarUrl) ||
+                        undefined
+                      }
+                      alt=""
+                    />
+                    <AvatarFallback className="bg-white/20 text-sm font-semibold text-white">
+                      {initialsFromDisplayName(selectedConv.other.displayName)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold leading-tight md:text-base">
+                      {selectedConv.other.displayName}
+                    </p>
+                    <p className="truncate text-xs text-white/80">
+                      {selectedConv.isGroup
+                        ? selectedConv.other.departman ?? "Grup"
+                        : selectedConv.other.departman ?? "No department"}
+                    </p>
+                  </div>
+                  <ChevronDown
+                    className="size-4 shrink-0 opacity-75"
+                    aria-hidden
                   />
-                  <AvatarFallback className="bg-white/20 text-sm font-semibold text-white">
-                    {initialsFromDisplayName(selectedConv.other.displayName)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold leading-tight md:text-base">
-                    {selectedConv.other.displayName}
-                  </p>
-                  <p className="truncate text-xs text-white/80">
-                    {selectedConv.isGroup
-                      ? selectedConv.other.departman ?? "Grup"
-                      : selectedConv.other.departman ?? "No department"}
-                  </p>
-                </div>
+                </button>
               </div>
 
               <div
@@ -915,7 +1020,8 @@ export function MessagesClient({
                             m.fromMe ? BUBBLE_OUT : BUBBLE_IN
                           )}
                         >
-                          {m.attachment?.mime.startsWith("image/") ? (
+                          {m.attachment &&
+                          (m.attachment.mime ?? "").startsWith("image/") ? (
                             <a
                               href={m.attachment.url}
                               target="_blank"
@@ -1082,6 +1188,118 @@ export function MessagesClient({
                 </div>
               </div>
             </div>
+
+              <Sheet open={chatDetailsOpen} onOpenChange={setChatDetailsOpen}>
+                <SheetContent
+                  side="right"
+                  className="flex h-full max-h-[100dvh] w-full max-w-sm flex-col gap-0 overflow-hidden border-l p-0 sm:max-w-sm [&>button]:text-foreground"
+                >
+                  <SheetHeader className="shrink-0 space-y-1 border-b border-border bg-muted/25 px-4 py-4 text-left sm:pr-12">
+                    <SheetTitle className="text-base">
+                      {selectedConv.other.displayName}
+                    </SheetTitle>
+                    <SheetDescription className="text-xs">
+                      {selectedConv.isGroup
+                        ? `${selectedConv.other.departman ?? "Grup sohbeti"} · üyeler ve ekler`
+                        : `${selectedConv.other.departman ?? "Bire bir"} · kişi ve ekler`}
+                    </SheetDescription>
+                  </SheetHeader>
+                  <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4">
+                    <section className="space-y-3">
+                      <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <UsersRound className="size-3.5 shrink-0" aria-hidden />
+                        {selectedConv.isGroup
+                          ? `Üyeler (${displayMembers.length || (loadingMessages ? "…" : 0)})`
+                          : "Kişi"}
+                      </div>
+                      {displayMembers.length === 0 &&
+                      selectedConv.isGroup &&
+                      loadingMessages ? (
+                        <p className="text-xs text-muted-foreground">
+                          Üyeler yükleniyor…
+                        </p>
+                      ) : displayMembers.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          Üye bilgisi yok.
+                        </p>
+                      ) : (
+                        <ul className="flex flex-col gap-3">
+                          {displayMembers.map((mem) => (
+                            <li
+                              key={mem.id}
+                              className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2"
+                            >
+                              <Avatar className="size-9 shrink-0 ring-1 ring-border/60">
+                                <AvatarImage
+                                  src={mem.avatarUrl ?? undefined}
+                                  alt=""
+                                />
+                                <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
+                                  {initialsFromDisplayName(mem.displayName)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-medium">
+                                  {mem.displayName}
+                                </p>
+                                {mem.departman ? (
+                                  <p className="truncate text-xs text-muted-foreground">
+                                    {mem.departman}
+                                  </p>
+                                ) : null}
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </section>
+
+                    <section className="mt-6 space-y-3 border-t border-border pt-5">
+                      <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <Paperclip className="size-3.5 shrink-0" aria-hidden />
+                        Ekler ({attachmentHistory.length})
+                      </div>
+                      {attachmentHistory.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          Bu sohbette henüz ek yok.
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {attachmentHistory.map(({ id, attachment: att }) => {
+                            const isImg = (att.mime ?? "").startsWith(
+                              "image/"
+                            )
+                            return (
+                              <a
+                                key={id}
+                                href={att.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex max-w-[9.5rem] shrink-0 flex-col gap-1 rounded-md border border-border bg-muted/30 px-2 py-2 text-foreground transition-colors hover:bg-muted/60"
+                              >
+                                {isImg ? (
+                                  /* eslint-disable-next-line @next/next/no-img-element */
+                                  <img
+                                    src={att.url}
+                                    alt=""
+                                    className="h-14 w-full rounded object-cover"
+                                  />
+                                ) : (
+                                  <FileText className="mx-auto size-7 text-muted-foreground" />
+                                )}
+                                <span className="line-clamp-2 text-center text-[10px] leading-tight">
+                                  {att.fileName}
+                                </span>
+                              </a>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </section>
+                  </div>
+                </SheetContent>
+              </Sheet>
+            </>
           ) : (
             <div
               className={cn(

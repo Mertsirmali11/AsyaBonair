@@ -80,6 +80,38 @@ async function avatarUrlsForDmParticipants(myId: number, otherId: number) {
   }
 }
 
+async function groupMembersJson(conversationId: number) {
+  const rows = await prisma.dmConversationMember.findMany({
+    where: { conversationId },
+    select: {
+      calisanId: true,
+      calisan: {
+        select: {
+          id: true,
+          isim: true,
+          soyisim: true,
+          departman: true,
+          profilFotoStoragePath: true,
+        },
+      },
+    },
+  })
+  const members = rows.map((m) => {
+    const cal = m.calisan
+    const displayName =
+      [cal?.isim, cal?.soyisim].filter(Boolean).join(" ").trim() ||
+      `Çalışan #${m.calisanId}`
+    return {
+      id: m.calisanId,
+      displayName,
+      departman: cal?.departman ?? null,
+      avatarUrl: calisanAvatarPublicUrl(cal?.profilFotoStoragePath),
+    }
+  })
+  members.sort((a, b) => a.displayName.localeCompare(b.displayName, "tr"))
+  return members
+}
+
 async function getOtherLastRead(conversationId: number, otherId: number) {
   const otherRead = await prisma.dmReadState.findUnique({
     where: {
@@ -204,10 +236,15 @@ export async function GET(
   const sinceRaw = sp.get("since")
   const beforeRaw = sp.get("before")
 
+  const membersPayload = conv.isGroup
+    ? await groupMembersJson(conversationId)
+    : null
+
   const commonExtra = {
     isGroup: conv.isGroup,
     groupTitle: conv.groupTitle,
     ...avatarPair,
+    members: membersPayload,
   }
 
   if (sinceRaw !== null && sinceRaw !== "") {
