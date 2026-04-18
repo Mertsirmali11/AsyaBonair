@@ -51,12 +51,22 @@ function createPrismaClient() {
       ? parsedPool
       : defaultPoolMaxForUrl(cleanConnectionString)
 
+  const rawConnTimeout = process.env.DATABASE_CONNECTION_TIMEOUT_MS
+    ? Number(process.env.DATABASE_CONNECTION_TIMEOUT_MS)
+    : NaN
+  const connectionTimeoutMillis =
+    Number.isFinite(rawConnTimeout) && rawConnTimeout >= 1000 && rawConnTimeout <= 120_000
+      ? rawConnTimeout
+      : 20_000
+
   const pool = new Pool({
     connectionString: cleanConnectionString,
     max: poolMax,
-    idleTimeoutMillis: 20000,
-    connectionTimeoutMillis: 8000,
-    statement_timeout: 30000,
+    idleTimeoutMillis: 10000,
+    connectionTimeoutMillis,
+    statement_timeout: 60000,
+    // Allow faster recovery when a connection drops
+    allowExitOnIdle: true,
   })
   
   const adapter = new PrismaPg(pool)
