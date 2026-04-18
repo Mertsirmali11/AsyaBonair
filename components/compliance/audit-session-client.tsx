@@ -79,12 +79,10 @@ type SessionItemState = {
   id?: number          // set after first save
   result: string       // "" | "S" | "U" | "NA" | "OBS"
   notes: string        // auditor notes
-  auditeeNotes: string // auditee response
   finding: FindingInfo | null
   attachments: Attachment[]
   dirty: boolean
   saving: boolean
-  pendingFiles: { file: File; uploadedBy: "auditor" | "auditee" }[]
   uploading: boolean
 }
 
@@ -115,7 +113,6 @@ type AuditSession = {
     auditChecklistItemId: number
     result: string | null
     notes: string | null
-    auditeeNotes: string | null
     finding: FindingInfo | null
     attachments: Attachment[]
   }[]
@@ -236,12 +233,10 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
           id: sItem.id,
           result: sItem.result ?? "",
           notes: sItem.notes ?? "",
-          auditeeNotes: sItem.auditeeNotes ?? "",
           finding: sItem.finding ?? null,
           attachments: sItem.attachments ?? [],
           dirty: false,
           saving: false,
-          pendingFiles: [],
           uploading: false,
         }
       }
@@ -259,54 +254,70 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
 
+  const defaultState = (): SessionItemState => ({
+    id: undefined, result: "", notes: "", finding: null,
+    attachments: [], dirty: false, saving: false, uploading: false,
+  })
+
   const getState = (itemId: number): SessionItemState =>
-    itemStates[itemId] ?? {
-      id: undefined, result: "", notes: "", auditeeNotes: "", finding: null,
-      attachments: [], dirty: false, saving: false, pendingFiles: [], uploading: false,
-    }
+    itemStates[itemId] ?? defaultState()
 
   const patchState = (itemId: number, patch: Partial<SessionItemState>) => {
     setItemStates((prev) => ({
       ...prev,
-      [itemId]: { ...getState(itemId), ...patch },
+      [itemId]: { ...(prev[itemId] ?? defaultState()), ...patch },
     }))
   }
 
   // ─── Save item to server ──────────────────────────────────────────────────
 
+  const sessionIdRef = React.useRef<number | null>(null)
+  React.useEffect(() => {
+    sessionIdRef.current = sessionData?.id ?? null
+  }, [sessionData])
+
   const saveItem = React.useCallback(async (
     itemId: number,
     result: string,
     notes: string,
-    auditeeNotes: string,
     findingLevel: string,
   ) => {
-    if (!sessionData) return
-    patchState(itemId, { saving: true })
+    const sid = sessionIdRef.current
+    if (!sid) return
+    setItemStates((prev) => ({
+      ...prev,
+      [itemId]: { ...(prev[itemId] ?? { id: undefined, result: "", notes: "", finding: null, attachments: [], dirty: false, uploading: false }), saving: true },
+    }))
     try {
-      const res = await fetch(`/api/audit-sessions/${sessionData.id}/items`, {
+      const res = await fetch(`/api/audit-sessions/${sid}/items`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           auditChecklistItemId: itemId,
           result: result || null,
           notes: notes || null,
-          auditeeNotes: auditeeNotes || null,
           findingLevel,
         }),
       })
       const data = await parseJson(res) as Record<string, unknown> | null
-      if (!res.ok) { toast.error("Kaydedilemedi."); return }
+      if (!res.ok) {
+        toast.error(typeof data?.error === "string" ? data.error : "Kaydedilemedi.")
+        return
+      }
       const finding = (data?.finding ?? null) as FindingInfo | null
       const attachments = (data?.attachments ?? []) as Attachment[]
-      patchState(itemId, { id: data?.id as number | undefined, finding, attachments, dirty: false })
+      setItemStates((prev) => ({
+        ...prev,
+        [itemId]: { ...(prev[itemId] ?? { id: undefined, result: "", notes: "", finding: null, attachments: [], uploading: false }), id: data?.id as number | undefined, finding, attachments, dirty: false, saving: false },
+      }))
     } catch {
       toast.error("Kaydedilemedi.")
-    } finally {
-      patchState(itemId, { saving: false })
+      setItemStates((prev) => ({
+        ...prev,
+        [itemId]: { ...(prev[itemId] ?? { id: undefined, result: "", notes: "", finding: null, attachments: [], dirty: false, uploading: false }), saving: false },
+      }))
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionData])
+  }, [])
 
   // ─── Result click ─────────────────────────────────────────────────────────
 
@@ -322,7 +333,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
     }
 
     patchState(itemId, { result: newResult, dirty: true })
-    void saveItem(itemId, newResult, st.notes, st.auditeeNotes, st.finding?.findingLevel ?? "Level1")
+    void saveItem(itemId, newResult, st.notes, st.finding?.findingLevel ?? "Level1")
   }
 
   // ─── Finding level dialog confirm ─────────────────────────────────────────
@@ -332,7 +343,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
     const st = getState(itemId)
     setFindingDialog((p) => ({ ...p, open: false }))
     patchState(itemId, { result: "U", dirty: true })
-    void saveItem(itemId, "U", st.notes, st.auditeeNotes, selectedLevel)
+    void saveItem(itemId, "U", st.notes, selectedLevel)
   }
 
   // ─── Notes save ───────────────────────────────────────────────────────────
@@ -340,27 +351,37 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
   const saveNotes = (itemId: number) => {
     const st = getState(itemId)
     if (!st.dirty) return
-    void saveItem(itemId, st.result, st.notes, st.auditeeNotes, st.finding?.findingLevel ?? "Level1")
+    void saveItem(itemId, st.result, st.notes, st.finding?.findingLevel ?? "Level1")
   }
 
   // ─── File upload ──────────────────────────────────────────────────────────
 
-  const uploadFile = async (itemId: number, file: File, uploadedBy: "auditor" | "auditee") => {
+  const uploadFiles = async (itemId: number, files: FileList) => {
+    const sid = sessionIdRef.current
     const st = getState(itemId)
-    if (!st.id || !sessionData) { toast.error("Önce soruyu kaydedin."); return }
+    if (!st.id || !sid) { toast.error("Önce bir sonuç seçin."); return }
     patchState(itemId, { uploading: true })
+    const uploaded: Attachment[] = []
     try {
-      const fd = new FormData()
-      fd.append("file", file)
-      fd.append("uploadedBy", uploadedBy)
-      const res = await fetch(
-        `/api/audit-sessions/${sessionData.id}/items/${st.id}/attachments`,
-        { method: "POST", body: fd }
-      )
-      if (!res.ok) { toast.error("Dosya yüklenemedi."); return }
-      const att = await parseJson(res) as Attachment
-      patchState(itemId, { attachments: [...(getState(itemId).attachments), att] })
-      toast.success("Dosya yüklendi.")
+      for (const file of Array.from(files)) {
+        const fd = new FormData()
+        fd.append("file", file)
+        fd.append("uploadedBy", "auditor")
+        const res = await fetch(
+          `/api/audit-sessions/${sid}/items/${st.id}/attachments`,
+          { method: "POST", body: fd }
+        )
+        if (!res.ok) { toast.error(`${file.name} yüklenemedi.`); continue }
+        const att = await parseJson(res) as Attachment
+        uploaded.push(att)
+      }
+      if (uploaded.length > 0) {
+        setItemStates((prev) => ({
+          ...prev,
+          [itemId]: { ...(prev[itemId] ?? defaultState()), attachments: [...(prev[itemId]?.attachments ?? []), ...uploaded] },
+        }))
+        toast.success(`${uploaded.length} dosya yüklendi.`)
+      }
     } catch {
       toast.error("Yükleme başarısız.")
     } finally {
@@ -613,18 +634,28 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
                         </div>
                       </div>
 
-                      {/* Expanded section for U or OBS */}
-                      {(isU || isOBS || st.notes || st.auditeeNotes || st.attachments.length > 0) && (
+                      {/* Expanded: only when result selected or has content */}
+                      {(st.result || st.notes || st.attachments.length > 0) && (
                         <div className="mt-3 ml-9 space-y-3">
 
                           {/* U: finding notice */}
                           {isU && (
-                            <div className="flex items-start gap-1.5 text-red-700 dark:text-red-400 text-xs font-medium">
-                              <AlertTriangle className="size-3.5 mt-0.5 shrink-0" />
-                              {finding
-                                ? <>Bulgu oluşturuldu: <span className="font-mono">{finding.findingCode}</span></>
-                                : "Bu madde bulgu olarak kaydedilecek"
-                              }
+                            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-red-700 dark:text-red-400 text-xs font-medium">
+                              <span className="inline-flex items-start gap-1.5">
+                                <AlertTriangle className="size-3.5 mt-0.5 shrink-0" />
+                                {finding
+                                  ? <>Bulgu oluşturuldu: <span className="font-mono">{finding.findingCode}</span></>
+                                  : "Bu madde bulgu olarak kaydedilecek"
+                                }
+                              </span>
+                              {finding && (
+                                <Link
+                                  href={`/compliance/findings-follow-up/${finding.id}`}
+                                  className="inline-flex shrink-0 rounded border border-red-300 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-800 hover:bg-red-100 dark:border-red-800 dark:bg-red-950/50 dark:text-red-200 dark:hover:bg-red-950"
+                                >
+                                  Bulguya cevap ver (CPA)
+                                </Link>
+                              )}
                             </div>
                           )}
 
@@ -637,37 +668,17 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
                           )}
 
                           {/* Auditor notes */}
-                          <div>
-                            <p className="text-xs font-medium text-muted-foreground mb-1">Denetçi Notu</p>
-                            <Textarea
-                              value={st.notes}
-                              onChange={(e) => patchState(item.id, { notes: e.target.value, dirty: true })}
-                              onBlur={() => saveNotes(item.id)}
-                              placeholder={isU ? "Bulgu açıklaması (zorunlu değil)…" : "Denetçi notu (isteğe bağlı)…"}
-                              className="min-h-[60px] text-xs"
-                              disabled={completed}
-                            />
-                          </div>
-
-                          {/* Auditee response */}
-                          <div>
-                            <p className="text-xs font-medium text-muted-foreground mb-1">Denetlenenin Yanıtı</p>
-                            <Textarea
-                              value={st.auditeeNotes}
-                              onChange={(e) => patchState(item.id, { auditeeNotes: e.target.value, dirty: true })}
-                              onBlur={() => saveNotes(item.id)}
-                              placeholder="Denetlenenin açıklaması veya yanıtı…"
-                              className="min-h-[60px] text-xs"
-                              disabled={completed}
-                            />
-                          </div>
+                          <Textarea
+                            value={st.notes}
+                            onChange={(e) => patchState(item.id, { notes: e.target.value, dirty: true })}
+                            onBlur={() => saveNotes(item.id)}
+                            placeholder="Denetçi notu (isteğe bağlı)…"
+                            className="min-h-[60px] text-xs"
+                            disabled={completed}
+                          />
 
                           {/* Attachments */}
                           <div>
-                            <p className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1">
-                              <Paperclip className="size-3" />
-                              Ekler
-                            </p>
                             {st.attachments.length > 0 && (
                               <ul className="space-y-1 mb-2">
                                 {st.attachments.map((att) => (
@@ -675,9 +686,6 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
                                     <Paperclip className="size-3 shrink-0 text-muted-foreground" />
                                     <span className="flex-1 truncate">{att.fileName}</span>
                                     <span className="text-muted-foreground shrink-0">{formatBytes(att.fileSizeBytes)}</span>
-                                    <Badge variant="outline" className="text-[10px] px-1 py-0 shrink-0">
-                                      {att.uploadedBy === "auditee" ? "Denetlenen" : "Denetçi"}
-                                    </Badge>
                                     {!completed && (
                                       <button
                                         type="button"
@@ -692,42 +700,23 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
                               </ul>
                             )}
                             {!completed && (
-                              <div className="flex flex-wrap gap-2">
-                                <label className={cn(
-                                  "inline-flex items-center gap-1.5 cursor-pointer rounded-md border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted/50 transition-colors",
-                                  st.uploading && "opacity-60 pointer-events-none"
-                                )}>
-                                  <Upload className="size-3.5" />
-                                  Denetçi Dosyası
-                                  <input
-                                    type="file"
-                                    className="sr-only"
-                                    disabled={st.uploading}
-                                    onChange={(e) => {
-                                      const f = e.target.files?.[0]
-                                      if (f) void uploadFile(item.id, f, "auditor")
-                                      e.target.value = ""
-                                    }}
-                                  />
-                                </label>
-                                <label className={cn(
-                                  "inline-flex items-center gap-1.5 cursor-pointer rounded-md border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted/50 transition-colors",
-                                  st.uploading && "opacity-60 pointer-events-none"
-                                )}>
-                                  <Upload className="size-3.5" />
-                                  Denetlenen Dosyası
-                                  <input
-                                    type="file"
-                                    className="sr-only"
-                                    disabled={st.uploading}
-                                    onChange={(e) => {
-                                      const f = e.target.files?.[0]
-                                      if (f) void uploadFile(item.id, f, "auditee")
-                                      e.target.value = ""
-                                    }}
-                                  />
-                                </label>
-                              </div>
+                              <label className={cn(
+                                "inline-flex items-center gap-1.5 cursor-pointer rounded-md border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted/50 transition-colors",
+                                st.uploading && "opacity-60 pointer-events-none"
+                              )}>
+                                <Upload className="size-3.5" />
+                                {st.uploading ? "Yükleniyor…" : "Dosya Ekle"}
+                                <input
+                                  type="file"
+                                  multiple
+                                  className="sr-only"
+                                  disabled={st.uploading}
+                                  onChange={(e) => {
+                                    if (e.target.files?.length) void uploadFiles(item.id, e.target.files)
+                                    e.target.value = ""
+                                  }}
+                                />
+                              </label>
                             )}
                           </div>
 
@@ -805,11 +794,6 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
               <p className="text-red-700 dark:text-red-400 font-medium">
                 <AlertTriangle className="inline mr-1.5 size-4" />
                 {unsatisfactoryCount} adet &ldquo;Unsatisfactory&rdquo; bulgu Findings Follow Up&apos;a eklenecek.
-              </p>
-            )}
-            {answeredCount < questionItems.length && (
-              <p className="text-amber-700 dark:text-amber-400">
-                Uyarı: {questionItems.length - answeredCount} madde henüz yanıtlanmadı.
               </p>
             )}
           </div>
