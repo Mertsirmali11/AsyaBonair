@@ -1,10 +1,18 @@
 "use client"
 
 import * as React from "react"
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import Link from "next/link"
+import * as XLSX from "xlsx"
 import { formatDateOnlyIstanbul, formatDateTimeIstanbul } from "@/lib/date-format"
-import { IconArrowsSort, IconSortAscending, IconSortDescending, IconTrash, IconEye } from "@tabler/icons-react"
+import {
+  IconArrowsSort,
+  IconDownload,
+  IconSortAscending,
+  IconSortDescending,
+  IconTrash,
+  IconEye,
+} from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
 import {
   Table,
@@ -208,6 +216,51 @@ export function HazardReportManagement() {
     setCurrentPage(1)
   }, [searchTerm])
 
+  const handleExportExcel = useCallback(() => {
+    const safeDate = (dateString: string | null) => {
+      if (!dateString) return "-"
+      try {
+        return formatDateOnlyIstanbul(dateString)
+      } catch {
+        return "-"
+      }
+    }
+    const safeDateTime = (dateString: string | null) => {
+      if (!dateString) return "-"
+      try {
+        return formatDateTimeIstanbul(dateString)
+      } catch {
+        return "-"
+      }
+    }
+
+    const rows = filteredAndSortedData.map((r) => ({
+      "Report No": r.reportNo ?? "",
+      Date: safeDate(r.eventDate),
+      Source: r.sourceType ?? "",
+      Title: r.title ?? "",
+      Reporter: r.isAnonymous
+        ? "Anonymous"
+        : `${r.reporter?.isim ?? ""} ${r.reporter?.soyisim ?? ""}`.trim() ||
+          r.reporter?.email ||
+          "",
+      Department: r.isAnonymous ? "-" : (r.reporter?.departman ?? "-"),
+      Anonymous: r.isAnonymous ? "Yes" : "No",
+      "Reported At": safeDateTime(r.createdAt),
+      Attachments:
+        r._count?.attachments != null && r._count.attachments > 0
+          ? `${r._count.attachments} file(s)`
+          : "No files",
+      Details: r.details ?? "",
+    }))
+
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Hazard Reports")
+    const stamp = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `hazard-reports-${stamp}.xlsx`)
+  }, [filteredAndSortedData])
+
   const handleDelete = async (reportId: number) => {
     if (confirm("Are you sure you want to delete this report?")) {
       try {
@@ -232,7 +285,7 @@ export function HazardReportManagement() {
         <h2 className="text-2xl font-bold">Hazard Reports</h2>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Label htmlFor="search" className="text-sm font-medium whitespace-nowrap">
           Search:
         </Label>
@@ -242,8 +295,19 @@ export function HazardReportManagement() {
           placeholder="Search all columns..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="max-w-xs h-9"
+          className="h-9 min-w-[12rem] max-w-xs flex-1"
         />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-9 shrink-0 gap-1.5"
+          disabled={loading || filteredAndSortedData.length === 0}
+          onClick={handleExportExcel}
+        >
+          <IconDownload className="h-4 w-4" aria-hidden />
+          Export Excel
+        </Button>
       </div>
 
       <div className="rounded-lg border bg-card">

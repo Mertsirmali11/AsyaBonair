@@ -85,7 +85,11 @@ const NAV_MID: NavItem[] = [
 
 const NAV_AFTER_CONTROLLED_DOCS: NavItem[] = [
   { title: "Tasks & Actions", url: "/tasks", icon: IconChecklist },
-  { title: "Performance Reports", url: "/reports", icon: IconChartBar },
+  {
+    title: "Performance Reports",
+    url: "/compliance/performance-reports",
+    icon: IconChartBar,
+  },
   { title: "AI Report Creator", url: "/ai-reports", icon: IconRobot },
   { title: "Addons", url: "/addons", icon: IconPuzzle },
 ]
@@ -139,7 +143,6 @@ const correspondencesSubItems = [
 const safetyManagementSubItems = [{ title: "Risk Board", url: "/safety/risk-board" }]
 
 const complianceMonitoringSubItems = [
-  { title: "Overview", url: "/compliance" },
   { title: "Audit Plan", url: "/compliance/audit-plan" },
   { title: "Checklists", url: "/compliance/checklists" },
   { title: "Findings Follow Up", url: "/compliance/findings-follow-up" },
@@ -433,10 +436,8 @@ export function AppSidebar({
                   <SidebarMenuSub>
                     {visibleComplianceMonitoringSubItems.map((subItem) => {
                       const isSubActive =
-                        subItem.url === "/compliance"
-                          ? pathname === "/compliance" || pathname === "/compliance/"
-                          : pathname === subItem.url ||
-                            !!pathname?.startsWith(`${subItem.url}/`)
+                        pathname === subItem.url ||
+                        !!pathname?.startsWith(`${subItem.url}/`)
                       return (
                         <SidebarMenuSubItem key={subItem.title}>
                           <SidebarMenuSubButton
@@ -615,7 +616,7 @@ export function AppSidebar({
                   </SidebarMenuButton>
                 </SidebarMenuItem>
 
-                {item.url === "/reports" ? (
+                {item.title === "Performance Reports" ? (
                   <Collapsible
                     open={announcementSystemOpen}
                     onOpenChange={setAnnouncementSystemOpen}

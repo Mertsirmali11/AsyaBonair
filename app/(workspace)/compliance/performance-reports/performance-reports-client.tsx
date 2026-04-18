@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import * as XLSX from "xlsx"
 import {
   BarChart,
   Bar,
@@ -133,6 +134,108 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
   const findingY = findingStats.find((s) => s.year === selectedYear)!
   const hazardY = hazardStats.find((s) => s.year === selectedYear)!
 
+  function handleExportExcel() {
+    const wb = XLSX.utils.book_new()
+
+    // ── Sheet 1: Audit Summary (3-year summary + selected-year categories) ──
+    const auditSummaryRows = auditStats.map((s) => ({
+      Year: s.year,
+      "Total Audits": s.total,
+      "Internal Audits": s.internal,
+      "External Audits": s.external,
+      SACA: s.saca,
+      SAFA: s.safa,
+      "Incoming Audits (External+SACA+SAFA)": s.incoming,
+    }))
+    const wsAudit = XLSX.utils.json_to_sheet(auditSummaryRows)
+    XLSX.utils.sheet_add_json(
+      wsAudit,
+      auditY.byCategory.map((c) => ({
+        Year: selectedYear,
+        Category: c.name,
+        Count: c.count,
+      })),
+      { origin: { r: auditSummaryRows.length + 3, c: 0 } }
+    )
+    XLSX.utils.book_append_sheet(wb, wsAudit, "Audit Summary")
+
+    // ── Sheet 2: Findings (summary + by department) ──
+    const findingsSummaryRows = [
+      { Year: selectedYear, Metric: "Total Findings", Value: findingY.total },
+      { Year: selectedYear, Metric: "Timely Closed", Value: findingY.timelyClosed },
+      { Year: selectedYear, Metric: "Closed Late", Value: findingY.closedLate },
+      { Year: selectedYear, Metric: "Closed (No Due Date)", Value: findingY.closedNoDl },
+      { Year: selectedYear, Metric: "Overdue (Open)", Value: findingY.overdue },
+      { Year: selectedYear, Metric: "Open (On Track)", Value: findingY.openOnTrack },
+      { Year: selectedYear, Metric: "With Extension", Value: findingY.withExtension },
+    ]
+    const wsFindings = XLSX.utils.json_to_sheet(findingsSummaryRows)
+    XLSX.utils.sheet_add_json(
+      wsFindings,
+      findingY.byDepartment.map((d) => ({
+        Year: selectedYear,
+        Department: d.departman,
+        "Total Findings": d.total,
+        "Timely Closed": d.timelyClosed,
+        "Overdue (Open)": d.overdue,
+        "With Extension": d.withExtension,
+      })),
+      { origin: { r: findingsSummaryRows.length + 3, c: 0 } }
+    )
+    XLSX.utils.book_append_sheet(wb, wsFindings, "Findings")
+
+    // ── Sheet 3: Hazard Reports (3-year totals + selected-year breakdowns) ──
+    const hazardTotalsRows = hazardStats.map((s) => ({
+      Year: s.year,
+      "Total Hazard Reports": s.total,
+    }))
+    const wsHazards = XLSX.utils.json_to_sheet(hazardTotalsRows)
+    XLSX.utils.sheet_add_json(
+      wsHazards,
+      hazardY.bySource.map((s) => ({
+        Year: selectedYear,
+        Source: s.source,
+        Count: s.count,
+      })),
+      { origin: { r: hazardTotalsRows.length + 3, c: 0 } }
+    )
+    XLSX.utils.sheet_add_json(
+      wsHazards,
+      hazardY.byDepartment.map((d) => ({
+        Year: selectedYear,
+        Department: d.departman,
+        Count: d.count,
+      })),
+      { origin: { r: hazardTotalsRows.length + hazardY.bySource.length + 7, c: 0 } }
+    )
+    XLSX.utils.book_append_sheet(wb, wsHazards, "Hazard Reports")
+
+    // ── Sheet 4: Department Analysis (merge findings + hazards by department) ──
+    const hazardDept = new Map(hazardY.byDepartment.map((d) => [d.departman, d.count] as const))
+    const allDepts = new Set<string>([
+      ...findingY.byDepartment.map((d) => d.departman),
+      ...hazardY.byDepartment.map((d) => d.departman),
+    ])
+    const deptRows = Array.from(allDepts)
+      .sort((a, b) => a.localeCompare(b, "tr"))
+      .map((dept) => {
+        const f = findingY.byDepartment.find((x) => x.departman === dept)
+        return {
+          Year: selectedYear,
+          Department: dept,
+          "Findings (Total)": f?.total ?? 0,
+          "Findings (Timely Closed)": f?.timelyClosed ?? 0,
+          "Findings (Overdue Open)": f?.overdue ?? 0,
+          "Findings (With Extension)": f?.withExtension ?? 0,
+          "Hazard Reports": hazardDept.get(dept) ?? 0,
+        }
+      })
+    const wsDept = XLSX.utils.json_to_sheet(deptRows)
+    XLSX.utils.book_append_sheet(wb, wsDept, "Department Analysis")
+
+    XLSX.writeFile(wb, `performance-reports-${selectedYear}.xlsx`)
+  }
+
   // ── 3-year stacked bar data for audits ──
   const allCategoryNames = Array.from(
     new Set(auditStats.flatMap((s) => s.byCategory.map((c) => c.name)))
@@ -171,21 +274,30 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
     <div className="flex flex-1 flex-col gap-6 p-6 pt-4">
 
       {/* ── Year tabs ── */}
-      <div className="flex items-center gap-1 rounded-lg border bg-muted p-1 w-fit">
-        {years.map((y) => (
-          <button
-            key={y}
-            type="button"
-            onClick={() => setSelectedYear(y)}
-            className={`px-5 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              selectedYear === y
-                ? "bg-background shadow-sm text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {y}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-1 rounded-lg border bg-muted p-1 w-fit">
+          {years.map((y) => (
+            <button
+              key={y}
+              type="button"
+              onClick={() => setSelectedYear(y)}
+              className={`px-5 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                selectedYear === y
+                  ? "bg-background shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {y}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={handleExportExcel}
+          className="h-9 rounded-md border bg-background px-3 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
+        >
+          Export to Excel
+        </button>
       </div>
 
       {/* ════════════════════════════════════════════════════════════════════ */}
@@ -409,31 +521,63 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
             </ResponsiveContainer>
           </div>
 
-          {/* Pie: by source type */}
+          {/* Pie: by source type — dilim etiketleri kapalı; özet grid ile okunabilir */}
           <div className="rounded-xl border bg-card p-4 shadow-sm">
             <p className="text-sm font-medium mb-3">{selectedYear} — Kaynak Türü Dağılımı</p>
             {hazardY.bySource.length === 0 ? (
               <EmptyState message={`${selectedYear} yılı için hazard verisi bulunamadı.`} />
             ) : (
-              <ResponsiveContainer width="100%" height={200}>
-                <PieChart>
-                  <Pie
-                    data={hazardY.bySource}
-                    dataKey="count"
-                    nameKey="source"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={75}
-                    label={({ percent }) => `${((percent ?? 0) * 100).toFixed(0)}%`}
-                  >
-                    {hazardY.bySource.map((entry, i) => (
-                      <Cell key={entry.source} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip content={<PieTooltip />} />
-                  <Legend formatter={(v) => <span className="text-[10px]">{v}</span>} />
-                </PieChart>
-              </ResponsiveContainer>
+              <div className="flex flex-col gap-3">
+                <ResponsiveContainer width="100%" height={220}>
+                  <PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+                    <Pie
+                      data={hazardY.bySource}
+                      dataKey="count"
+                      nameKey="source"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={82}
+                      innerRadius={0}
+                      paddingAngle={1}
+                      label={false}
+                    >
+                      {hazardY.bySource.map((entry, i) => (
+                        <Cell key={entry.source} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip content={<PieTooltip />} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {(() => {
+                    const srcTotal = hazardY.bySource.reduce((s, x) => s + x.count, 0)
+                    return hazardY.bySource.map((row, i) => {
+                      const pct =
+                        srcTotal > 0 ? ((row.count / srcTotal) * 100).toFixed(1) : "0"
+                      return (
+                        <li
+                          key={row.source}
+                          className="flex gap-2 rounded-md border border-border/80 bg-muted/25 px-2.5 py-2 text-xs"
+                        >
+                          <span
+                            className="mt-0.5 size-2.5 shrink-0 rounded-sm ring-1 ring-border/50"
+                            style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }}
+                            aria-hidden
+                          />
+                          <span className="min-w-0 flex-1 leading-snug">
+                            <span className="block break-words font-medium text-foreground">
+                              {row.source}
+                            </span>
+                            <span className="text-muted-foreground">
+                              {row.count} adet · %{pct}
+                            </span>
+                          </span>
+                        </li>
+                      )
+                    })
+                  })()}
+                </ul>
+              </div>
             )}
           </div>
 
