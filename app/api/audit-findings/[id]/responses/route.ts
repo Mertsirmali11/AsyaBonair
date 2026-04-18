@@ -42,25 +42,45 @@ export async function POST(req: Request, ctx: Ctx) {
   const rootCause = typeof b.rootCause === "string" ? b.rootCause.trim() : null
   const correctiveAction = typeof b.correctiveAction === "string" ? b.correctiveAction.trim() : null
   const preventiveAction = typeof b.preventiveAction === "string" ? b.preventiveAction.trim() : null
-  const respondedById = b.respondedById ? Number(b.respondedById) : null
+  const rawResponder = b.respondedById
+  let respondedById: number | null = null
+  if (typeof rawResponder === "number" && Number.isInteger(rawResponder) && rawResponder > 0) {
+    respondedById = rawResponder
+  } else if (typeof rawResponder === "string" && rawResponder.trim()) {
+    const n = Number(rawResponder.trim())
+    if (Number.isInteger(n) && n > 0) respondedById = n
+  }
 
   if (!rootCause && !correctiveAction && !preventiveAction)
     return NextResponse.json({ error: "At least one field is required" }, { status: 400 })
 
-  const created = await prisma.auditFindingResponse.create({
-    data: {
-      auditFindingId: id,
-      rootCause,
-      correctiveAction,
-      preventiveAction,
-      respondedById,
-      cpaStatus: "Pending",
-    },
-    include: {
-      respondedBy: { select: { id: true, isim: true, soyisim: true } },
-      attachments: true,
-    },
-  })
+  if (respondedById !== null) {
+    const calisan = await prisma.calisan.findUnique({ where: { id: respondedById } })
+    if (!calisan)
+      return NextResponse.json({ error: "Geçersiz cevaplayan kişi (çalışan bulunamadı)." }, { status: 400 })
+  }
 
-  return NextResponse.json(created, { status: 201 })
+  try {
+    const created = await prisma.auditFindingResponse.create({
+      data: {
+        auditFindingId: id,
+        rootCause,
+        correctiveAction,
+        preventiveAction,
+        respondedById,
+        cpaStatus: "Pending",
+      },
+      include: {
+        respondedBy: { select: { id: true, isim: true, soyisim: true } },
+        attachments: true,
+      },
+    })
+    return NextResponse.json(created, { status: 201 })
+  } catch (e) {
+    console.error("auditFindingResponse.create", e)
+    return NextResponse.json(
+      { error: "Cevap kaydedilemedi. Lütfen tekrar deneyin veya yöneticiye bildirin." },
+      { status: 500 }
+    )
+  }
 }

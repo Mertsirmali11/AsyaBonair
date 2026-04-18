@@ -57,23 +57,35 @@ async function requireAuditPlanAccess() {
   return session
 }
 
+function prismaConnectErrorMessage(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err)
+  if (/timeout exceeded|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|getaddrinfo/i.test(msg)) {
+    return "Veritabanına bağlanılamadı (zaman aşımı veya ağ). PostgreSQL/Supabase çalışıyor mu ve DATABASE_URL doğru mu kontrol edin."
+  }
+  return "Veritabanı hatası. Bir süre sonra tekrar deneyin."
+}
+
 export async function GET() {
   const session = await requireAuditPlanAccess()
   if (!session) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  const entries = await prisma.auditPlanEntry.findMany({
-    orderBy: { plannedDate: "desc" },
-    include: {
-      auditCategoryType: { select: { name: true } },
-      auditSubCategoryType: { select: { name: true } },
-      auditors: { include: { calisan: { select: { isim: true, soyisim: true } } } },
-      auditees: { include: { calisan: { select: { isim: true, soyisim: true } } } },
-    },
-  })
-
-  return NextResponse.json(entries.map(mapEntry))
+  try {
+    const entries = await prisma.auditPlanEntry.findMany({
+      orderBy: { plannedDate: "desc" },
+      include: {
+        auditCategoryType: { select: { name: true } },
+        auditSubCategoryType: { select: { name: true } },
+        auditors: { include: { calisan: { select: { isim: true, soyisim: true } } } },
+        auditees: { include: { calisan: { select: { isim: true, soyisim: true } } } },
+      },
+    })
+    return NextResponse.json(entries.map(mapEntry))
+  } catch (e) {
+    console.error("[GET /api/audit-plan]", e)
+    return NextResponse.json({ error: prismaConnectErrorMessage(e) }, { status: 503 })
+  }
 }
 
 export async function POST(req: Request) {

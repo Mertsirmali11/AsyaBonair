@@ -10,7 +10,7 @@ import {
   getIstanbulLocalDayUtcRange,
   getUtcRangeForCalendarDate,
 } from "@/lib/day-range"
-import { canAccessConfigurationsArea } from "@/lib/department-access"
+import { canAccessConfigurationsArea, isAdminDepartment } from "@/lib/department-access"
 import { canManageSupportTicketsAsAdmin } from "@/lib/support-ticket-access"
 import { canViewAllHazardReports } from "@/lib/hazard-access"
 
@@ -152,6 +152,10 @@ export async function GET() {
             lt: windowEndExclusive,
           },
           status: { not: "Completed" },
+          // Non-admin users only see tasks assigned to them
+          ...(viewer && !isAdminDepartment(viewer.departman)
+            ? { assigneeId: viewer.id }
+            : {}),
         },
         select: {
           id: true,

@@ -463,11 +463,14 @@ model MeetingParticipant {
 model MeetingTask {
   id         Int       @id @default(autoincrement())
   title      String    @db.VarChar(500)
-  status     String    @default("Open") @db.VarChar(50)
+  /// Pending Assessment | Pending Review | Revision Requested | Completed (+ legacy Open, In Progress)
+  status     String    @default("Pending Assessment") @db.VarChar(50)
   dueDate    DateTime? @map("due_date") @db.Date
   meetingId  Int?      @map("meeting_id")
   assigneeId Int?      @map("assignee_id")
   assignedById Int?    @map("assigned_by_id")
+  /// Son ret bildiriminde atayanın girdiği metin (yeniden gönderimde temizlenir)
+  rejectionReason String? @map("rejection_reason") @db.Text
   filePath   String?   @map("file_path") @db.VarChar(1000)
   fileName   String?   @map("file_name") @db.VarChar(255)
   createdAt  DateTime  @default(now()) @map("created_at")

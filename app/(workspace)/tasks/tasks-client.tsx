@@ -35,15 +35,18 @@ function formatName(p: { isim: string | null; soyisim: string | null } | null) {
 
 function statusPillClass(status: string) {
   if (status === "Completed") return "bg-emerald-100 text-emerald-800 border-emerald-200"
+  if (status === "Pending Review") return "bg-amber-100 text-amber-900 border-amber-200"
+  if (status === "Revision Requested") return "bg-orange-100 text-orange-900 border-orange-200"
+  if (status === "Pending Assessment") return "bg-violet-100 text-violet-900 border-violet-200"
   if (status === "In Progress") return "bg-sky-100 text-sky-900 border-sky-200"
-  return "bg-violet-100 text-violet-900 border-violet-200"
+  return "bg-slate-100 text-slate-800 border-slate-200"
 }
 
 export function TasksClient() {
   const [tasks, setTasks] = useState<MeetingTaskRow[]>([])
   const [quickViewTask, setQuickViewTask] = useState<MeetingTaskRow | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null)
-  const [statusFilter, setStatusFilter] = useState<"All" | "Open" | "In Progress" | "Completed">("All")
+  const [statusFilter, setStatusFilter] = useState<string>("All")
   const [assigneeFilter, setAssigneeFilter] = useState<string>("All")
   const [query, setQuery] = useState("")
   const [createOpen, setCreateOpen] = useState(false)
@@ -87,6 +90,12 @@ export function TasksClient() {
       const name = formatName(t.assignee)
       if (name !== "—") set.add(name)
     }
+    return ["All", ...Array.from(set).sort((a, b) => a.localeCompare(b))]
+  }, [tasks])
+
+  const statusOptions = useMemo(() => {
+    const set = new Set<string>()
+    for (const t of tasks) set.add(t.status)
     return ["All", ...Array.from(set).sort((a, b) => a.localeCompare(b))]
   }, [tasks])
 
@@ -142,15 +151,16 @@ export function TasksClient() {
           />
         </div>
 
-        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
-          <SelectTrigger className="w-[160px]">
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-[200px]">
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="All">All Statuses</SelectItem>
-            <SelectItem value="Open">Open</SelectItem>
-            <SelectItem value="In Progress">In Progress</SelectItem>
-            <SelectItem value="Completed">Completed</SelectItem>
+          <SelectContent className="max-h-64">
+            {statusOptions.map((s) => (
+              <SelectItem key={s} value={s}>
+                {s === "All" ? "All Statuses" : s}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 
@@ -286,7 +296,6 @@ function CreateTaskDialog({
   onCreated: (taskId: number) => void
 }) {
   const [title, setTitle] = useState("")
-  const [status, setStatus] = useState<"Open" | "In Progress" | "Completed">("Open")
   const [dueDate, setDueDate] = useState<string>("")
   const [assigneeId, setAssigneeId] = useState<string>("none")
   const [saving, setSaving] = useState(false)
@@ -316,7 +325,7 @@ function CreateTaskDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: title.trim(),
-          status,
+          status: "Pending Assessment",
           dueDate: dueDate || null,
           assigneeId: assigneeId === "none" ? null : Number(assigneeId),
         }),
@@ -332,7 +341,6 @@ function CreateTaskDialog({
         return
       }
       setTitle("")
-      setStatus("Open")
       setDueDate("")
       setAssigneeId("none")
       onOpenChange(false)
@@ -366,26 +374,14 @@ function CreateTaskDialog({
             />
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Status</Label>
-              <Select value={status} onValueChange={(v) => setStatus(v as typeof status)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Open">Open</SelectItem>
-                  <SelectItem value="In Progress">In Progress</SelectItem>
-                  <SelectItem value="Completed">Completed</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Due date</Label>
-              <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-            </div>
+          <div className="space-y-2">
+            <Label>Due date</Label>
+            <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
           </div>
+
+          <p className="text-muted-foreground text-xs">
+            Yeni görev durumu: <strong>Pending Assessment</strong> — atanan kişi güncelleme gönderene kadar bekler.
+          </p>
 
           <div className="space-y-2">
             <Label>Assigned to</Label>

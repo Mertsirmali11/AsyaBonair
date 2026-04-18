@@ -192,25 +192,36 @@ export function FindingDetailClient({ findingId }: { findingId: number }) {
           respondedById: respondedById ? Number(respondedById) : null,
         }),
       })
-      const data = await parseJson(res as globalThis.Response)
-      if (!res.ok) { toast.error("Gönderilemedi."); return }
-      const created = data as { id: number }
-      setCreatedResponseId(created.id)
+      const data = (await parseJson(res as globalThis.Response)) as { id?: unknown; error?: string } | null
+      if (!res.ok) {
+        const msg = data && typeof data.error === "string" && data.error.trim() ? data.error.trim() : "Gönderilemedi."
+        toast.error(msg)
+        return
+      }
+      const createdId = data && typeof data.id === "number" ? data.id : NaN
+      if (!Number.isFinite(createdId)) {
+        toast.error("Sunucu yanıtı geçersiz. Sayfayı yenileyip tekrar deneyin.")
+        return
+      }
+      setCreatedResponseId(createdId)
 
       // Upload pending files
       if (pendingFiles.length > 0) {
         setUploadingFiles(true)
+        let uploadErr = false
         for (const file of pendingFiles) {
           const form = new FormData()
           form.append("file", file)
-          form.append("responseId", String(created.id))
-          await fetch(`/api/audit-findings/${findingId}/attachments`, {
+          form.append("responseId", String(createdId))
+          const up = await fetch(`/api/audit-findings/${findingId}/attachments`, {
             method: "POST",
             body: form,
           })
+          if (!up.ok) uploadErr = true
         }
         setUploadingFiles(false)
         setPendingFiles([])
+        if (uploadErr) toast.error("Cevap kaydedildi ancak bazı ekler yüklenemedi.")
       }
 
       toast.success("Cevap gönderildi.")
@@ -226,6 +237,15 @@ export function FindingDetailClient({ findingId }: { findingId: number }) {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const openResponseDialog = () => {
+    setRootCause("")
+    setCorrectiveAction("")
+    setPreventiveAction("")
+    setPendingFiles([])
+    setRespondedById(finding?.assignedTo ? String(finding.assignedTo.id) : "")
+    setResponseOpen(true)
   }
 
   const updateCpaStatus = async (responseId: number, cpaStatus: string) => {
@@ -330,7 +350,7 @@ export function FindingDetailClient({ findingId }: { findingId: number }) {
                 type="button"
                 size="sm"
                 className="bg-blue-600 hover:bg-blue-700"
-                onClick={() => setResponseOpen(true)}
+                onClick={openResponseDialog}
               >
                 <Send className="mr-1.5 size-3.5" />
                 Cevap Ver
@@ -411,7 +431,7 @@ export function FindingDetailClient({ findingId }: { findingId: number }) {
               Henüz cevap verilmemiş.
               {isOpen && (
                 <p className="mt-1">
-                  <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => setResponseOpen(true)}>
+                  <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={openResponseDialog}>
                     İlk cevabı gönder →
                   </Button>
                 </p>
@@ -530,7 +550,10 @@ export function FindingDetailClient({ findingId }: { findingId: number }) {
 
               <div className="space-y-2">
                 <Label>Cevaplayan Kişi</Label>
-                <Select value={respondedById} onValueChange={setRespondedById}>
+                <Select
+                  value={respondedById ? respondedById : undefined}
+                  onValueChange={setRespondedById}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Kişi seç…" />
                   </SelectTrigger>
@@ -630,7 +653,7 @@ export function FindingDetailClient({ findingId }: { findingId: number }) {
               type="button"
               disabled={submitting || uploadingFiles}
               className="bg-blue-600 hover:bg-blue-700"
-              onClick={submitResponse}
+              onClick={() => void submitResponse()}
             >
               {submitting || uploadingFiles ? (
                 <><Loader2 className="mr-1.5 size-4 animate-spin" />{uploadingFiles ? "Dosyalar yükleniyor…" : "Gönderiliyor…"}</>

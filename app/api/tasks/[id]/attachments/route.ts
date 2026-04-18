@@ -18,13 +18,6 @@ export async function POST(
     if (!session?.user?.email) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-    if (
-      session.user.departman !== "Quality" &&
-      !isAdminDepartment(session.user.departman)
-    ) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    }
-
     const { id: idParam } = await params
     const taskId = Number.parseInt(idParam, 10)
     if (Number.isNaN(taskId)) {
@@ -36,12 +29,31 @@ export async function POST(
       return NextResponse.json({ error: "Task not found" }, { status: 404 })
     }
 
+    if (task.status === "Completed") {
+      return NextResponse.json({ error: "Tamamlanan göreve dosya eklenemez." }, { status: 400 })
+    }
+
     const calisan = await prisma.calisan.findUnique({
       where: { email: session.user.email },
       select: { id: true },
     })
     if (!calisan) {
       return NextResponse.json({ error: "User not found" }, { status: 403 })
+    }
+
+    const staff =
+      session.user.departman === "Quality" || isAdminDepartment(session.user.departman)
+    const isAssignee = task.assigneeId != null && task.assigneeId === calisan.id
+
+    if (!staff && !isAssignee) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
+    if (isAssignee && task.status === "Pending Review") {
+      return NextResponse.json(
+        { error: "Atayan değerlendirme yapana kadar yeni dosya eklenemez." },
+        { status: 400 }
+      )
     }
 
     const formData = await req.formData()
@@ -90,6 +102,19 @@ export async function POST(
         uploadedBy: calisan.id,
       },
     })
+
+    if (
+      isAssignee &&
+      (task.status === "Pending Assessment" ||
+        task.status === "Revision Requested" ||
+        task.status === "Open" ||
+        task.status === "In Progress")
+    ) {
+      await prisma.meetingTask.update({
+        where: { id: taskId },
+        data: { status: "Pending Review", rejectionReason: null },
+      })
+    }
 
     return NextResponse.json({
       id: created.id,

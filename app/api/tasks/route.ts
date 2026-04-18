@@ -5,12 +5,30 @@ import { isAdminDepartment } from "@/lib/department-access"
 
 export async function GET(req: NextRequest) {
   try {
+    const session = await auth()
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const calisan = await prisma.calisan.findUnique({
+      where: { email: session.user.email },
+      select: { id: true },
+    })
+
+    const isAdmin = isAdminDepartment(session.user.departman)
+
     const meetingIdParam = new URL(req.url).searchParams.get("meetingId")
     const meetingIdNum = meetingIdParam ? Number.parseInt(meetingIdParam, 10) : NaN
-    const where =
+    const meetingFilter =
       meetingIdParam !== null && !Number.isNaN(meetingIdNum)
         ? { meetingId: meetingIdNum }
         : {}
+
+    // Non-admin users only see tasks assigned to them
+    const assigneeFilter =
+      !isAdmin && calisan ? { assigneeId: calisan.id } : {}
+
+    const where = { ...meetingFilter, ...assigneeFilter }
 
     const tasks = await prisma.meetingTask.findMany({
       where,
@@ -74,7 +92,16 @@ export async function POST(req: NextRequest) {
         ? Number(body.assigneeId)
         : null
     const dueDate = body.dueDate ? new Date(String(body.dueDate)) : null
-    const status = String(body.status ?? "Open")
+    const rawStatus = String(body.status ?? "").trim()
+    const allowed = new Set([
+      "Pending Assessment",
+      "Pending Review",
+      "Revision Requested",
+      "Completed",
+      "Open",
+      "In Progress",
+    ])
+    const status = allowed.has(rawStatus) ? rawStatus : "Pending Assessment"
 
     if (!title) {
       return NextResponse.json({ error: "title is required" }, { status: 400 })

@@ -40,6 +40,7 @@ export function MeetingDetailClient({
   hazardReports,
   currentUserName,
   highlightTaskId = null,
+  canEdit = false,
 }: {
   meeting: Meeting
   calisanlar: Calisan[]
@@ -47,6 +48,7 @@ export function MeetingDetailClient({
   currentUserName: string
   /** URL ?taskId= — scroll to and highlight that task row */
   highlightTaskId?: number | null
+  canEdit?: boolean
 }) {
   const router = useRouter()
   const [title, setTitle] = useState(meeting.title)
@@ -124,17 +126,19 @@ export function MeetingDetailClient({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
 
         <div className="flex flex-col gap-4">
-          <label className="cursor-pointer">
-            <input
-              type="file"
-              className="hidden"
-              onChange={e => e.target.files?.[0] && handleFileUpload(e.target.files[0])}
-            />
-            <div className="inline-flex items-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-medium px-4 py-2 rounded-md transition-colors">
-              <Upload size={15} />
-              {uploadingFile ? "Uploading..." : "Upload Files"}
-            </div>
-          </label>
+          {canEdit && (
+            <label className="cursor-pointer">
+              <input
+                type="file"
+                className="hidden"
+                onChange={e => e.target.files?.[0] && handleFileUpload(e.target.files[0])}
+              />
+              <div className="inline-flex items-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-medium px-4 py-2 rounded-md transition-colors">
+                <Upload size={15} />
+                {uploadingFile ? "Uploading..." : "Upload Files"}
+              </div>
+            </label>
+          )}
 
           {attachedFile && (
             <a href={attachedFile.path} target="_blank"
@@ -146,12 +150,12 @@ export function MeetingDetailClient({
 
           <div className="border rounded-lg p-4 bg-white">
             <Label>Title <span className="text-red-500">*</span></Label>
-            <Input value={title} onChange={e => setTitle(e.target.value)} className="mt-1" />
+            <Input value={title} onChange={e => setTitle(e.target.value)} className="mt-1" disabled={!canEdit} />
           </div>
 
           <div className="border rounded-lg p-4 bg-white">
             <Label>Actual Meeting Date</Label>
-            <Input type="date" value={actualDate} onChange={e => setActualDate(e.target.value)} className="mt-1" />
+            <Input type="date" value={actualDate} onChange={e => setActualDate(e.target.value)} className="mt-1" disabled={!canEdit} />
           </div>
 
           <div className="border rounded-lg p-4 bg-white">
@@ -161,29 +165,38 @@ export function MeetingDetailClient({
               onChange={e => setMinutes(e.target.value)}
               placeholder="Write meeting minutes..."
               className="mt-2 min-h-48"
+              disabled={!canEdit}
             />
             <p className="text-xs text-gray-400 text-right mt-1">
               {minutes.length} / 30000 characters | {minutes.trim() === "" ? 0 : minutes.trim().split(/\s+/).length} words
             </p>
           </div>
 
-          <div className="flex gap-2 self-end">
-            <Button
-              onClick={handleSave}
-              disabled={saving}
-              variant="outline"
-              className="px-8"
-            >
-              {saving ? "Saving..." : "Save"}
-            </Button>
-            <Button
-              onClick={handleSubmit}
-              disabled={saving}
-              className="bg-green-600 hover:bg-green-700 text-white px-8"
-            >
-              {saving ? "Submitting..." : "Submit"}
-            </Button>
-          </div>
+          {!canEdit && (
+            <p className="text-sm text-muted-foreground text-center rounded-lg border border-amber-200 bg-amber-50 py-2 px-4">
+              Bu toplantıyı düzenlemek için katılımcı olmanız gerekir.
+            </p>
+          )}
+
+          {canEdit && (
+            <div className="flex gap-2 self-end">
+              <Button
+                onClick={handleSave}
+                disabled={saving}
+                variant="outline"
+                className="px-8"
+              >
+                {saving ? "Saving..." : "Save"}
+              </Button>
+              <Button
+                onClick={handleSubmit}
+                disabled={saving}
+                className="bg-green-600 hover:bg-green-700 text-white px-8"
+              >
+                {saving ? "Submitting..." : "Submit"}
+              </Button>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-4">

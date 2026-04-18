@@ -277,10 +277,28 @@ export function AuditPlanClient() {
   const refreshRows = React.useCallback(async () => {
     try {
       const res = await fetch("/api/audit-plan")
-      if (!res.ok) return
-      const data = (await res.json()) as AuditPlanRow[]
-      setRows(Array.isArray(data) ? data : [])
+      const parsed = (await res.json().catch(() => null)) as
+        | AuditPlanRow[]
+        | { error?: string }
+        | null
+      if (!res.ok) {
+        const msg =
+          parsed &&
+          typeof parsed === "object" &&
+          !Array.isArray(parsed) &&
+          typeof parsed.error === "string" &&
+          parsed.error.trim()
+            ? parsed.error.trim()
+            : res.status === 503
+              ? "Veritabanına ulaşılamıyor. PostgreSQL/Supabase bağlantısını kontrol edin."
+              : `Denetim listesi yüklenemedi (HTTP ${res.status}).`
+        toast.error(msg)
+        setRows([])
+        return
+      }
+      setRows(Array.isArray(parsed) ? parsed : [])
     } catch {
+      toast.error("Ağ hatası. Sayfayı yenileyin veya bağlantınızı kontrol edin.")
       setRows([])
     } finally {
       setListLoading(false)

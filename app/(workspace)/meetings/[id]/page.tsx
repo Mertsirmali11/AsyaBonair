@@ -3,6 +3,7 @@ import { redirect, notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma-server"
 import { prismaJson } from "@/lib/prisma-json"
 import { canViewAllHazardReports } from "@/lib/hazard-access"
+import { isAdminDepartment } from "@/lib/department-access"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { MeetingDetailClient } from "./meeting-detail-client"
 
@@ -47,6 +48,14 @@ export default async function MeetingDetailPage({ params, searchParams }: Props)
 
   if (!meeting) notFound()
 
+  // canEdit: admin OR a participant of this meeting
+  const isAdmin = isAdminDepartment(calisan?.departman)
+  const participantIds = await prisma.meetingParticipant.findMany({
+    where: { meetingId: meeting.id },
+    select: { calisanId: true },
+  })
+  const canEdit = isAdmin || (calisan ? participantIds.some((p) => p.calisanId === calisan.id) : false)
+
   const calisanlar = await prisma.calisan.findMany({
     select: { id: true, isim: true, soyisim: true },
     orderBy: { isim: "asc" },
@@ -81,6 +90,7 @@ export default async function MeetingDetailPage({ params, searchParams }: Props)
         hazardReports={hazardReports as any}
         currentUserName={user.name}
         highlightTaskId={highlightTaskId}
+        canEdit={canEdit}
       />
     </>
   )
