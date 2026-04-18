@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
-import { isAdminDepartment } from "@/lib/department-access"
 import { geminiChatCompletion, type GeminiChatMessage } from "@/lib/gemini-chat"
 import { userFacingAiError } from "@/lib/ai-provider-errors"
 import {
@@ -11,35 +10,22 @@ import {
 
 const BASE_SYSTEM = `Sen Bonair Havacılık'ın yapay zeka asistanısın. Türk sivil havacılık mevzuatı (SHGM, SHY, SHT), uçuş operasyonları, SMS (Safety Management System) ve FDM (Flight Data Monitoring) konularında uzmansın. Kullanıcılara her zaman Türkçe yanıt verirsin. Bilmediğin veya doğrulayamadığın mevzuat maddelerini uydurmak yerine kullanıcıya resmi kaynağı kontrol etmesini söylersin.`
 
-const MAX_MANUALS_PER_CHAT = 15
+/** Tüm güncel manuel revizyonları için DB'den yüklenecek maksimum kayıt sayısı. */
+const MAX_AUTO_MANUALS = 60
+
+export type ManualMeta = {
+  id: number
+  title: string
+  manualNumber: string | null
+  revision: number
+  revisionDate: string | null
+}
 
 type ChatMsg = { role: string; content: string }
 
-function parseManualIds(body: Record<string, unknown>): number[] {
-  const raw = body.manualIds
-  if (Array.isArray(raw)) {
-    const ids: number[] = []
-    for (const x of raw) {
-      const n =
-        typeof x === "number" ? x : Number.parseInt(String(x), 10)
-      if (!Number.isNaN(n)) ids.push(n)
-    }
-    return [...new Set(ids)]
-  }
-  const single = body.manualId
-  if (single != null && single !== "") {
-    const n =
-      typeof single === "number"
-        ? single
-        : Number.parseInt(String(single), 10)
-    if (!Number.isNaN(n)) return [n]
-  }
-  return []
-}
-
 /**
  * İstemci ilk karşılama metnini assistant olarak gönderdiği için baştaki assistant
- * mesajlarını atıyoruz (karşılama zaten system prompt’ta özetleniyor).
+ * mesajlarını atıyoruz (karşılama zaten system prompt'ta özetleniyor).
  */
 function sanitizeChatMessages(messages: ChatMsg[]): ChatMsg[] {
   const filtered = messages.filter(
@@ -54,6 +40,12 @@ function sanitizeChatMessages(messages: ChatMsg[]): ChatMsg[] {
 
 export async function POST(req: NextRequest) {
   try {
+    // Auth zorunlu — AI endpoint'e sadece giriş yapmış kullanıcılar erişebilir
+    const session = await auth()
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: "Oturum açmanız gerekiyor." }, { status: 401 })
+    }
+
     const body = (await req.json()) as Record<string, unknown> & {
       messages?: ChatMsg[]
     }
@@ -70,46 +62,38 @@ export async function POST(req: NextRequest) {
     const lastUser = [...messages].reverse().find((m) => m.role === "user")
     const userQuery = lastUser?.content?.trim() ?? ""
 
-    let manuals: ManualForRag[] = []
-    const rawIds = parseManualIds(body)
-    if (rawIds.length > MAX_MANUALS_PER_CHAT) {
-      return NextResponse.json(
-        { error: `En fazla ${MAX_MANUALS_PER_CHAT} manuel seçilebilir.` },
-        { status: 400 }
-      )
-    }
-    const ids = rawIds
+    // Tüm isCurrent=true manuel revizyonlarını otomatik yükle.
+    // Erişim kuralı: normal kullanıcılar zaten sadece isCurrent=true kayıtları görebilir
+    // (admin ise arşivlenmiş kayıtlara da erişebilir — burada ikisi için de sadece güncel olanlar kullanılır).
+    const rows = await prisma.companyManual.findMany({
+      where: { isCurrent: true },
+      select: {
+        id: true,
+        title: true,
+        contentText: true,
+        revision: true,
+        revisionDate: true,
+        manualNumber: true,
+      },
+      orderBy: { title: "asc" },
+      take: MAX_AUTO_MANUALS,
+    })
 
-    if (ids.length > 0) {
-      const session = await auth()
-      const rows = await prisma.companyManual.findMany({
-        where: { id: { in: ids } },
-        select: {
-          id: true,
-          title: true,
-          contentText: true,
-          isCurrent: true,
-        },
-      })
-      if (rows.length !== ids.length) {
-        return NextResponse.json(
-          { error: "Bir veya daha fazla manuel bulunamadı." },
-          { status: 404 }
-        )
-      }
-      for (const row of rows) {
-        if (
-          !row.isCurrent &&
-          !isAdminDepartment(session?.user?.departman)
-        ) {
-          return NextResponse.json({ error: "Manuel bulunamadı." }, { status: 404 })
-        }
-      }
-      const order = new Map(ids.map((id, i) => [id, i]))
-      manuals = [...rows]
-        .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
-        .map((r) => ({ title: r.title, contentText: r.contentText }))
-    }
+    const manuals: ManualForRag[] = rows.map((r) => ({
+      title: r.title,
+      contentText: r.contentText ?? "",
+      revision: r.revision,
+      revisionDate: r.revisionDate ? r.revisionDate.toISOString().slice(0, 10) : null,
+      manualNumber: r.manualNumber,
+    }))
+
+    const usedManuals: ManualMeta[] = rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      manualNumber: r.manualNumber,
+      revision: r.revision,
+      revisionDate: r.revisionDate ? r.revisionDate.toISOString().slice(0, 10) : null,
+    }))
 
     const system = composeManualSystemPrompt(BASE_SYSTEM, manuals, userQuery)
 
@@ -141,7 +125,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: friendly }, { status: 502 })
     }
 
-    return NextResponse.json({ content: result.text })
+    return NextResponse.json({ content: result.text, usedManuals })
   } catch (e) {
     console.error("[api/ai/chat]", e)
     return NextResponse.json({ error: "Bağlantı hatası." }, { status: 500 })

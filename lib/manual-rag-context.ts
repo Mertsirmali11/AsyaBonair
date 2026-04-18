@@ -1,7 +1,28 @@
 import "server-only"
 
 /** Şirket manuelinden sohbet bağlamı: uzun PDF metinlerinde soruya göre parça seçimi (embedding yok). */
-export type ManualForRag = { title: string; contentText: string }
+export type ManualForRag = {
+  title: string
+  contentText: string
+  revision?: number
+  revisionDate?: string | Date | null
+  manualNumber?: string | null
+}
+
+/** Görüntüleme başlığı: "OM-A (Rev.3) [2024-01-15]" */
+function makeDisplayTitle(m: ManualForRag): string {
+  const parts: string[] = [m.title]
+  if (m.manualNumber) parts.push(`(${m.manualNumber})`)
+  if (m.revision !== undefined) parts.push(`Rev.${m.revision}`)
+  if (m.revisionDate) {
+    const d =
+      m.revisionDate instanceof Date
+        ? m.revisionDate.toISOString().slice(0, 10)
+        : String(m.revisionDate).slice(0, 10)
+    parts.push(`[${d}]`)
+  }
+  return parts.join(" ")
+}
 
 const SHORT_DOC_THRESHOLD = 8_000
 const MAX_COMBINED_CONTEXT_CHARS = 14_000
@@ -73,6 +94,7 @@ function formatManualBlock(title: string, body: string): string {
   return `--- ${title} ---\n${body.trim()}`
 }
 
+
 type ChunkItem = {
   manualTitle: string
   text: string
@@ -102,7 +124,7 @@ export function buildManualContextForChat(
         ? `Metin ${MAX_COMBINED_CONTEXT_CHARS.toLocaleString("tr-TR")} karakterde kesildi.`
         : null
     return {
-      contextBlock: formatManualBlock(manuals[0].title, body),
+      contextBlock: formatManualBlock(makeDisplayTitle(manuals[0]), body),
       usedRag: false,
       truncatedNote: truncated,
     }
@@ -116,7 +138,7 @@ export function buildManualContextForChat(
     const parts: string[] = []
     for (const m of manuals) {
       const head = m.contentText.slice(0, per)
-      if (head.trim()) parts.push(formatManualBlock(m.title, head))
+      if (head.trim()) parts.push(formatManualBlock(makeDisplayTitle(m), head))
     }
     return {
       contextBlock: parts.join("\n\n"),
@@ -134,7 +156,7 @@ export function buildManualContextForChat(
     const chunks = chunkText(full)
     for (const ch of chunks) {
       items.push({
-        manualTitle: m.title,
+        manualTitle: makeDisplayTitle(m),
         text: ch,
         score: scoreChunk(ch, tokens),
         ord: ord++,
@@ -186,7 +208,7 @@ export function buildManualContextForChat(
     )
     for (const m of manuals) {
       const head = m.contentText.slice(0, per)
-      if (head.trim()) parts.push(formatManualBlock(m.title, head))
+      if (head.trim()) parts.push(formatManualBlock(makeDisplayTitle(m), head))
     }
   }
 
@@ -215,7 +237,7 @@ export function composeManualSystemPrompt(
     manuals,
     userQuery
   )
-  const titles = manuals.map((m) => m.title).join(", ")
+  const titles = manuals.map((m) => makeDisplayTitle(m)).join(", ")
   const ragLine = usedRag
     ? "\n\nNot: Uzun veya birden fazla dokümanda yalnızca soruya en yakın metin parçaları (veya eşleşme yoksa her dokümanın başı) kullanılır."
     : ""
@@ -223,14 +245,16 @@ export function composeManualSystemPrompt(
 
   return `${baseSystem}
 ---
-KULLANICI SEÇTİĞİ MANUEL(LER): ${titles}
+SİSTEM MANUELLERİ — EN GÜNCEL REVİZYONLAR (${manuals.length} manuel): ${titles}
 ${ragLine}${truncLine}
 
 Kurallar:
-- Yanıtı mümkün olduğunca yalnızca aşağıdaki metin parçalarına dayandır.
-- Birden fazla manuel seçildiyse hepsini dikkate al; çelişki varsa açıkça belirt.
-- Parçalarda veya manuelde geçmeyen bilgiyi uydurma; gerekirse "Seçili metinlerde yer almıyor" de.
+- Yanıtı yalnızca aşağıdaki metin parçalarına dayandır.
+- Her bilgi için köşeli parantez içinde kaynağı belirt: [Manuel Adı - Rev.X] veya [Manuel Adı].
+- Birden fazla manuelDEN bilgi alıyorsan hepsini dikkate al; çelişki varsa açıkça belirt.
+- Parçalarda geçmeyen bilgiyi uydurma; gerekirse "Yüklü manuellerde bu konuya ilişkin bilgi bulunamadı." de.
+- Yanıtın sonunda kısa bir "Kaynak:" satırı ekle ve hangi manuellerden yararlandığını listele.
 
---- SEÇİLİ DOKÜMANLARDAN GELEN METİN ---
+--- SİSTEM MANUELLERİNDEN GELEN METİN ---
 ${contextBlock}`
 }

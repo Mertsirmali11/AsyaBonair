@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
-import Link from "next/link";
+import { useState, useRef, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import {
   MessageCircle,
@@ -11,19 +10,18 @@ import {
   Bot,
   User,
   Minimize2,
-  RefreshCw,
+  BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import type { ManualMeta } from "@/app/api/ai/chat/route";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
+  usedManuals?: ManualMeta[];
 }
-
-type ManualOption = { id: number; title: string };
 
 export default function AiChatWidget() {
   const pathname = usePathname();
@@ -33,73 +31,29 @@ export default function AiChatWidget() {
     {
       role: "assistant",
       content:
-        "Merhaba! Ben Bonair AI Asistanı. Controlled Documents’tan yüklenen manuellerden bir veya birden fazlasını işaretleyin; uzun PDF’lerde sorunuza göre ilgili metin parçaları kullanılır. Hiç seçmezseniz genel havacılık konusunda yardımcı olurum — kesin mevzuat için resmi kaynağa bakın. Regülasyon etkisi için: AI Report Creator → «Regülasyon etkisi».",
+        "Merhaba! Ben Bonair AI Asistanı. Controlled Documents'taki en güncel manual revizyonlarını otomatik olarak tarıyorum — hangi manueli seçeceğinizi bilmenize gerek yok. Sorunuzu yazın, ilgili bölümleri bulup yanıtlayayım.",
     },
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [manuals, setManuals] = useState<ManualOption[]>([]);
-  const [selectedManualIds, setSelectedManualIds] = useState<number[]>([]);
-  const [manualsLoading, setManualsLoading] = useState(false);
+  const [manualCount, setManualCount] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const loadManuals = useCallback(async () => {
-    setManualsLoading(true);
-    try {
-      const res = await fetch("/api/manuals", {
-        cache: "no-store",
-        credentials: "same-origin",
-      });
-      if (!res.ok) return;
-      const data = (await res.json().catch(() => ({}))) as {
-        manuals?: ManualOption[];
-      };
-      if (Array.isArray(data.manuals)) {
-        setManuals(data.manuals);
-      }
-    } catch {
-      /* sessiz */
-    } finally {
-      setManualsLoading(false);
-    }
-  }, []);
-
+  // Widget açılınca mevcut manuel sayısını göster
   useEffect(() => {
-    void loadManuals();
-  }, [loadManuals]);
-
-  /** Sohbet açılınca ve sekme tekrar görününce liste güncellenir (yeni yüklenen manueller için). */
-  useEffect(() => {
-    if (isOpen && !isMinimized) {
-      void loadManuals();
-    }
-  }, [isOpen, isMinimized, loadManuals]);
-
-  useEffect(() => {
-    const onVis = () => {
-      if (document.visibilityState === "visible" && isOpen && !isMinimized) {
-        void loadManuals();
-      }
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, [isOpen, isMinimized, loadManuals]);
-
-  useEffect(() => {
-    setSelectedManualIds((prev) =>
-      prev.filter((id) => manuals.some((m) => m.id === id))
-    );
-  }, [manuals]);
-
-  const toggleManual = (id: number) => {
-    setSelectedManualIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
-  };
+    if (!isOpen || isMinimized) return;
+    fetch("/api/manuals?countOnly=1", { credentials: "same-origin" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (typeof d.total === "number") setManualCount(d.total);
+        else if (Array.isArray(d.manuals)) setManualCount(d.manuals.length);
+      })
+      .catch(() => {/* sessiz */});
+  }, [isOpen, isMinimized]);
 
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return;
@@ -114,16 +68,12 @@ export default function AiChatWidget() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({
-          messages: [...messages, userMessage],
-          ...(selectedManualIds.length > 0
-            ? { manualIds: selectedManualIds }
-            : {}),
-        }),
+        body: JSON.stringify({ messages: [...messages, userMessage] }),
       });
       const data = (await res.json()) as {
         content?: string;
         error?: string;
+        usedManuals?: ManualMeta[];
       };
       const reply =
         res.ok && typeof data.content === "string"
@@ -131,7 +81,17 @@ export default function AiChatWidget() {
           : typeof data.error === "string"
             ? data.error
             : `Bir hata oluştu (${res.status}).`;
-      setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: reply,
+          usedManuals: res.ok ? data.usedManuals : undefined,
+        },
+      ]);
+      if (res.ok && data.usedManuals) {
+        setManualCount(data.usedManuals.length);
+      }
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -150,7 +110,7 @@ export default function AiChatWidget() {
     }
   };
 
-  /** Team mesajları: gönder FAB ile aynı köşede; üst üste binmesin. */
+  /** Messages sayfasında FAB ile çakışmasın */
   if (pathname === "/messages" || pathname?.startsWith("/messages/")) {
     return null;
   }
@@ -158,7 +118,8 @@ export default function AiChatWidget() {
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
       {isOpen && !isMinimized && (
-        <div className="flex h-[520px] w-[380px] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
+        <div className="flex h-[560px] w-[400px] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
+          {/* Header */}
           <div className="flex items-center justify-between bg-primary px-4 py-3 text-primary-foreground">
             <div className="flex items-center gap-2">
               <div className="flex size-8 items-center justify-center rounded-full bg-primary-foreground/15">
@@ -166,7 +127,11 @@ export default function AiChatWidget() {
               </div>
               <div>
                 <p className="text-sm font-semibold">Bonair AI</p>
-                <p className="text-xs text-primary-foreground/80">Havacılık Asistanı</p>
+                <p className="text-xs text-primary-foreground/70">
+                  {manualCount !== null
+                    ? `${manualCount} güncel manuel taranıyor`
+                    : "Manuel Asistanı"}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-1">
@@ -187,29 +152,59 @@ export default function AiChatWidget() {
             </div>
           </div>
 
+          {/* Messages */}
           <div className="flex-1 space-y-3 overflow-y-auto p-4">
             {messages.map((msg, i) => (
               <div
                 key={i}
-                className={cn("flex gap-2", msg.role === "user" ? "flex-row-reverse" : "flex-row")}
+                className={cn(
+                  "flex gap-2",
+                  msg.role === "user" ? "flex-row-reverse" : "flex-row"
+                )}
               >
                 <div
                   className={cn(
                     "flex size-7 shrink-0 items-center justify-center rounded-full text-primary-foreground",
-                    msg.role === "user" ? "bg-primary" : "bg-muted text-muted-foreground"
+                    msg.role === "user"
+                      ? "bg-primary"
+                      : "bg-muted text-muted-foreground"
                   )}
                 >
                   {msg.role === "user" ? <User size={14} /> : <Bot size={14} />}
                 </div>
-                <div
-                  className={cn(
-                    "max-w-[75%] rounded-xl px-3 py-2 text-sm leading-relaxed",
-                    msg.role === "user"
-                      ? "rounded-tr-sm bg-primary text-primary-foreground"
-                      : "rounded-tl-sm bg-muted text-foreground"
-                  )}
-                >
-                  {msg.content}
+                <div className="flex max-w-[78%] flex-col gap-1">
+                  <div
+                    className={cn(
+                      "rounded-xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap",
+                      msg.role === "user"
+                        ? "rounded-tr-sm bg-primary text-primary-foreground"
+                        : "rounded-tl-sm bg-muted text-foreground"
+                    )}
+                  >
+                    {msg.content}
+                  </div>
+                  {/* Kaynak bilgisi — sadece asistan mesajlarında, usedManuals varsa */}
+                  {msg.role === "assistant" &&
+                    msg.usedManuals &&
+                    msg.usedManuals.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1 px-1">
+                        <BookOpen size={10} className="text-muted-foreground shrink-0" />
+                        {msg.usedManuals.slice(0, 4).map((m) => (
+                          <span
+                            key={m.id}
+                            className="text-[10px] rounded bg-primary/10 text-primary px-1.5 py-0.5 leading-tight"
+                            title={`${m.title}${m.manualNumber ? ` (${m.manualNumber})` : ""} — Rev.${m.revision}${m.revisionDate ? ` • ${m.revisionDate}` : ""}`}
+                          >
+                            {m.manualNumber ?? m.title.slice(0, 12)} Rev.{m.revision}
+                          </span>
+                        ))}
+                        {msg.usedManuals.length > 4 && (
+                          <span className="text-[10px] text-muted-foreground">
+                            +{msg.usedManuals.length - 4} daha
+                          </span>
+                        )}
+                      </div>
+                    )}
                 </div>
               </div>
             ))}
@@ -227,89 +222,21 @@ export default function AiChatWidget() {
           </div>
 
           {/* Input */}
-          <div className="border-t border-gray-100 p-3 flex flex-col gap-2">
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] text-gray-500 flex-1">
-                  Kayıtlı manuel ({manuals.length}) — çoklu seçim, soruya göre parça
-                </span>
-                <div className="flex items-center gap-1">
-                  {selectedManualIds.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setSelectedManualIds([])}
-                      className="text-[10px] text-sky-700 underline px-1"
-                    >
-                      Temizle
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => void loadManuals()}
-                    disabled={isLoading || manualsLoading}
-                    className="flex items-center gap-1 rounded-md p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-800 disabled:opacity-50"
-                    title="Listeyi yenile"
-                  >
-                    <RefreshCw
-                      size={14}
-                      className={manualsLoading ? "animate-spin" : ""}
-                    />
-                  </button>
-                </div>
-              </div>
-              <div className="max-h-[120px] overflow-y-auto rounded-md border border-gray-200 bg-white px-2 py-1.5">
-                {manuals.length === 0 ? (
-                  <p className="text-[10px] text-gray-500 py-1">
-                    {manualsLoading ? "Yükleniyor…" : "Henüz manuel yok."}
-                  </p>
-                ) : (
-                  <ul className="space-y-1.5">
-                    {manuals.map((m) => (
-                      <li key={m.id} className="flex items-start gap-2">
-                        <Checkbox
-                          id={`bonair-ai-manual-${m.id}`}
-                          checked={selectedManualIds.includes(m.id)}
-                          onCheckedChange={() => toggleManual(m.id)}
-                          disabled={isLoading}
-                          className="mt-0.5"
-                        />
-                        <label
-                          htmlFor={`bonair-ai-manual-${m.id}`}
-                          className="text-[11px] text-gray-900 leading-snug cursor-pointer flex-1"
-                        >
-                          {m.title}
-                        </label>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <p className="text-[10px] text-gray-600 leading-snug border-t border-gray-100 pt-1.5 mt-0.5">
-                Bu listede yalnızca{" "}
-                <Link
-                  href="/documents"
-                  className="text-sky-700 underline font-medium"
-                >
-                  Controlled Documents → Manuals
-                </Link>{" "}
-                sayfasına kaydedilen PDF’ler görünür. Uzun dosyalarda yanıt,
-                sorunuzdaki kelimelerle eşleşen bölümlere dayanır (tam metin
-                gönderilmez). AI Report Creator’daki geçici yüklemeler burada
-                yok — kalıcı eklemek için yukarıdaki sayfadan yükleyin veya ↻.
-              </p>
-              {selectedManualIds.length > 0 && (
-                <p className="text-[10px] text-sky-800 leading-snug">
-                  {selectedManualIds.length} manuel seçili; yanıtlar bu
-                  dokümanlara öncelik verir.
-                </p>
-              )}
-            </div>
+          <div className="border-t border-border p-3 flex flex-col gap-2">
+            <p className="text-[10px] text-muted-foreground leading-snug">
+              Sorular yalnızca{" "}
+              <span className="font-medium text-foreground">
+                Controlled Documents → Manuals
+              </span>{" "}
+              bölümündeki en güncel revizyonlara dayanır. Yanıtta kaynak manual ve
+              revizyon numarası belirtilir.
+            </p>
             <div className="flex gap-2 items-end">
               <Textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Örn. Compliance Monitoring manueline göre bu süreç nasıl izlenir?"
+                placeholder="Örn. Uçuş öncesi kontrol prosedürü nedir?"
                 className="resize-none text-sm min-h-[40px] max-h-[100px]"
                 rows={1}
               />
