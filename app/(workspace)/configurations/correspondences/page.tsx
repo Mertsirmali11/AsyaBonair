@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation"
 
 import { auth } from "@/auth"
-import { ConfigOutgoingCorrespondenceDeptsClient } from "@/components/config-outgoing-correspondence-depts-client"
 import { ConfigurationsPageShell } from "@/components/configurations-page-shell"
 import { canAccessConfigurationsArea } from "@/lib/department-access"
 
@@ -22,7 +21,7 @@ export default async function ConfigurationsCorrespondencesPage() {
       pageTitle="Correspondences"
       breadcrumbCurrent="Correspondences"
     >
-      <ConfigOutgoingCorrespondenceDeptsClient />
+      {null}
     </ConfigurationsPageShell>
   )
 }

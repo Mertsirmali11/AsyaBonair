@@ -14,21 +14,9 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  getOutgoingDepartmentLabel,
-  inferOutgoingDepartmentKeyFromPaperNo,
-  outgoingPaperNoPatternLabel,
-  type OutgoingDeptConfigLike,
-} from "@/lib/outgoing-correspondence-departments"
 import { dbDateToDdMmYyyy, todayLocalDdMmYyyy } from "@/lib/correspondence-date"
+import { APP_TIMEZONE, getCalendarYmdInTimeZone } from "@/lib/day-range"
 import {
   ALLOWED_DOCUMENTS_ERROR_EN,
   DOCUMENT_ACCEPT_HTML,
@@ -44,7 +32,6 @@ export type OutgoingCorrespondenceRow = {
   id: number
   paperNo: string | null
   departmentKey?: string | null
-  departmentLabel?: string | null
   to: string | null
   subject: string | null
   date: string
@@ -88,15 +75,6 @@ export function OutgoingCorrespondenceDialog({
 }: Props) {
   const uid = React.useId()
   const fileInputId = `outgoing-pdf-${uid}`
-
-  type DeptRow = OutgoingDeptConfigLike & {
-    sortOrder: number
-    isActive: boolean
-  }
-
-  const [deptRows, setDeptRows] = React.useState<DeptRow[]>([])
-  const [deptsLoading, setDeptsLoading] = React.useState(false)
-  const [departmentKey, setDepartmentKey] = React.useState("")
   const [paperNo, setPaperNo] = React.useState("")
   const [to, setTo] = React.useState("")
   const [subject, setSubject] = React.useState("")
@@ -105,22 +83,7 @@ export function OutgoingCorrespondenceDialog({
   const [pdfFiles, setPdfFiles] = React.useState<File[]>([])
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-
-  React.useEffect(() => {
-    if (!open) return
-    setDeptsLoading(true)
-    void fetch("/api/outgoing-correspondence-dept-configs", { cache: "no-store" })
-      .then(async (res) => {
-        const data = await res.json().catch(() => null)
-        if (!res.ok) {
-          setDeptRows([])
-          return
-        }
-        setDeptRows(Array.isArray(data) ? (data as DeptRow[]) : [])
-      })
-      .catch(() => setDeptRows([]))
-      .finally(() => setDeptsLoading(false))
-  }, [open])
+  const calendarYear = getCalendarYmdInTimeZone(APP_TIMEZONE).year
 
   React.useEffect(() => {
     if (!open) return
@@ -134,11 +97,6 @@ export function OutgoingCorrespondenceDialog({
     if (!open) return
     if (mode === "edit" && record) {
       setPaperNo(record.paperNo ?? "")
-      setDepartmentKey(
-        record.departmentKey ||
-          inferOutgoingDepartmentKeyFromPaperNo(record.paperNo, deptRows) ||
-          ""
-      )
       setTo(record.to ?? "")
       setSubject(record.subject ?? "")
       setDate(dbDateToDdMmYyyy(record.date))
@@ -151,16 +109,8 @@ export function OutgoingCorrespondenceDialog({
       setSubject("")
       setDate(todayLocalDdMmYyyy())
       setContent("")
-      const firstActive = deptRows.find((d) => d.isActive)
-      setDepartmentKey(firstActive?.key ?? "")
     }
-  }, [open, mode, record, deptRows])
-
-  const activeDepartments = React.useMemo(
-    () => deptRows.filter((d) => d.isActive),
-    [deptRows]
-  )
-  const selectedDept = deptRows.find((d) => d.key === departmentKey)
+  }, [open, mode, record])
 
   const existingAttachments = React.useMemo(() => {
     if (!record) return []
@@ -208,9 +158,6 @@ export function OutgoingCorrespondenceDialog({
       formData.append("date", isoDate)
       formData.append("content", content)
       formData.append("createdBy", userId)
-      if (mode === "create") {
-        formData.append("departmentKey", departmentKey)
-      }
       for (const f of pdfFiles) {
         formData.append("pdf", f)
       }
@@ -251,8 +198,8 @@ export function OutgoingCorrespondenceDialog({
           </DialogTitle>
           <DialogDescription>
             {mode === "create"
-              ? "Pick the department; the system assigns the next correspondence number (reuses numbers freed when a letter is deleted, otherwise continues the series). Configure departments under Configurations → Correspondences."
-              : "Update fields. Choosing new files replaces all current attachments (total max 50MB). Department and correspondence number cannot be changed."}
+              ? "The system assigns the next correspondence number (reuses numbers freed when a letter is deleted, otherwise continues the series)."
+              : "Update fields. Choosing new files replaces all current attachments (total max 50MB). Correspondence number cannot be changed."}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col gap-0">
@@ -262,52 +209,12 @@ export function OutgoingCorrespondenceDialog({
               {error}
             </div>
           )}
-
-          {deptsLoading && (
-            <p className="text-muted-foreground text-sm">Loading departments…</p>
-          )}
-
-          {mode === "create" ? (
-            <div className="space-y-2">
-              <Label htmlFor={`dept-${uid}`}>Department</Label>
-              <Select
-                value={departmentKey}
-                onValueChange={setDepartmentKey}
-                disabled={deptsLoading || activeDepartments.length === 0}
-              >
-                <SelectTrigger id={`dept-${uid}`} className="w-full">
-                  <SelectValue placeholder="Select department" />
-                </SelectTrigger>
-                <SelectContent>
-                  {activeDepartments.map((d) => (
-                    <SelectItem key={d.key} value={d.key}>
-                      {d.label} ({outgoingPaperNoPatternLabel(d)})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {activeDepartments.length === 0 && !deptsLoading && (
-                <p className="text-destructive text-xs">
-                  No active departments. Add them under Configurations → Correspondences.
-                </p>
-              )}
-              <p className="text-muted-foreground text-xs">
-                Correspondence number is assigned on submit (
-                {selectedDept
-                  ? outgoingPaperNoPatternLabel(selectedDept)
-                  : "PREFIX-NNN"}
-                ; year = Europe/Istanbul when shown). Deleted numbers are reused first.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <Label>Department</Label>
-              <p className="bg-muted rounded-md border px-3 py-2 text-sm">
-                {record?.departmentLabel ||
-                  getOutgoingDepartmentLabel(departmentKey, deptRows)}
-              </p>
-            </div>
-          )}
+          <p className="text-muted-foreground text-xs">
+            Numbering format: <code className="text-xs">BON-YYYY-XXX</code> (e.g.{" "}
+            <code className="text-xs">BON-{calendarYear}-001</code>). The year follows the
+            app calendar in <code className="text-xs">Europe/Istanbul</code>. Deleted
+            numbers are reused first.
+          </p>
 
           <div className="space-y-2">
             <Label htmlFor={`paperNo-${uid}`}>Correspondence no</Label>
@@ -456,9 +363,7 @@ export function OutgoingCorrespondenceDialog({
                 submitting ||
                 !to ||
                 !subject ||
-                !date ||
-                (mode === "create" &&
-                  (!departmentKey || activeDepartments.length === 0 || deptsLoading))
+                !date
               }
             >
               {submitting ? "Saving…" : mode === "create" ? "Submit" : "Save changes"}

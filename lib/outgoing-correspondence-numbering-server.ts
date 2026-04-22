@@ -35,21 +35,39 @@ export async function allocateOutgoingPaperNo(
     })
     seq = released.sequence
   } else {
-    const rows = await tx.outgoingCorrespondence.findMany({
-      where: { departmentKey },
-      select: { paperNo: true },
-    })
+    // Global uniqueness: `paperNo` is unique on the table. "Single stream" BON-YYYY-NNN
+    // must consider every row whose number matches that pattern for this year, not only
+    // `departmentKey` (older rows can have different keys but still hold BON-2026-001).
     let maxSeq = 0
-    for (const r of rows) {
-      if (!r.paperNo) continue
-      const parts = parseOutgoingNumberParts(r.paperNo, prefix)
-      if (parts.sequence == null) continue
-      if (dept.includeYearInPaperNo) {
-        if (parts.calendarYear !== istanbulYear) continue
-      } else if (parts.calendarYear != null) {
-        continue
+    if (dept.includeYearInPaperNo) {
+      const yearHead = `${prefix}-${istanbulYear}-`
+      const rows = await tx.outgoingCorrespondence.findMany({
+        where: { paperNo: { startsWith: yearHead, mode: "insensitive" } },
+        select: { paperNo: true },
+      })
+      const re = new RegExp(
+        `^${prefix.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}-${istanbulYear}-(\\d+)$`,
+        "i"
+      )
+      for (const r of rows) {
+        if (!r.paperNo) continue
+        const m = re.exec(r.paperNo.trim())
+        if (!m) continue
+        const n = Number.parseInt(m[1]!, 10)
+        if (Number.isFinite(n) && n > maxSeq) maxSeq = n
       }
-      if (parts.sequence > maxSeq) maxSeq = parts.sequence
+    } else {
+      const rows = await tx.outgoingCorrespondence.findMany({
+        where: { departmentKey },
+        select: { paperNo: true },
+      })
+      for (const r of rows) {
+        if (!r.paperNo) continue
+        const parts = parseOutgoingNumberParts(r.paperNo, prefix)
+        if (parts.sequence == null) continue
+        if (parts.calendarYear != null) continue
+        if (parts.sequence > maxSeq) maxSeq = parts.sequence
+      }
     }
     seq = maxSeq + 1
   }

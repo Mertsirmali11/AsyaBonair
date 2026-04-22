@@ -18,31 +18,12 @@ import {
   DOCUMENT_ACCEPT_HTML,
   isAllowedCorrespondenceDocumentFile,
 } from "@/lib/allowed-document-uploads"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { outgoingPaperNoPatternLabel } from "@/lib/outgoing-correspondence-departments"
 
 interface OutgoingCorrespondenceFormProps {
   userId: string
 }
 
-type DeptRow = {
-  key: string
-  label: string
-  paperPrefix: string
-  includeYearInPaperNo?: boolean
-  sortOrder: number
-  isActive: boolean
-}
-
 export function OutgoingCorrespondenceForm({ userId }: OutgoingCorrespondenceFormProps) {
-  const [deptRows, setDeptRows] = useState<DeptRow[]>([])
-  const [departmentKey, setDepartmentKey] = useState("")
   const [to, setTo] = useState<string>("")
   const [subject, setSubject] = useState<string>("")
   const [date, setDate] = useState<string>("")
@@ -51,23 +32,6 @@ export function OutgoingCorrespondenceForm({ userId }: OutgoingCorrespondenceFor
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
-
-  React.useEffect(() => {
-    void fetch("/api/outgoing-correspondence-dept-configs", { cache: "no-store" })
-      .then(async (res) => {
-        const data = await res.json().catch(() => null)
-        if (!res.ok || !Array.isArray(data)) {
-          setDeptRows([])
-          return
-        }
-        setDeptRows(data as DeptRow[])
-        const first = (data as DeptRow[]).find((d) => d.isActive)
-        setDepartmentKey((k) => k || first?.key || "")
-      })
-      .catch(() => setDeptRows([]))
-  }, [])
-
-  const activeDepartments = deptRows.filter((d) => d.isActive)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -112,7 +76,6 @@ export function OutgoingCorrespondenceForm({ userId }: OutgoingCorrespondenceFor
       formData.append("date", isoDate)
       formData.append("content", content)
       formData.append("createdBy", userId)
-      formData.append("departmentKey", departmentKey)
       if (pdfFile) {
         formData.append("pdf", pdfFile)
       }
@@ -169,32 +132,10 @@ export function OutgoingCorrespondenceForm({ userId }: OutgoingCorrespondenceFor
                 Outgoing correspondence submitted successfully!
               </div>
             )}
-
-            <div className="space-y-2">
-              <Label htmlFor="out-dept" className="text-sm font-medium">
-                Department
-              </Label>
-              <Select
-                value={departmentKey}
-                onValueChange={setDepartmentKey}
-                disabled={activeDepartments.length === 0}
-              >
-                <SelectTrigger id="out-dept" className="w-full">
-                  <SelectValue placeholder="Select department" />
-                </SelectTrigger>
-                <SelectContent>
-                  {activeDepartments.map((d) => (
-                    <SelectItem key={d.key} value={d.key}>
-                      {d.label} ({outgoingPaperNoPatternLabel(d)})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-muted-foreground text-xs">
-                Correspondence number is assigned automatically. Configure departments under
-                Configurations → Correspondences.
-              </p>
-            </div>
+            <p className="text-muted-foreground text-xs">
+              Correspondence number is assigned automatically in the format{" "}
+              <code className="text-xs">BON-YYYY-XXX</code>.
+            </p>
 
             <div className="space-y-2">
               <Label htmlFor="to" className="text-sm font-medium">
@@ -275,14 +216,7 @@ export function OutgoingCorrespondenceForm({ userId }: OutgoingCorrespondenceFor
             <div className="flex justify-end gap-2 pt-4">
               <Button
                 type="submit"
-                disabled={
-                  submitting ||
-                  !to ||
-                  !subject ||
-                  !date ||
-                  !departmentKey ||
-                  activeDepartments.length === 0
-                }
+                disabled={submitting || !to || !subject || !date}
                 className="bg-slate-700 hover:bg-slate-800"
               >
                 {submitting ? "Submitting..." : "Submit"}

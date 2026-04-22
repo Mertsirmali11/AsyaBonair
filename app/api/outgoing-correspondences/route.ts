@@ -14,13 +14,15 @@ import {
 } from "@/lib/outgoing-correspondence-attachments"
 import { setOutgoingPdfAttachmentsJsonb } from "@/lib/persist-correspondence-pdf-jsonb"
 import { deletePdfFromStorage, uploadPdfToStorage } from "@/lib/supabase-storage"
-import { matchDepartmentKeyFromPaperNo } from "@/lib/outgoing-correspondence-departments"
 import {
   allocateOutgoingPaperNo,
   releaseOutgoingPaperSlot,
 } from "@/lib/outgoing-correspondence-numbering-server"
 
 export const dynamic = "force-dynamic"
+
+const OUTGOING_SINGLE_DEPARTMENT_KEY = "bon"
+const OUTGOING_SINGLE_PREFIX = "BON"
 
 export async function GET() {
   try {
@@ -37,37 +39,23 @@ export async function GET() {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    const [correspondences, deptConfigs] = await Promise.all([
-      prisma.outgoingCorrespondence.findMany({
-        orderBy: { createdAt: "desc" },
-        take: 300,
-        include: {
-          creator: {
-            select: {
-              id: true,
-              isim: true,
-              soyisim: true,
-              email: true,
-              departman: true,
-            },
+    const correspondences = await prisma.outgoingCorrespondence.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 300,
+      include: {
+        creator: {
+          select: {
+            id: true,
+            isim: true,
+            soyisim: true,
+            email: true,
+            departman: true,
           },
         },
-      }),
-      prisma.outgoingCorrespondenceDeptConfig.findMany({
-        orderBy: [{ sortOrder: "asc" }, { key: "asc" }],
-        select: { key: true, label: true, paperPrefix: true },
-      }),
-    ])
-
-    const enriched = correspondences.map((c) => {
-      const inferred =
-        c.departmentKey ?? matchDepartmentKeyFromPaperNo(c.paperNo, deptConfigs)
-      const departmentLabel =
-        deptConfigs.find((x) => x.key === inferred)?.label ?? null
-      return { ...c, departmentLabel }
+      },
     })
 
-    return NextResponse.json(enriched)
+    return NextResponse.json(correspondences)
   } catch (error) {
     console.error("Error fetching outgoing correspondences:", error)
     return NextResponse.json(
@@ -99,7 +87,6 @@ export async function POST(request: Request) {
     const dateStr = formData.get("date") as string
     const content = formData.get("content") as string
     const createdBy = formData.get("createdBy") as string
-    const departmentKeyRaw = String(formData.get("departmentKey") ?? "").trim()
     const pdfFiles = formData
       .getAll("pdf")
       .filter((f): f is File => f instanceof File && f.size > 0)
@@ -111,18 +98,25 @@ export async function POST(request: Request) {
       )
     }
 
-    const deptConfig = await prisma.outgoingCorrespondenceDeptConfig.findFirst({
-      where: { key: departmentKeyRaw, isActive: true },
+    // Ensure the single outgoing numbering config exists for the released-slot FK.
+    await prisma.outgoingCorrespondenceDeptConfig.upsert({
+      where: { key: OUTGOING_SINGLE_DEPARTMENT_KEY },
+      update: {
+        label: "Outgoing",
+        paperPrefix: OUTGOING_SINGLE_PREFIX,
+        includeYearInPaperNo: true,
+        sortOrder: 0,
+        isActive: true,
+      },
+      create: {
+        key: OUTGOING_SINGLE_DEPARTMENT_KEY,
+        label: "Outgoing",
+        paperPrefix: OUTGOING_SINGLE_PREFIX,
+        includeYearInPaperNo: true,
+        sortOrder: 0,
+        isActive: true,
+      },
     })
-    if (!deptConfig) {
-      return NextResponse.json(
-        {
-          error:
-            "Unknown or inactive department. Add or enable it under Configurations → Correspondences.",
-        },
-        { status: 400 }
-      )
-    }
 
     const date = new Date(dateStr)
     if (isNaN(date.getTime())) {
@@ -151,9 +145,9 @@ export async function POST(request: Request) {
     try {
       paperNo = await prisma.$transaction(
         async (tx) =>
-          allocateOutgoingPaperNo(tx, departmentKeyRaw, {
-            paperPrefix: deptConfig.paperPrefix,
-            includeYearInPaperNo: deptConfig.includeYearInPaperNo,
+          allocateOutgoingPaperNo(tx, OUTGOING_SINGLE_DEPARTMENT_KEY, {
+            paperPrefix: OUTGOING_SINGLE_PREFIX,
+            includeYearInPaperNo: true,
           }),
         {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -171,9 +165,9 @@ export async function POST(request: Request) {
 
     const releaseAllocatedNumber = async () => {
       await releaseOutgoingPaperSlot(prisma, {
-        departmentKey: departmentKeyRaw,
+        departmentKey: OUTGOING_SINGLE_DEPARTMENT_KEY,
         paperNo,
-        paperPrefix: deptConfig.paperPrefix,
+        paperPrefix: OUTGOING_SINGLE_PREFIX,
       })
     }
 
@@ -225,7 +219,7 @@ export async function POST(request: Request) {
       correspondence = await prisma.outgoingCorrespondence.create({
         data: {
           paperNo: paperNo,
-          departmentKey: departmentKeyRaw,
+          departmentKey: OUTGOING_SINGLE_DEPARTMENT_KEY,
           to: to,
           subject: subject,
           date: date,
@@ -280,17 +274,8 @@ export async function POST(request: Request) {
       },
     })
 
-    const deptConfigs = await prisma.outgoingCorrespondenceDeptConfig.findMany({
-      select: { key: true, label: true, paperPrefix: true },
-    })
-    const inferred =
-      full?.departmentKey ??
-      matchDepartmentKeyFromPaperNo(full?.paperNo ?? null, deptConfigs)
-    const departmentLabel =
-      deptConfigs.find((x) => x.key === inferred)?.label ?? null
-
     return NextResponse.json(
-      { ...(full ?? correspondence), departmentLabel },
+      full ?? correspondence,
       { status: 201 }
     )
   } catch (error: unknown) {
