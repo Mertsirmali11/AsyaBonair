@@ -7,7 +7,9 @@ import { usePathname, useRouter } from "next/navigation"
 import { signOut } from "next-auth/react"
 import {
   IconAlertTriangle,
+  IconBuildingSkyscraper,
   IconCalendarEvent,
+  IconCalendarOff,
   IconChartBar,
   IconChecklist,
   IconChevronDown,
@@ -91,6 +93,8 @@ const NAV_AFTER_CONTROLLED_DOCS: NavItem[] = [
     icon: IconChartBar,
   },
   { title: "AI Report Creator", url: "/ai-reports", icon: IconRobot },
+  { title: "Leave Requests", url: "/leave-requests", icon: IconCalendarOff },
+  { title: "Company Status Board", url: "/company-status", icon: IconBuildingSkyscraper },
   { title: "Addons", url: "/addons", icon: IconPuzzle },
 ]
 
@@ -99,9 +103,12 @@ const configurationsSubItems: {
   url: string
   approversOnly?: boolean
   qualityOrAdminOnly?: boolean
+  /** Route is only active on exact pathname (not `/child` paths under the same segment). */
+  matchExact?: boolean
 }[] = [
   { title: "New worker", url: "/configurations/new-worker", approversOnly: true },
-  { title: "User Settings", url: "/configurations" },
+  { title: "User Settings", url: "/configurations", matchExact: true },
+  { title: "Departments", url: "/configurations/departments" },
   {
     title: "Safety settings",
     url: "/configurations/safety-settings",
@@ -721,9 +728,10 @@ export function AppSidebar({
                 <CollapsibleContent>
                   <SidebarMenuSub>
                     {visibleConfigurationSubItems.map((subItem) => {
-                      const isSubActive =
-                        pathname === subItem.url ||
-                        !!pathname?.startsWith(`${subItem.url}/`)
+                      const path = pathname ?? ""
+                      const isSubActive = subItem.matchExact
+                        ? path === subItem.url || path === `${subItem.url}/`
+                        : path === subItem.url || path.startsWith(`${subItem.url}/`)
                       return (
                         <SidebarMenuSubItem key={subItem.title}>
                           <SidebarMenuSubButton

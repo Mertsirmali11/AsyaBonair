@@ -64,6 +64,10 @@ model Calisan {
   isim            String?   @db.VarChar(100)
   soyisim         String?   @db.VarChar(100)
   departman       String?   @db.VarChar(100)
+  /// Çalışanın unvanı (DepartmentTitle FK — opsiyonel)
+  titleId         Int?      @map("title_id")
+  /// Çalışanın mevcut fiziksel konumu (Ofis/Hangar/Remote/Saha). İzin varsa otomatik "OnLeave".
+  workLocation    String?   @default("Office") @map("work_location") @db.VarChar(50)
   tcNo            String?   @unique @db.VarChar(20) @map("tc_no")
   dogumTarihi     DateTime? @map("dogum_tarihi") @db.Date
   telNo           String?   @db.VarChar(20) @map("tel_no")
@@ -117,6 +121,12 @@ model Calisan {
   auditFindingExtensions  AuditFindingExtension[]  @relation("AuditFindingExtensionRequester")
   supportTicketsCreated SupportTicket[] @relation("SupportTicketCreator")
   supportTicketsAdminUpdated SupportTicket[] @relation("SupportTicketAdmin")
+  /// Unvan ilişkisi
+  title           DepartmentTitle? @relation(fields: [titleId], references: [id], onDelete: SetNull)
+  /// İzin talepleri — çalışan olarak
+  leaveRequestsAsEmployee  LeaveRequest[] @relation("LeaveEmployee")
+  /// İzin talepleri — onaylayıcı olarak
+  leaveRequestsAsApprover  LeaveRequest[] @relation("LeaveApprover")
 
   @@index([createdAt(sort: Desc)])
   @@index([isim, soyisim])
@@ -130,6 +140,55 @@ model CustomDepartment {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("custom_departments")
+}
+
+/// Departman bazlı unvanlar (Compliance-Manager, Hangar-Technician vb.)
+model DepartmentTitle {
+  /// departmentName, ORGANIZATION_DEPARTMENTS listesindeki değerlerle eşleşmeli.
+  id             Int      @id @default(autoincrement())
+  departmentName String   @map("department_name") @db.VarChar(100)
+  titleName      String   @map("title_name") @db.VarChar(200)
+  /// true ise bu unvan yönetici — izin taleplerini onaylayabilir.
+  isManager      Boolean  @default(false) @map("is_manager")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  employees Calisan[]
+
+  @@unique([departmentName, titleName])
+  @@index([departmentName])
+  @@index([isManager])
+  @@map("department_titles")
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// Personel izin talepleri — departman izolasyonu zorunlu.
+model LeaveRequest {
+  id           Int                @id @default(autoincrement())
+  employeeId   Int                @map("employee_id")
+  /// Otomatik atanan, aynı departmandaki ilk yönetici.
+  approverId   Int?               @map("approver_id")
+  startDate    DateTime           @map("start_date") @db.Date
+  endDate      DateTime           @map("end_date") @db.Date
+  reason       String?            @db.Text
+  status       LeaveRequestStatus @default(PENDING)
+  /// Onaylama / red notu
+  reviewNote   String?            @map("review_note") @db.Text
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+
+  employee Calisan  @relation("LeaveEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+  approver Calisan? @relation("LeaveApprover", fields: [approverId], references: [id], onDelete: SetNull)
+
+  @@index([employeeId])
+  @@index([approverId])
+  @@index([status])
+  @@index([startDate, endDate])
+  @@map("leave_requests")
 }
 
 enum WorkerRegistrationStatus {
