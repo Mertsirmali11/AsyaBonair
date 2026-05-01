@@ -5,7 +5,7 @@ import { Pool } from "pg"
 import { PrismaPg } from "@prisma/adapter-pg"
 
 /** Şemada alan/model değişince artırın; dev’de global’deki eski PrismaClient’ı atar. */
-const PRISMA_CLIENT_CACHE_REVISION = 10
+const PRISMA_CLIENT_CACHE_REVISION = 11 // bumped: DepartmentTitle + LeaveRequest + Calisan.titleId/workLocation
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
@@ -96,11 +96,15 @@ function prismaHasExpectedDelegates(client: PrismaClient): boolean {
     safetyRiskBoardCatalog?: { findUnique?: unknown }
     supportTicket?: { create?: unknown }
     supportTicketAttachment?: { create?: unknown }
+    departmentTitle?: { findMany?: unknown }
+    leaveRequest?: { findMany?: unknown }
   }
   return (
     typeof c.safetyRiskBoardCatalog?.findUnique === "function" &&
     typeof c.supportTicket?.create === "function" &&
-    typeof c.supportTicketAttachment?.create === "function"
+    typeof c.supportTicketAttachment?.create === "function" &&
+    typeof c.departmentTitle?.findMany === "function" &&
+    typeof c.leaveRequest?.findMany === "function"
   )
 }
 
