@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
-import { geminiChatCompletion } from "@/lib/gemini-chat"
+import { rateLimit } from "@/lib/rate-limit"
+import { geminiChatCompletion } from "@/lib/groq-chat"
 import { userFacingAiError } from "@/lib/ai-provider-errors"
 import { truncateForGroqAnalyze } from "@/lib/groq-truncate"
 
@@ -9,6 +10,18 @@ export async function POST(req: NextRequest) {
     const session = await auth()
     if (!session?.user?.email) {
       return NextResponse.json({ error: "Oturum gerekli." }, { status: 401 })
+    }
+
+    // Rate limiting: kullanıcı başına dakikada 10 analiz
+    const rl = rateLimit(`ai:analyze:${session.user.email}`, 10, 60_000)
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: "Çok fazla istek. Lütfen bir dakika bekleyin." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(Math.ceil((rl.resetAt - Date.now()) / 1000)) },
+        }
+      )
     }
 
     const { text, analysisType } = await req.json()

@@ -1,14 +1,21 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
+import { rateLimit } from "@/lib/rate-limit"
 import { prisma } from "@/lib/prisma-server"
-import { geminiChatCompletion, type GeminiChatMessage } from "@/lib/gemini-chat"
+import { geminiChatCompletion, type GeminiChatMessage } from "@/lib/groq-chat"
 import { userFacingAiError } from "@/lib/ai-provider-errors"
 import {
   composeManualSystemPrompt,
   type ManualForRag,
 } from "@/lib/manual-rag-context"
+import {
+  searchManualChunks,
+  type ChunkResult,
+} from "@/lib/manual-vector-search"
 
-const BASE_SYSTEM = `Sen Bonair Havacılık'ın yapay zeka asistanısın. Türk sivil havacılık mevzuatı (SHGM, SHY, SHT), uçuş operasyonları, SMS (Safety Management System) ve FDM (Flight Data Monitoring) konularında uzmansın. Kullanıcılara her zaman Türkçe yanıt verirsin. Bilmediğin veya doğrulayamadığın mevzuat maddelerini uydurmak yerine kullanıcıya resmi kaynağı kontrol etmesini söylersin.`
+const BASE_SYSTEM_TR = `Sen Bonair Havacılık'ın yapay zeka asistanısın. Türk sivil havacılık mevzuatı (SHGM, SHY, SHT), uçuş operasyonları, SMS (Safety Management System) ve FDM (Flight Data Monitoring) konularında uzmansın. Yanıtlarını Türkçe ver. Bilmediğin veya doğrulayamadığın mevzuat maddelerini uydurmak yerine kullanıcıya resmi kaynağı kontrol etmesini söyle.`
+
+const BASE_SYSTEM_EN = `You are the AI assistant for Bonair Aviation. You are an expert in Turkish civil aviation regulations (SHGM, SHY, SHT), flight operations, SMS (Safety Management System) and FDM (Flight Data Monitoring). Always respond in English. Do not invent regulatory details you cannot verify — instead, tell the user to consult the official source.`
 
 /** Tüm güncel manuel revizyonları için DB'den yüklenecek maksimum kayıt sayısı. */
 const MAX_AUTO_MANUALS = 60
@@ -38,6 +45,76 @@ function sanitizeChatMessages(messages: ChatMsg[]): ChatMsg[] {
   return filtered.slice(start)
 }
 
+/** Manuel görüntüleme başlığı: "OM-A Rev.2" */
+function chunkManualDisplayTitle(c: ChunkResult): string {
+  const parts: string[] = [c.title]
+  if (c.manualNumber) parts.push(`(${c.manualNumber})`)
+  parts.push(`Rev.${c.revision}`)
+  return parts.join(" ")
+}
+
+/**
+ * Vektör arama sonuçlarından system prompt oluşturur.
+ * Chunk'lar manuellerine göre gruplanarak "--- Başlık ---\nmetin" formatında eklenir.
+ */
+function buildVectorSystemPrompt(
+  baseSystem: string,
+  chunks: ChunkResult[],
+  locale: "tr" | "en" = "tr"
+): string {
+  // Manuel bazında grupla (insertion-order korunur — zaten similarity'ye göre sıralı)
+  const manualMap = new Map<
+    number,
+    { displayTitle: string; texts: string[] }
+  >()
+  for (const chunk of chunks) {
+    if (!manualMap.has(chunk.manualId)) {
+      manualMap.set(chunk.manualId, {
+        displayTitle: chunkManualDisplayTitle(chunk),
+        texts: [],
+      })
+    }
+    manualMap.get(chunk.manualId)!.texts.push(chunk.chunkText)
+  }
+
+  const blocks: string[] = []
+  for (const [, entry] of manualMap) {
+    blocks.push(`--- ${entry.displayTitle} ---\n${entry.texts.join("\n\n")}`)
+  }
+
+  const contextBlock = blocks.join("\n\n")
+
+  if (locale === "en") {
+    return `${baseSystem}
+---
+SYSTEM MANUALS — SEMANTIC SEARCH RESULTS (top ${chunks.length} most relevant segment(s)):
+
+Rules:
+- Base your answer solely on the text segments below.
+- Cite the source in square brackets for each piece of information: [Manual Name - Rev.X] or [Manual Name].
+- If drawing from multiple manuals, consider all of them; explicitly note any contradictions.
+- Do not invent information not present in the segments; if necessary, say "No information on this topic was found in the loaded manuals."
+- End your response with a brief "Sources:" line listing the manuals you used.
+
+--- SEMANTIC SEARCH RESULTS ---
+${contextBlock}`
+  }
+
+  return `${baseSystem}
+---
+SİSTEM MANUELLERİ — SEMANTİK ARAMA SONUÇLARI (en ilgili ${chunks.length} parça):
+
+Kurallar:
+- Yanıtı yalnızca aşağıdaki metin parçalarına dayandır.
+- Her bilgi için köşeli parantez içinde kaynağı belirt: [Manuel Adı - Rev.X] veya [Manuel Adı].
+- Birden fazla manuelden bilgi alıyorsan hepsini dikkate al; çelişki varsa açıkça belirt.
+- Parçalarda geçmeyen bilgiyi uydurma; gerekirse "Yüklü manuellerde bu konuya ilişkin bilgi bulunamadı." de.
+- Yanıtın sonunda kısa bir "Kaynak:" satırı ekle ve hangi manuellerden yararlandığını listele.
+
+--- SEMANTİK ARAMA SONUÇLARI ---
+${contextBlock}`
+}
+
 export async function POST(req: NextRequest) {
   try {
     // Auth zorunlu — AI endpoint'e sadece giriş yapmış kullanıcılar erişebilir
@@ -46,11 +123,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Oturum açmanız gerekiyor." }, { status: 401 })
     }
 
+    // Rate limiting: kullanıcı başına dakikada 20 istek
+    const rl = rateLimit(`ai:chat:${session.user.email}`, 20, 60_000)
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: "Çok fazla istek gönderildi. Lütfen bir dakika bekleyin." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(Math.ceil((rl.resetAt - Date.now()) / 1000)) },
+        }
+      )
+    }
+
     const body = (await req.json()) as Record<string, unknown> & {
       messages?: ChatMsg[]
+      manualId?: number
+      locale?: string
     }
     const raw: ChatMsg[] = Array.isArray(body.messages) ? body.messages : []
     const messages = sanitizeChatMessages(raw)
+    const filterManualId =
+      typeof body.manualId === "number" && body.manualId > 0
+        ? body.manualId
+        : undefined
+    const locale: "tr" | "en" = body.locale === "en" ? "en" : "tr"
+    const BASE_SYSTEM = locale === "en" ? BASE_SYSTEM_EN : BASE_SYSTEM_TR
 
     if (messages.length === 0) {
       return NextResponse.json(
@@ -62,9 +159,7 @@ export async function POST(req: NextRequest) {
     const lastUser = [...messages].reverse().find((m) => m.role === "user")
     const userQuery = lastUser?.content?.trim() ?? ""
 
-    // Tüm isCurrent=true manuel revizyonlarını otomatik yükle.
-    // Erişim kuralı: normal kullanıcılar zaten sadece isCurrent=true kayıtları görebilir
-    // (admin ise arşivlenmiş kayıtlara da erişebilir — burada ikisi için de sadece güncel olanlar kullanılır).
+    // ─── Tüm güncel manuelleri yükle (keyword fallback için de gerekli) ──────
     const rows = await prisma.companyManual.findMany({
       where: { isCurrent: true },
       select: {
@@ -79,15 +174,7 @@ export async function POST(req: NextRequest) {
       take: MAX_AUTO_MANUALS,
     })
 
-    const manuals: ManualForRag[] = rows.map((r) => ({
-      title: r.title,
-      contentText: r.contentText ?? "",
-      revision: r.revision,
-      revisionDate: r.revisionDate ? r.revisionDate.toISOString().slice(0, 10) : null,
-      manualNumber: r.manualNumber,
-    }))
-
-    const usedManuals: ManualMeta[] = rows.map((r) => ({
+    const allManualsMeta: ManualMeta[] = rows.map((r) => ({
       id: r.id,
       title: r.title,
       manualNumber: r.manualNumber,
@@ -95,7 +182,59 @@ export async function POST(req: NextRequest) {
       revisionDate: r.revisionDate ? r.revisionDate.toISOString().slice(0, 10) : null,
     }))
 
-    const system = composeManualSystemPrompt(BASE_SYSTEM, manuals, userQuery)
+    // ─── Vektör arama (pgvector) ──────────────────────────────────────────────
+    let system: string
+    let usedManuals: ManualMeta[]
+
+    if (userQuery) {
+      try {
+        const chunks = await searchManualChunks(userQuery, filterManualId)
+
+        if (chunks.length > 0) {
+          // Vektör arama başarılı — chunk tabanlı prompt kullan
+          system = buildVectorSystemPrompt(BASE_SYSTEM, chunks, locale)
+
+          // Kullanılan manuelleri meta listesinden eşleştir
+          const usedIds = new Set(chunks.map((c) => c.manualId))
+          usedManuals = allManualsMeta.filter((m) => usedIds.has(m.id))
+        } else {
+          // Chunk indexi boş / benzerlik eşiği geçilmedi → keyword fallback
+          console.info("[api/ai/chat] Vector search returned 0 chunks, falling back to keyword RAG")
+          const manuals: ManualForRag[] = rows.map((r) => ({
+            title: r.title,
+            contentText: r.contentText ?? "",
+            revision: r.revision,
+            revisionDate: r.revisionDate ? r.revisionDate.toISOString().slice(0, 10) : null,
+            manualNumber: r.manualNumber,
+          }))
+          system = composeManualSystemPrompt(BASE_SYSTEM, manuals, userQuery, locale)
+          usedManuals = allManualsMeta
+        }
+      } catch (vectorErr) {
+        // Vektör arama hatası (API key yok, pgvector extension yok vb.) → keyword fallback
+        console.warn("[api/ai/chat] Vector search failed, falling back to keyword RAG:", vectorErr)
+        const manuals: ManualForRag[] = rows.map((r) => ({
+          title: r.title,
+          contentText: r.contentText ?? "",
+          revision: r.revision,
+          revisionDate: r.revisionDate ? r.revisionDate.toISOString().slice(0, 10) : null,
+          manualNumber: r.manualNumber,
+        }))
+        system = composeManualSystemPrompt(BASE_SYSTEM, manuals, userQuery, locale)
+        usedManuals = allManualsMeta
+      }
+    } else {
+      // Sorgu boş → keyword fallback
+      const manuals: ManualForRag[] = rows.map((r) => ({
+        title: r.title,
+        contentText: r.contentText ?? "",
+        revision: r.revision,
+        revisionDate: r.revisionDate ? r.revisionDate.toISOString().slice(0, 10) : null,
+        manualNumber: r.manualNumber,
+      }))
+      system = composeManualSystemPrompt(BASE_SYSTEM, manuals, userQuery, locale)
+      usedManuals = allManualsMeta
+    }
 
     const geminiMessages: GeminiChatMessage[] = [
       { role: "system", content: system },
@@ -107,7 +246,7 @@ export async function POST(req: NextRequest) {
 
     const result = await geminiChatCompletion({
       messages: geminiMessages,
-      maxTokens: manuals.length > 0 ? 4096 : 1024,
+      maxTokens: rows.length > 0 ? 4096 : 1024,
     })
 
     if (!result.ok) {

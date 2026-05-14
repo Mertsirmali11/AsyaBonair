@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
+import { rateLimit } from "@/lib/rate-limit"
 import { isAllowedCorrespondenceDocumentFile } from "@/lib/allowed-document-uploads"
 import { extractPlainTextFromUploadedDocument } from "@/lib/extract-uploaded-document-text"
 
@@ -11,6 +12,18 @@ export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Oturum gerekli." }, { status: 401 })
+  }
+
+  // Rate limiting: kullanıcı başına dakikada 15 dosya yükleme
+  const rl = rateLimit(`ai:parse-pdf:${session.user.email}`, 15, 60_000)
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Çok fazla dosya yüklendi. Lütfen bir dakika bekleyin." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(Math.ceil((rl.resetAt - Date.now()) / 1000)) },
+      }
+    )
   }
 
   const contentType = req.headers.get("content-type") || ""
