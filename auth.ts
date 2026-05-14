@@ -22,6 +22,18 @@ declare module "next-auth" {
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   ...authConfig,
+  cookies: {
+    sessionToken: {
+      name: "bonair.session-token",
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: process.env.NODE_ENV === "production",
+        maxAge: 8 * 60 * 60, // 8 saat (iş günü)
+      },
+    },
+  },
   providers: [
     Credentials({
       credentials: {
