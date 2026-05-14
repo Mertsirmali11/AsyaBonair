@@ -1,8 +1,32 @@
 import type { NextConfig } from "next";
 
+const SECURITY_HEADERS = [
+  // Clickjacking koruması
+  { key: "X-Frame-Options", value: "DENY" },
+  // MIME sniffing koruması
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  // Referrer bilgisini sınırla
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  // HTTPS zorunluluğu (1 yıl, subdomain dahil)
+  { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
+  // Gereksiz tarayıcı özelliklerini kapat
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+  // XSS koruması (modern tarayıcılarda CSP ile desteklenir)
+  { key: "X-XSS-Protection", value: "1; mode=block" },
+]
+
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   compress: true,
+
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: SECURITY_HEADERS,
+      },
+    ]
+  },
   compiler: {
     removeConsole:
       process.env.NODE_ENV === "production"
@@ -52,12 +76,15 @@ const nextConfig: NextConfig = {
   },
 
   async rewrites() {
+    // Proxy yalnızca PROXY_URL açıkça tanımlandığında etkin olur.
+    // Tanımsızken localhost:8080'e yönlendirme yapılmaz (SSRF riski).
+    if (!process.env.PROXY_URL) return []
     return [
       {
         source: "/api/proxy/:path*",
-        destination: `${process.env.PROXY_URL || "http://localhost:8080"}/:path*`,
+        destination: `${process.env.PROXY_URL}/:path*`,
       },
-    ];
+    ]
   },
   serverExternalPackages: [
     "@prisma/client",
