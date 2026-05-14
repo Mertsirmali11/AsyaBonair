@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server"
+import { auth } from "@/auth"
 import { calisanAvatarPublicUrl } from "@/lib/calisan-avatar"
 import { prisma } from "@/lib/prisma-server"
 import { deleteCalisanAvatarFromStorage } from "@/lib/supabase-storage"
+import { canAccessConfigurationsArea } from "@/lib/department-access"
 import bcrypt from "bcryptjs"
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const session = await auth()
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   try {
     const { id } = await params
     const calisan = await prisma.calisan.findUnique({
@@ -39,6 +46,14 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const session = await auth()
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  if (!canAccessConfigurationsArea(session.user.departman)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
   try {
     const { id } = await params
     const body = await request.json()
@@ -114,6 +129,14 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const session = await auth()
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  if (!canAccessConfigurationsArea(session.user.departman)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
   try {
     const { id } = await params
     const numericId = parseInt(id)

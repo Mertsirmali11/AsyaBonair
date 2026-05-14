@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server"
+import { auth } from "@/auth"
 import { calisanAvatarPublicUrl } from "@/lib/calisan-avatar"
 import { prisma } from "@/lib/prisma-server"
+import { canAccessConfigurationsArea } from "@/lib/department-access"
 import bcrypt from "bcryptjs"
 
 export async function GET() {
+  const session = await auth()
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
   try {
     const calisanlar = await prisma.calisan.findMany({
       orderBy: { createdAt: "desc" },
@@ -57,6 +63,15 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const session = await auth()
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  // Sadece configurations erişimi olan departmanlar çalışan ekleyebilir
+  if (!canAccessConfigurationsArea(session.user.departman)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
   try {
     const body = await request.json()
     const isPilot = body.departman === "Pilot"
