@@ -3,6 +3,7 @@ import { auth } from "@/auth"
 import { calisanAvatarPublicUrl } from "@/lib/calisan-avatar"
 import { prisma } from "@/lib/prisma-server"
 import { canAccessConfigurationsArea } from "@/lib/department-access"
+import { validatePassword, passwordPolicyMessage } from "@/lib/password-policy"
 import bcrypt from "bcryptjs"
 
 export async function GET() {
@@ -84,7 +85,20 @@ export async function POST(request: Request) {
       )
     }
 
-    const hashedPassword = await bcrypt.hash(body.password || "123456", 10)
+    if (!body.password) {
+      return NextResponse.json(
+        { error: `Şifre zorunludur. Gereksinimler: ${passwordPolicyMessage()}` },
+        { status: 400 }
+      )
+    }
+    const pwCheck = validatePassword(body.password)
+    if (!pwCheck.valid) {
+      return NextResponse.json(
+        { error: `Parola politikasına uymuyor: ${pwCheck.errors.join("; ")}` },
+        { status: 400 }
+      )
+    }
+    const hashedPassword = await bcrypt.hash(body.password, 10)
 
     const calisan = await prisma.calisan.create({
       data: {

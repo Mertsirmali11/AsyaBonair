@@ -3,6 +3,7 @@ import Credentials from "next-auth/providers/credentials"
 import bcrypt from "bcryptjs"
 import { calisanAvatarPublicUrl } from "@/lib/calisan-avatar"
 import { prisma } from "@/lib/prisma-server"
+import { isRateLimited, rateLimit, resetRateLimit } from "@/lib/rate-limit"
 import { authConfig } from "./auth.config"
 
 declare module "next-auth" {
@@ -45,10 +46,19 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null
         }
 
+        const email = (credentials.email as string).toLowerCase().trim()
+        const failKey = `login:fail:${email}`
+
+        // Brute-force koruması: e-posta başına 10 dakikada 5 başarısız deneme
+        const { limited, resetAt } = isRateLimited(failKey, 5, 10 * 60_000)
+        if (limited) {
+          const waitMin = Math.ceil((resetAt - Date.now()) / 60_000)
+          console.warn(`[auth] Login blocked (rate limit) for: ${email}`)
+          throw new Error(`TOO_MANY_ATTEMPTS:${waitMin}`)
+        }
+
         const calisan = await prisma.calisan.findUnique({
-          where: {
-            email: credentials.email as string,
-          },
+          where: { email },
           select: {
             id: true,
             email: true,
@@ -61,6 +71,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         })
 
         if (!calisan || !calisan.password) {
+          // Hesap bulunamadı — yine de sayacı artır (kullanıcı numaralandırmasını önle)
+          rateLimit(failKey, 5, 10 * 60_000)
           return null
         }
 
@@ -70,8 +82,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         )
 
         if (!isPasswordValid) {
+          // Yanlış şifre — başarısız denemeyi kaydet
+          rateLimit(failKey, 5, 10 * 60_000)
           return null
         }
+
+        // Başarılı giriş — sayacı sıfırla
+        resetRateLimit(failKey)
 
         return {
           id: String(calisan.id),

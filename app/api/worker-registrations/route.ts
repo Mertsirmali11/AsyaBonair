@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
 import { auth } from "@/auth"
 import { canApproveWorkerRegistrations } from "@/lib/department-access"
+import { validatePassword, passwordPolicyMessage } from "@/lib/password-policy"
 import { prisma } from "@/lib/prisma-server"
 import { turkeyDateStringToIso } from "@/lib/turkey-date"
 import { uploadPendingWorkerPhotoToStorage, CALISAN_AVATAR_MAX_BYTES } from "@/lib/supabase-storage"
@@ -136,9 +137,10 @@ export async function POST(request: Request) {
       )
     }
 
-    if (password.length < 8) {
+    const pwCheck = validatePassword(password)
+    if (!pwCheck.valid) {
       return NextResponse.json(
-        { error: "Password must be at least 8 characters." },
+        { error: `Parola politikasına uymuyor: ${pwCheck.errors.join("; ")}. Gereksinimler: ${passwordPolicyMessage()}` },
         { status: 400 }
       )
     }

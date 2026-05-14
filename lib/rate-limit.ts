@@ -17,32 +17,35 @@ function evict() {
 
 let lastEvict = 0
 
-/**
- * @param key      Benzersiz anahtar (örn. "ai:" + email)
- * @param limit    Pencere başına maksimum istek
- * @param windowMs Pencere süresi (ms)
- * @returns `{ allowed: boolean; remaining: number; resetAt: number }`
- */
-export function rateLimit(
-  key: string,
-  limit: number,
-  windowMs: number
-): { allowed: boolean; remaining: number; resetAt: number } {
+function getOrCreate(key: string, windowMs: number): Entry {
   const now = Date.now()
 
-  // Her 5 dakikada bir temizlik
   if (now - lastEvict > 5 * 60 * 1000) {
     evict()
     lastEvict = now
   }
 
   const entry = store.get(key)
-
   if (!entry || entry.resetAt < now) {
-    store.set(key, { count: 1, resetAt: now + windowMs })
-    return { allowed: true, remaining: limit - 1, resetAt: now + windowMs }
+    const fresh: Entry = { count: 0, resetAt: now + windowMs }
+    store.set(key, fresh)
+    return fresh
   }
+  return entry
+}
 
+/**
+ * Sayacı artırır ve limitin aşılıp aşılmadığını döndürür.
+ * @param key      Benzersiz anahtar (örn. "ai:" + email)
+ * @param limit    Pencere başına maksimum istek
+ * @param windowMs Pencere süresi (ms)
+ */
+export function rateLimit(
+  key: string,
+  limit: number,
+  windowMs: number
+): { allowed: boolean; remaining: number; resetAt: number } {
+  const entry = getOrCreate(key, windowMs)
   entry.count++
   const allowed = entry.count <= limit
   return {
@@ -50,4 +53,25 @@ export function rateLimit(
     remaining: Math.max(0, limit - entry.count),
     resetAt: entry.resetAt,
   }
+}
+
+/**
+ * Sayacı artırmadan sadece kilitli olup olmadığını kontrol eder.
+ * Login akışında: önce kontrol et, başarısız olursa artır.
+ */
+export function isRateLimited(
+  key: string,
+  limit: number,
+  windowMs: number
+): { limited: boolean; resetAt: number } {
+  const entry = getOrCreate(key, windowMs)
+  return {
+    limited: entry.count >= limit,
+    resetAt: entry.resetAt,
+  }
+}
+
+/** Belirli bir key'in sayacını sıfırlar (başarılı işlemler sonrası kullan). */
+export function resetRateLimit(key: string): void {
+  store.delete(key)
 }
