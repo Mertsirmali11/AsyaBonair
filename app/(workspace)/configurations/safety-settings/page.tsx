@@ -3,7 +3,8 @@ import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { ConfigurationsPageShell } from "@/components/configurations-page-shell"
 import { SafetySettingsClient } from "@/components/safety-settings-client"
-import { canAccessQualityOrAdminSettings } from "@/lib/department-access"
+import { DEPARTMENT_PERMISSION_KEYS } from "@/lib/department-permission-keys"
+import { getResolvedDepartmentPermissionsForUser } from "@/lib/department-permissions-resolve"
 
 export default async function SafetySettingsPage() {
   const session = await auth()
@@ -12,7 +13,10 @@ export default async function SafetySettingsPage() {
     redirect("/login")
   }
 
-  if (!canAccessQualityOrAdminSettings(session.user?.departman)) {
+  const permissions = await getResolvedDepartmentPermissionsForUser(
+    session.user?.departman
+  )
+  if (!permissions[DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING]) {
     redirect("/dashboard")
   }
 

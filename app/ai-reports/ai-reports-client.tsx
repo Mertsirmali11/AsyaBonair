@@ -18,11 +18,19 @@ import {
   RotateCcw,
   Sparkles,
   BookOpen,
+  LibraryBig,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { toast } from "sonner"
 import {
   DOCUMENT_ACCEPT_HTML,
@@ -30,6 +38,7 @@ import {
 } from "@/lib/allowed-document-uploads"
 import { cn } from "@/lib/utils"
 import type { ManualMeta } from "@/app/api/ai/chat/route"
+import { useLanguage } from "@/lib/i18n/context"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -49,59 +58,19 @@ interface ChatMessage {
   usedManuals?: ManualMeta[]
 }
 
-// ─── Analysis tab constants ───────────────────────────────────────────────────
+// ─── Analysis option style config (no translated text here) ──────────────────
 
-const analysisOptions = [
-  {
-    type: "summary" as AnalysisType,
-    icon: FileText,
-    title: "Doküman Özeti",
-    description: "Metni havacılık perspektifinden özetle",
-    border: "border-blue-300 hover:border-blue-500",
-    active: "border-blue-500 bg-blue-50",
-    iconColor: "text-blue-600",
-  },
-  {
-    type: "anomaly" as AnalysisType,
-    icon: AlertTriangle,
-    title: "Anomali Tespiti",
-    description: "FDM verisinde sapma ve risk analizi",
-    border: "border-orange-300 hover:border-orange-500",
-    active: "border-orange-500 bg-orange-50",
-    iconColor: "text-orange-600",
-  },
-  {
-    type: "report" as AnalysisType,
-    icon: Zap,
-    title: "Rapor Oluştur",
-    description: "SHGM standartlarında otomatik rapor",
-    border: "border-green-300 hover:border-green-500",
-    active: "border-green-500 bg-green-50",
-    iconColor: "text-green-600",
-  },
-  {
-    type: "regulation_impact" as AnalysisType,
-    icon: Scale,
-    title: "Regülasyon etkisi",
-    description: "Yeni düzenlemenin operasyona etkisi ve aksiyonlar",
-    border: "border-violet-300 hover:border-violet-500",
-    active: "border-violet-600 bg-violet-50",
-    iconColor: "text-violet-600",
-  },
-]
-
-const CHAT_SUGGESTIONS = [
-  "Uçuş öncesi kontrol prosedürü nedir?",
-  "Acil durum iletişim protokolü nasıl işler?",
-  "FOD önleme prosedürleri nelerdir?",
-  "Kaza-kırım raporu nasıl doldurulur?",
-  "Tehlike bildirimi için hangi formu kullanmalıyım?",
-  "SMS kapsamındaki sorumluluklar nelerdir?",
+const ANALYSIS_STYLES = [
+  { type: "summary"           as AnalysisType, icon: FileText,     border: "border-blue-300 hover:border-blue-500",     active: "border-blue-500 bg-blue-50",     iconColor: "text-blue-600"   },
+  { type: "anomaly"           as AnalysisType, icon: AlertTriangle, border: "border-orange-300 hover:border-orange-500", active: "border-orange-500 bg-orange-50", iconColor: "text-orange-600" },
+  { type: "report"            as AnalysisType, icon: Zap,           border: "border-green-300 hover:border-green-500",   active: "border-green-500 bg-green-50",   iconColor: "text-green-600"  },
+  { type: "regulation_impact" as AnalysisType, icon: Scale,         border: "border-violet-300 hover:border-violet-500", active: "border-violet-600 bg-violet-50", iconColor: "text-violet-600" },
 ]
 
 // ─── Chat source chips ────────────────────────────────────────────────────────
 
 function SourceChips({ manuals }: { manuals: ManualMeta[] }) {
+  const { t } = useLanguage()
   if (!manuals.length) return null
   const shown = manuals.slice(0, 5)
   const rest = manuals.length - shown.length
@@ -109,7 +78,7 @@ function SourceChips({ manuals }: { manuals: ManualMeta[] }) {
     <div className="mt-2 flex flex-wrap items-center gap-1.5">
       <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
         <BookOpen size={11} />
-        Kaynaklar:
+        {t.ai.sources}
       </span>
       {shown.map((m) => (
         <span
@@ -122,7 +91,7 @@ function SourceChips({ manuals }: { manuals: ManualMeta[] }) {
         </span>
       ))}
       {rest > 0 && (
-        <span className="text-[11px] text-muted-foreground">+{rest} daha</span>
+        <span className="text-[11px] text-muted-foreground">+{rest}</span>
       )}
     </div>
   )
@@ -164,6 +133,28 @@ function ChatBubble({ msg }: { msg: ChatMessage }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
+  const { t, locale } = useLanguage()
+  const ai = t.ai
+  const az = ai.analyze
+
+  // Translated analysis options (rebuilt on locale change)
+  const analysisOptions = [
+    { ...ANALYSIS_STYLES[0], title: az.types.summary,    description: az.types.summaryDesc    },
+    { ...ANALYSIS_STYLES[1], title: az.types.anomaly,    description: az.types.anomalyDesc    },
+    { ...ANALYSIS_STYLES[2], title: az.types.report,     description: az.types.reportDesc     },
+    { ...ANALYSIS_STYLES[3], title: az.types.regulation, description: az.types.regulationDesc },
+  ]
+
+  // Translated chat suggestions
+  const chatSuggestions = [
+    ai.suggestions.preFlightCheck,
+    ai.suggestions.emergencyComm,
+    ai.suggestions.fod,
+    ai.suggestions.accidentReport,
+    ai.suggestions.hazardReport,
+    ai.suggestions.sms,
+  ]
+
   const [activeTab, setActiveTab] = useState<Tab>("chat")
 
   // ── Analysis tab state ──
@@ -186,6 +177,8 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
   const [chatInput, setChatInput] = useState("")
   const [isChatLoading, setIsChatLoading] = useState(false)
   const [liveManualCount, setLiveManualCount] = useState(manualCount)
+  /** "all" = tüm manueller, sayı string'i = seçili manualId */
+  const [selectedChatManual, setSelectedChatManual] = useState<string>("all")
   const chatBottomRef = useRef<HTMLDivElement>(null)
   const chatTextareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -215,11 +208,17 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
       setChatInput("")
       setIsChatLoading(true)
       try {
+        const manualId =
+          selectedChatManual !== "all" ? parseInt(selectedChatManual) : undefined
         const res = await fetch("/api/ai/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify({ messages: [...chatMessages, userMsg] }),
+          body: JSON.stringify({
+            messages: [...chatMessages, userMsg],
+            ...(manualId ? { manualId } : {}),
+            locale,
+          }),
         })
         const data = (await res.json()) as {
           content?: string; error?: string; usedManuals?: ManualMeta[]
@@ -229,7 +228,7 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
             ? data.content
             : typeof data.error === "string"
               ? `⚠️ ${data.error}`
-              : `Bir hata oluştu (HTTP ${res.status}).`
+              : `⚠️ HTTP ${res.status}`
         setChatMessages((prev) => [
           ...prev,
           { role: "assistant", content: reply, usedManuals: res.ok ? data.usedManuals : undefined },
@@ -238,14 +237,14 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
       } catch {
         setChatMessages((prev) => [
           ...prev,
-          { role: "assistant", content: "⚠️ Bağlantı hatası. Lütfen tekrar deneyin." },
+          { role: "assistant", content: `⚠️ ${ai.connectionError}` },
         ])
       } finally {
         setIsChatLoading(false)
         setTimeout(() => chatTextareaRef.current?.focus(), 50)
       }
     },
-    [chatInput, isChatLoading, chatMessages]
+    [chatInput, isChatLoading, chatMessages, selectedChatManual]
   )
 
   const handleChatKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -258,7 +257,7 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
     setSelectedManualIds((prev) => checked ? [...new Set([...prev, id])] : prev.filter((x) => x !== id))
 
   const mergeSelectedManualsIntoText = async () => {
-    if (selectedManualIds.length === 0) { toast.error("Önce en az bir manuel işaretleyin."); return }
+    if (selectedManualIds.length === 0) { toast.error(az.selectManualsFirst); return }
     setManualLoading(true)
     try {
       const parts: string[] = []
@@ -268,16 +267,16 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
         if (!res.ok) throw new Error(data.error || `Sunucu hatası (${res.status})`)
         const title = data.manual?.title ?? manuals.find((m) => m.id === id)?.title ?? `Manuel #${id}`
         const text = data.manual?.contentText ?? ""
-        if (!text.trim()) { toast.warning(`"${title}" içinde metin yok, atlandı.`); continue }
+        if (!text.trim()) { toast.warning(`"${title}" ${az.noTextInManual}`); continue }
         parts.push(`---\nDOKÜMAN: ${title}\n---\n\n${text}`)
       }
-      if (parts.length === 0) throw new Error("Seçilen manuel(ler)de kullanılabilir metin yok.")
+      if (parts.length === 0) throw new Error(az.noTextInManuals)
       const merged = parts.join("\n\n")
       setInputText((prev) => { const p = prev.trim(); return p ? `${p}\n\n${merged}` : merged })
-      toast.success(`${parts.length} doküman metne eklendi.`)
+      toast.success(`${parts.length} ${az.docsAdded}`)
       combinedTextSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Manuel(ler) yüklenemedi.")
+      toast.error(e instanceof Error ? e.message : az.manualsLoadFailed)
     } finally {
       setManualLoading(false)
     }
@@ -285,7 +284,7 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
 
   const processPdfFiles = async (fileList: File[]) => {
     const docs = fileList.filter((f) => isAllowedCorrespondenceDocumentFile(f))
-    if (docs.length === 0) { toast.error("PDF, Word, Excel veya PowerPoint dosyası seçebilirsiniz."); return }
+    if (docs.length === 0) { toast.error(az.fileTypeError); return }
     setPdfLoading(true)
     try {
       const appended: string[] = []
@@ -297,7 +296,7 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
         let data: { error?: string; text?: string; truncated?: boolean }
         try { data = (await res.json()) as { error?: string; text?: string; truncated?: boolean } }
         catch { throw new Error(`${file.name}: sunucu yanıtı okunamadı (${res.status})`) }
-        if (res.status === 401) throw new Error("Oturum süresi dolmuş olabilir; sayfayı yenileyip tekrar giriş yapın.")
+        if (res.status === 401) throw new Error(az.sessionExpired)
         if (!res.ok) throw new Error(data.error || `${file.name}: hata (${res.status})`)
         const text = data.text ?? ""
         if (text.trim()) appended.push(`---\nDosya: ${file.name}\n---\n\n${text}`)
@@ -305,11 +304,11 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
       }
       if (appended.length === 0) throw new Error("Dosyalardan metin alınamadı (taranmış görüntü veya desteklenmeyen format olabilir).")
       setInputText((prev) => { const p = prev.trim(); return p ? `${p}\n\n${appended.join("\n\n")}` : appended.join("\n\n") })
-      if (anyTruncated) toast.warning("Bir veya daha fazla dosya metni uzun olduğu için kısaltıldı.")
-      toast.success(`${appended.length} dosya metne eklendi.`)
+      if (anyTruncated) toast.warning(az.fileTruncatedWarning)
+      toast.success(`${appended.length} ${az.filesAdded}`)
       combinedTextSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Dosya yüklenemedi.")
+      toast.error(err instanceof Error ? err.message : az.fileLoadFailed)
     } finally {
       setPdfLoading(false)
     }
@@ -334,7 +333,7 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
 
   const handleAnalyze = async () => {
     if (!inputText.trim()) {
-      toast.error("Önce aşağıdaki metin alanına içerik ekleyin (manuel, dosya veya yapıştırma).")
+      toast.error(az.noTextFirst)
       combinedTextSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
       document.getElementById("ai-report-textarea")?.focus()
       return
@@ -354,12 +353,12 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
       if (typeof data.content !== "string" || !data.content) throw new Error("Yanıt alınamadı.")
       setResult(data.content); setLastInputTruncated(!!data.inputTruncated)
       if (data.inputTruncated) {
-        toast.success("Analiz tamamlandı", { description: "Girdi metni ücretsiz API sınırına sığması için otomatik kısaltıldı; sonuç bu kısma göredir.", duration: 8000 })
+        toast.success(az.analysisDone, { description: az.analysisTruncatedDesc, duration: 8000 })
       } else {
-        toast.success("Analiz tamamlandı.")
+        toast.success(az.analysisDone)
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Analiz sırasında bir hata oluştu.")
+      toast.error(e instanceof Error ? e.message : az.analysisFailed)
     } finally {
       setIsAnalyzing(false)
     }
@@ -367,7 +366,7 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
 
   const handleCopy = () => {
     navigator.clipboard.writeText(result)
-    setCopied(true); toast.success("Kopyalandı!")
+    setCopied(true); toast.success(az.copySuccess)
     setTimeout(() => setCopied(false), 2000)
   }
 
@@ -388,7 +387,7 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
           )}
         >
           <Bot size={15} />
-          Manual Q&amp;A
+          {ai.manualQA}
           {liveManualCount > 0 && (
             <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
               {liveManualCount}
@@ -406,7 +405,7 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
           )}
         >
           <Zap size={15} />
-          Doküman Analizi
+          {ai.documentAnalysis}
         </button>
       </div>
 
@@ -414,30 +413,62 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
       {activeTab === "chat" && (
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* Chat header */}
-          <div className="flex items-center justify-between px-6 py-3 border-b border-border">
-            <div className="flex items-center gap-2">
-              <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <div className="flex items-center justify-between gap-3 px-6 py-3 border-b border-border">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                 <Bot size={16} />
               </div>
-              <div>
-                <p className="text-sm font-semibold">Manual AI Assistant</p>
-                <p className="text-xs text-muted-foreground">
-                  {liveManualCount > 0
-                    ? `${liveManualCount} güncel manuel otomatik taranıyor`
-                    : "Aktif manuel bulunamadı — Manuals bölümünden yükleyin"}
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">{ai.assistantName}</p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {selectedChatManual === "all"
+                    ? liveManualCount > 0
+                      ? `${liveManualCount} ${ai.allManualsScanning}`
+                      : ai.noManualsFound
+                    : `${ai.selectedManual}: ${manuals.find((m) => String(m.id) === selectedChatManual)?.title ?? "Manuel"}`}
                 </p>
               </div>
             </div>
-            {chatMessages.length > 0 && (
-              <Button
-                variant="ghost" size="sm"
-                onClick={() => { setChatMessages([]); setChatInput("") }}
-                className="gap-1.5 text-xs text-muted-foreground"
-              >
-                <RotateCcw size={13} />
-                Temizle
-              </Button>
-            )}
+
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Manuel seçici */}
+              {manuals.length > 0 && (
+                <Select
+                  value={selectedChatManual}
+                  onValueChange={(v) => {
+                    setSelectedChatManual(v)
+                    setChatMessages([])
+                    setChatInput("")
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-[190px] text-xs gap-1.5">
+                    <LibraryBig size={13} className="shrink-0 text-muted-foreground" />
+                    <SelectValue placeholder={ai.selectManual} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all" className="text-xs">
+                      {ai.allManualsOption}
+                    </SelectItem>
+                    {manuals.map((m) => (
+                      <SelectItem key={m.id} value={String(m.id)} className="text-xs">
+                        {m.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+
+              {chatMessages.length > 0 && (
+                <Button
+                  variant="ghost" size="sm"
+                  onClick={() => { setChatMessages([]); setChatInput("") }}
+                  className="gap-1.5 text-xs text-muted-foreground"
+                >
+                  <RotateCcw size={13} />
+                  {ai.clearChat}
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* Messages */}
@@ -449,16 +480,18 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
                   <Sparkles size={26} />
                 </div>
                 <div className="text-center">
-                  <p className="font-semibold text-foreground">Sorunuzu yazın</p>
+                  <p className="font-semibold text-foreground">{ai.writeQuestion}</p>
                   <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-                    {liveManualCount > 0
-                      ? `${liveManualCount} güncel manuel revizyonu taranıyor. Manuel seçmenize gerek yok — sistem otomatik bulur.`
-                      : "Henüz aktif manuel yok. Controlled Documents → Manuals bölümünden yükleyebilirsiniz."}
+                    {selectedChatManual !== "all"
+                      ? `"${manuals.find((m) => String(m.id) === selectedChatManual)?.title ?? "Manuel"}" — ${ai.selectedManualDescription}`
+                      : liveManualCount > 0
+                        ? `${liveManualCount} ${ai.allManualsDescription}`
+                        : ai.noManualsDescription}
                   </p>
                 </div>
                 {liveManualCount > 0 && (
                   <div className="flex max-w-lg flex-wrap justify-center gap-2">
-                    {CHAT_SUGGESTIONS.map((s) => (
+                    {chatSuggestions.map((s) => (
                       <button
                         key={s} type="button"
                         onClick={() => void sendChatMessage(s)}
@@ -482,7 +515,7 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
                     </div>
                     <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-border bg-card px-4 py-2.5 shadow-sm">
                       <Loader2 size={14} className="animate-spin text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">Manuel içerikleri taranıyor…</span>
+                      <span className="text-sm text-muted-foreground">{ai.scanning}</span>
                     </div>
                   </div>
                 )}
@@ -494,9 +527,7 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
           {/* Chat input */}
           <div className="border-t border-border bg-background px-4 py-3">
             <p className="mb-2 text-[11px] text-muted-foreground">
-              Yanıtlar yalnızca{" "}
-              <span className="font-medium text-foreground">Controlled Documents → Manuals</span>{" "}
-              bölümündeki güncel revizyonlara dayanır. Cevap altında kaynak manuel ve revizyon numarası belirtilir.
+              {ai.sourceNote}
             </p>
             <div className="flex items-end gap-2">
               <Textarea
@@ -504,7 +535,7 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={handleChatKeyDown}
-                placeholder="Örn: Uçuş öncesi kontrol listesi prosedürü nedir?"
+                placeholder={ai.inputPlaceholder}
                 className="min-h-[44px] max-h-[120px] flex-1 resize-none text-sm"
                 rows={1}
                 disabled={isChatLoading}
@@ -527,9 +558,9 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
         <div className="flex-1 overflow-y-auto">
           <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-8">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">AI Report Creator</h1>
+              <h1 className="text-2xl font-bold text-gray-900">{az.title}</h1>
               <p className="text-gray-500 mt-1 text-sm sm:text-base">
-                Analiz türünü seçin; regülasyon metnini ve isteğe bağlı şirket manueli/PDF ekleyin.
+                {az.subtitle}
               </p>
             </div>
 
@@ -537,7 +568,7 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
             <section className="space-y-3">
               <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-900 text-white text-xs">1</span>
-                Analiz türü
+                {az.step1}
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
                 {analysisOptions.map((opt) => {
@@ -556,7 +587,7 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
               </div>
               {selectedType === "regulation_impact" && (
                 <p className="text-xs text-violet-900 bg-violet-50 border border-violet-200 rounded-lg px-3 py-2.5 leading-relaxed">
-                  <strong>Regülasyon etkisi:</strong> Aşağıya önce yeni regülasyon / genelge metnini yapıştırın; ardından ilgili şirket manuel(ler)ini &quot;metne ekle&quot; ile birleştirin.
+                  {az.types.regulationNote}
                 </p>
               )}
             </section>
@@ -565,31 +596,31 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
             <section className="space-y-3">
               <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-900 text-white text-xs">2</span>
-                Kaynak ekle
+                {az.step2}
               </h2>
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm space-y-3">
                   <div className="flex items-center gap-2 text-sm font-medium text-gray-800">
                     <BookMarked className="h-4 w-4 text-sky-600" />
-                    Kayıtlı şirket manueli
+                    {az.savedManuals}
                   </div>
                   <p className="text-xs text-gray-500">
-                    Controlled Documents → Manuals ile eklenen PDF&apos;ler. İşaretleyip <strong>metne ekle</strong> deyin.
+                    {az.savedManualsDesc}
                   </p>
                   {manuals.length === 0 ? (
                     <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-2">
-                      Kayıtlı manuel yok. Önce Configurations bölümünden manuel yükleyin.
+                      {az.noManualsWarning}
                     </p>
                   ) : (
                     <>
                       <div className="flex justify-end gap-2 text-xs">
                         <button type="button" className="text-sky-700 hover:underline disabled:opacity-50" disabled={busy}
                           onClick={() => setSelectedManualIds(manuals.map((m) => m.id))}>
-                          Tümünü seç
+                          {az.selectAll}
                         </button>
                         <button type="button" className="text-gray-600 hover:underline disabled:opacity-50" disabled={busy}
                           onClick={() => setSelectedManualIds([])}>
-                          Temizle
+                          {t.common.clear}
                         </button>
                       </div>
                       <div className="max-h-36 overflow-y-auto rounded-md border border-gray-100 bg-gray-50/80 p-2 space-y-2">
@@ -606,7 +637,7 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
                       <Button type="button" className="w-full bg-slate-800 hover:bg-slate-900 text-white" size="default"
                         disabled={busy || selectedManualIds.length === 0}
                         onClick={() => void mergeSelectedManualsIntoText()}>
-                        {manualLoading ? (<><Loader2 size={16} className="mr-2 animate-spin" />Yükleniyor…</>) : "Seçili manuel(ler)i metne ekle"}
+                        {manualLoading ? (<><Loader2 size={16} className="mr-2 animate-spin" />{az.loadingManuals}</>) : az.addToText}
                       </Button>
                     </>
                   )}
@@ -615,10 +646,10 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
                 <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm space-y-3">
                   <div className="flex items-center gap-2 text-sm font-medium text-gray-800">
                     <FileStack className="h-4 w-4 text-violet-600" />
-                    Dosya (PDF, Word, Excel, PowerPoint)
+                    {az.fileUpload}
                   </div>
                   <p className="text-xs text-gray-500">
-                    Bilgisayarınızdan seçin veya kutuya sürükleyip bırakın.
+                    {az.fileUploadDesc}
                   </p>
                   <input id="ai-report-pdf-input" ref={pdfInputRef} type="file" accept={DOCUMENT_ACCEPT_HTML}
                     multiple className="sr-only" disabled={busy} onChange={handlePdfInputChange} />
@@ -634,9 +665,9 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
                           : "border-gray-300 bg-gray-50/50 hover:border-violet-400 hover:bg-violet-50/30 cursor-pointer"
                     )}>
                     {pdfLoading ? (
-                      <><Loader2 className="h-8 w-8 animate-spin text-violet-600" /><span className="text-sm font-medium text-gray-700">Dosya okunuyor…</span></>
+                      <><Loader2 className="h-8 w-8 animate-spin text-violet-600" /><span className="text-sm font-medium text-gray-700">{az.readingFile}</span></>
                     ) : (
-                      <><Upload className="h-8 w-8 text-violet-600" /><span className="text-sm font-medium text-gray-800">Dosya seçmek için tıklayın veya buraya sürükleyin</span><span className="text-xs text-gray-500">.pdf, .doc, .docx, .xls, .xlsx, .ppt, .pptx — çoklu seçim</span></>
+                      <><Upload className="h-8 w-8 text-violet-600" /><span className="text-sm font-medium text-gray-800">{az.dropOrClick}</span><span className="text-xs text-gray-500">{az.fileTypes}</span></>
                     )}
                   </label>
                 </div>
@@ -648,28 +679,28 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
               <div className="flex flex-wrap items-end justify-between gap-2">
                 <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
                   <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-900 text-white text-xs">3</span>
-                  Birleşik metin (analiz buradan yapılır)
+                  {az.step3}
                 </h2>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-500 tabular-nums">{inputText.length.toLocaleString("tr-TR")} karakter</span>
+                  <span className="text-xs text-gray-500 tabular-nums">{inputText.length.toLocaleString("tr-TR")} {az.chars}</span>
                   {inputText.trim() && (
                     <Button type="button" variant="ghost" size="sm" className="h-7 text-xs text-gray-600" disabled={busy}
-                      onClick={() => { setInputText(""); toast.success("Metin alanı temizlendi.") }}>
-                      Metni temizle
+                      onClick={() => { setInputText(""); toast.success(az.clearText) }}>
+                      {az.clearText}
                     </Button>
                   )}
                 </div>
               </div>
               <Textarea id="ai-report-textarea" value={inputText} onChange={(e) => setInputText(e.target.value)}
-                placeholder={"Yukarıdan eklediğiniz metin burada görünür. İsterseniz yeni regülasyon metnini, checklist veya notları doğrudan buraya da yapıştırabilirsiniz."}
+                placeholder={az.combinedTextPlaceholder}
                 className={cn("min-h-[280px] text-sm leading-relaxed border-2", !inputText.trim() && "border-dashed border-gray-300 bg-amber-50/30")}
                 disabled={manualLoading} />
               <p className="text-xs text-amber-900/90 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 leading-relaxed">
-                <strong>Not:</strong> Ücretsiz yapay zekâ kotası çok uzun metinleri tek seferde kısaltabilir. Gerekirse metni bölerek analiz edin.
+                {az.quotaWarning}
               </p>
               <Button type="button" onClick={() => void handleAnalyze()} disabled={busy || !inputText.trim()}
                 size="lg" className="w-full sm:w-auto min-w-[200px] bg-black hover:bg-gray-800 text-white">
-                {isAnalyzing ? (<><Loader2 size={18} className="mr-2 animate-spin" />Analiz ediliyor...</>) : (<><Zap size={18} className="mr-2" />Analiz et</>)}
+                {isAnalyzing ? (<><Loader2 size={18} className="mr-2 animate-spin" />{az.analyzing}</>) : (<><Zap size={18} className="mr-2" />{az.analyzeBtn}</>)}
               </Button>
             </section>
 
@@ -677,13 +708,13 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
               <div className="border border-gray-200 rounded-xl p-5 bg-gray-50 space-y-3">
                 {lastInputTruncated && (
                   <p className="text-xs text-sky-900 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2 leading-relaxed">
-                    <strong>Bilgi:</strong> Analiz, uzun metnin yalnızca sunucuya gönderilen ilk kısmına göre yapıldı.
+                    {az.truncatedInfo}
                   </p>
                 )}
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-gray-700">AI analiz sonucu</p>
+                  <p className="text-sm font-semibold text-gray-700">{az.resultTitle}</p>
                   <Button variant="ghost" size="sm" onClick={handleCopy}>
-                    {copied ? <><Check size={14} className="mr-1" />Kopyalandı</> : <><Copy size={14} className="mr-1" />Kopyala</>}
+                    {copied ? <><Check size={14} className="mr-1" />{az.copied}</> : <><Copy size={14} className="mr-1" />{az.copy}</>}
                   </Button>
                 </div>
                 <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{result}</div>

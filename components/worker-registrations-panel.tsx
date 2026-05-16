@@ -32,8 +32,8 @@ import {
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import {
+  isPilotDepartmentName,
   PILOT_RANKS,
-  WORKER_REGISTRATION_DEPARTMENTS,
 } from "@/lib/worker-registration-constants"
 
 export type WorkerRegistrationRow = {
@@ -118,6 +118,22 @@ export function WorkerRegistrationsPanel({ embedded = false }: { embedded?: bool
   const [actionLoading, setActionLoading] = React.useState(false)
   const [assignDepartment, setAssignDepartment] = React.useState("")
   const [assignPilotRank, setAssignPilotRank] = React.useState("")
+  const [departmentOptions, setDepartmentOptions] = React.useState<string[]>([])
+
+  React.useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/organization-departments", { cache: "no-store" })
+        if (!res.ok) return
+        const data = (await res.json()) as { departments?: string[] }
+        if (Array.isArray(data.departments)) {
+          setDepartmentOptions(data.departments)
+        }
+      } catch {
+        /* keep empty */
+      }
+    })()
+  }, [])
 
   React.useEffect(() => {
     if (detail?.status === "PENDING") {
@@ -162,7 +178,7 @@ export function WorkerRegistrationsPanel({ embedded = false }: { embedded?: bool
       alert("Select a department before approving.")
       return
     }
-    if (departman === "Pilot") {
+    if (isPilotDepartmentName(departman)) {
       if (!PILOT_RANKS.includes(pilotRank as (typeof PILOT_RANKS)[number])) {
         alert("Select Captain or F/O for Pilot.")
         return
@@ -176,7 +192,7 @@ export function WorkerRegistrationsPanel({ embedded = false }: { embedded?: bool
         body: JSON.stringify({
           action: "approve",
           departman: departman.trim(),
-          ...(departman === "Pilot" ? { ekstra3: pilotRank } : {}),
+          ...(isPilotDepartmentName(departman.trim()) ? { ekstra3: pilotRank } : {}),
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -423,22 +439,28 @@ export function WorkerRegistrationsPanel({ embedded = false }: { embedded?: bool
                         value={assignDepartment || undefined}
                         onValueChange={(v) => {
                           setAssignDepartment(v)
-                          if (v !== "Pilot") setAssignPilotRank("")
+                          if (!isPilotDepartmentName(v)) setAssignPilotRank("")
                         }}
                       >
                         <SelectTrigger id="assign-dept" className="w-full">
                           <SelectValue placeholder="Select department" />
                         </SelectTrigger>
                         <SelectContent>
-                          {WORKER_REGISTRATION_DEPARTMENTS.map((d) => (
-                            <SelectItem key={d} value={d}>
-                              {d}
+                          {departmentOptions.length === 0 ? (
+                            <SelectItem value="__empty" disabled>
+                              No departments (add in Configurations → Departments)
                             </SelectItem>
-                          ))}
+                          ) : (
+                            departmentOptions.map((d) => (
+                              <SelectItem key={d} value={d}>
+                                {d}
+                              </SelectItem>
+                            ))
+                          )}
                         </SelectContent>
                       </Select>
                     </div>
-                    {assignDepartment === "Pilot" && (
+                    {isPilotDepartmentName(assignDepartment) && (
                       <div className="space-y-2">
                         <Label htmlFor="assign-rank">Pilot position</Label>
                         <Select
@@ -474,7 +496,8 @@ export function WorkerRegistrationsPanel({ embedded = false }: { embedded?: bool
                       disabled={
                         actionLoading ||
                         !assignDepartment ||
-                        (assignDepartment === "Pilot" &&
+                        assignDepartment === "__empty" ||
+                        (isPilotDepartmentName(assignDepartment) &&
                           !PILOT_RANKS.includes(assignPilotRank as (typeof PILOT_RANKS)[number]))
                       }
                       onClick={() =>

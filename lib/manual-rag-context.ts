@@ -229,7 +229,8 @@ export function buildManualContextForChat(
 export function composeManualSystemPrompt(
   baseSystem: string,
   manuals: ManualForRag[],
-  userQuery: string
+  userQuery: string,
+  locale: "tr" | "en" = "tr"
 ): string {
   if (manuals.length === 0) return baseSystem
 
@@ -238,6 +239,30 @@ export function composeManualSystemPrompt(
     userQuery
   )
   const titles = manuals.map((m) => makeDisplayTitle(m)).join(", ")
+
+  if (locale === "en") {
+    const ragLine = usedRag
+      ? "\n\nNote: For long or multiple documents, only the most relevant text segments are used (or the beginning of each document when there are no keyword matches)."
+      : ""
+    const truncLine = truncatedNote
+      ? `\n\nWarning: Context was limited to the most relevant segments due to document length.`
+      : ""
+    return `${baseSystem}
+---
+SYSTEM MANUALS — LATEST REVISIONS (${manuals.length} manual(s)): ${titles}
+${ragLine}${truncLine}
+
+Rules:
+- Base your answer solely on the text segments below.
+- Cite the source in square brackets for each piece of information: [Manual Name - Rev.X] or [Manual Name].
+- If drawing from multiple manuals, consider all of them; explicitly note any contradictions.
+- Do not invent information not present in the segments; if necessary, say "No information on this topic was found in the loaded manuals."
+- End your response with a brief "Sources:" line listing the manuals you used.
+
+--- SYSTEM MANUAL TEXT ---
+${contextBlock}`
+  }
+
   const ragLine = usedRag
     ? "\n\nNot: Uzun veya birden fazla dokümanda yalnızca soruya en yakın metin parçaları (veya eşleşme yoksa her dokümanın başı) kullanılır."
     : ""

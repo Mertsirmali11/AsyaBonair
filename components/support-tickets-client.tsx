@@ -1,7 +1,13 @@
 "use client"
 
 import * as React from "react"
-import { IconDownload, IconPaperclip, IconSend, IconX } from "@tabler/icons-react"
+import {
+  IconDownload,
+  IconHistory,
+  IconPaperclip,
+  IconSend,
+  IconX,
+} from "@tabler/icons-react"
 import { formatDateTimeIstanbul } from "@/lib/date-format"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -62,6 +68,21 @@ type TicketRow = {
   }
 }
 
+type HistoryAttachmentMeta = { fileName: string; sizeBytes: number }
+
+type TicketHistoryEntry = {
+  id: number
+  createdAt: string
+  eventType: string
+  statusFrom: TicketStatus | null
+  statusTo: TicketStatus | null
+  adminNote: string | null
+  subjectSnapshot: string | null
+  contentSnapshot: string | null
+  attachmentMeta: unknown
+  actor: TicketRow["creator"]
+}
+
 const MAX_ATTACHMENTS = 5
 const MAX_FILE_BYTES = 12 * 1024 * 1024
 
@@ -91,6 +112,17 @@ function truncate(s: string, max: number): string {
   const t = s.trim()
   if (t.length <= max) return t
   return `${t.slice(0, max - 1)}…`
+}
+
+function parseAttachmentMeta(raw: unknown): HistoryAttachmentMeta[] {
+  if (!Array.isArray(raw)) return []
+  return raw.filter(
+    (x): x is HistoryAttachmentMeta =>
+      x !== null &&
+      typeof x === "object" &&
+      typeof (x as HistoryAttachmentMeta).fileName === "string" &&
+      typeof (x as HistoryAttachmentMeta).sizeBytes === "number"
+  )
 }
 
 function TicketAttachmentLinks({
@@ -136,11 +168,14 @@ export function SupportTicketsClient() {
     text: string
   } | null>(null)
 
+  const [createOpen, setCreateOpen] = React.useState(false)
   const [editOpen, setEditOpen] = React.useState(false)
   const [editRow, setEditRow] = React.useState<TicketRow | null>(null)
   const [editStatus, setEditStatus] = React.useState<TicketStatus>("OPEN")
   const [editAction, setEditAction] = React.useState("")
   const [savingEdit, setSavingEdit] = React.useState(false)
+  const [ticketHistory, setTicketHistory] = React.useState<TicketHistoryEntry[]>([])
+  const [historyLoading, setHistoryLoading] = React.useState(false)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -180,6 +215,35 @@ export function SupportTicketsClient() {
     const t = window.setTimeout(() => setBanner(null), 7000)
     return () => window.clearTimeout(t)
   }, [banner])
+
+  React.useEffect(() => {
+    if (!editOpen || !editRow || !isAdmin) {
+      setTicketHistory([])
+      setHistoryLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setHistoryLoading(true)
+    void (async () => {
+      try {
+        const res = await fetch(`/api/support-tickets/${editRow.id}`, {
+          cache: "no-store",
+        })
+        const data = (await res.json().catch(() => ({}))) as {
+          history?: TicketHistoryEntry[]
+        }
+        const list = Array.isArray(data.history) ? data.history : []
+        if (!cancelled) setTicketHistory(list)
+      } finally {
+        if (!cancelled) setHistoryLoading(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [editOpen, editRow?.id, isAdmin])
 
   const addPendingFiles = (list: FileList | File[]) => {
     const next: File[] = [...pendingFiles]
@@ -239,6 +303,7 @@ export function SupportTicketsClient() {
       setSubject("")
       setContent("")
       setPendingFiles([])
+      setCreateOpen(false)
       await load()
     } catch (e) {
       setBanner({
@@ -337,29 +402,33 @@ export function SupportTicketsClient() {
         </div>
       )}
 
-      <div>
-        <h1 className="text-foreground text-2xl font-semibold tracking-tight">
-          Destek &amp; hata yönetimi
-        </h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Personelden gelen sistem hataları ve destek talepleri
-        </p>
-      </div>
-
-      {isAdmin && !loading ? (
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            className="gap-2 border-emerald-600/50 text-emerald-800 hover:bg-emerald-50 dark:text-emerald-200"
-            disabled={tickets.length === 0}
-            onClick={() => exportCsv()}
-          >
-            <IconDownload className="size-4" />
-            Excel&apos;e aktar (CSV)
-          </Button>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-foreground text-2xl font-semibold tracking-tight">
+            Destek &amp; hata yönetimi
+          </h1>
+          <p className="text-muted-foreground mt-1 text-sm">
+            Personelden gelen sistem hataları ve destek talepleri
+          </p>
         </div>
-      ) : null}
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <Button type="button" className="gap-2" onClick={() => setCreateOpen(true)}>
+            Destek oluştur
+          </Button>
+          {isAdmin && !loading ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-2 border-emerald-600/50 text-emerald-800 hover:bg-emerald-50 dark:text-emerald-200"
+              disabled={tickets.length === 0}
+              onClick={() => exportCsv()}
+            >
+              <IconDownload className="size-4" />
+              Excel&apos;e aktar (CSV)
+            </Button>
+          ) : null}
+        </div>
+      </div>
 
       {loading ? (
         <div className="space-y-3">
@@ -437,95 +506,6 @@ export function SupportTicketsClient() {
             </Card>
           ) : null}
 
-          <Card id="support-tickets-new" className="scroll-mt-24">
-            <CardHeader>
-              <CardTitle className="text-base">Yeni destek talebi</CardTitle>
-              <CardDescription>
-                Yaşadığınız sorunu kısaca özetleyin; Admin bu kayıt üzerinden aksiyon alır.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-2">
-                <Label htmlFor="st-subject">Konu (isteğe bağlı)</Label>
-                <Input
-                  id="st-subject"
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  placeholder="Örn. Giriş ekranı hatası"
-                  maxLength={200}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="st-content">Açıklama</Label>
-                <Textarea
-                  id="st-content"
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  placeholder="Ne oldu, hangi sayfa, hata mesajı varsa yazın…"
-                  rows={5}
-                  className="min-h-[120px] resize-y"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="st-files">Ekler (isteğe bağlı)</Label>
-                <p className="text-muted-foreground text-xs">
-                  Ekran görüntüsü veya PDF ekleyebilirsiniz. En fazla {MAX_ATTACHMENTS}{" "}
-                  dosya; dosya başına en fazla {Math.floor(MAX_FILE_BYTES / (1024 * 1024))}{" "}
-                  MB.
-                </p>
-                <Input
-                  id="st-files"
-                  type="file"
-                  accept="image/*,application/pdf,.pdf"
-                  multiple
-                  className="cursor-pointer file:mr-3 file:rounded file:border-0 file:bg-muted file:px-3 file:py-1 file:text-sm"
-                  onChange={(e) => {
-                    const f = e.target.files
-                    if (f?.length) addPendingFiles(f)
-                    e.target.value = ""
-                  }}
-                />
-                {pendingFiles.length > 0 ? (
-                  <ul className="space-y-1.5 text-sm">
-                    {pendingFiles.map((f, i) => (
-                      <li
-                        key={`${f.name}-${i}-${f.size}`}
-                        className="bg-muted/40 flex items-center gap-2 rounded-md border px-2 py-1.5"
-                      >
-                        <IconPaperclip className="text-muted-foreground size-4 shrink-0" />
-                        <span className="min-w-0 flex-1 truncate" title={f.name}>
-                          {f.name}
-                        </span>
-                        <span className="text-muted-foreground shrink-0 text-xs">
-                          {formatBytes(f.size)}
-                        </span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 shrink-0"
-                          onClick={() => removePendingAt(i)}
-                          aria-label="Dosyayı kaldır"
-                        >
-                          <IconX className="size-4" />
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-              </div>
-              <Button
-                type="button"
-                className="gap-2"
-                disabled={submitting}
-                onClick={() => void submitTicket()}
-              >
-                <IconSend className="size-4" />
-                {submitting ? "Gönderiliyor…" : "Talebi gönder"}
-              </Button>
-            </CardContent>
-          </Card>
-
           {!isAdmin ? (
             <Card>
               <CardHeader className="pb-2">
@@ -584,8 +564,103 @@ export function SupportTicketsClient() {
         </>
       )}
 
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="max-h-[min(90vh,calc(100vh-2rem))] gap-0 overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Yeni destek talebi</DialogTitle>
+            <DialogDescription>
+              Yaşadığınız sorunu kısaca özetleyin; Admin bu kayıt üzerinden aksiyon alır.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="grid gap-2">
+              <Label htmlFor="st-subject">Konu (isteğe bağlı)</Label>
+              <Input
+                id="st-subject"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="Örn. Giriş ekranı hatası"
+                maxLength={200}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="st-content">Açıklama</Label>
+              <Textarea
+                id="st-content"
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder="Ne oldu, hangi sayfa, hata mesajı varsa yazın…"
+                rows={5}
+                className="min-h-[120px] resize-y"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="st-files">Ekler (isteğe bağlı)</Label>
+              <p className="text-muted-foreground text-xs">
+                Ekran görüntüsü veya PDF ekleyebilirsiniz. En fazla {MAX_ATTACHMENTS} dosya; dosya
+                başına en fazla {Math.floor(MAX_FILE_BYTES / (1024 * 1024))} MB.
+              </p>
+              <Input
+                id="st-files"
+                type="file"
+                accept="image/*,application/pdf,.pdf"
+                multiple
+                className="cursor-pointer file:mr-3 file:rounded file:border-0 file:bg-muted file:px-3 file:py-1 file:text-sm"
+                onChange={(e) => {
+                  const f = e.target.files
+                  if (f?.length) addPendingFiles(f)
+                  e.target.value = ""
+                }}
+              />
+              {pendingFiles.length > 0 ? (
+                <ul className="space-y-1.5 text-sm">
+                  {pendingFiles.map((f, i) => (
+                    <li
+                      key={`${f.name}-${i}-${f.size}`}
+                      className="bg-muted/40 flex items-center gap-2 rounded-md border px-2 py-1.5"
+                    >
+                      <IconPaperclip className="text-muted-foreground size-4 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate" title={f.name}>
+                        {f.name}
+                      </span>
+                      <span className="text-muted-foreground shrink-0 text-xs">
+                        {formatBytes(f.size)}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0"
+                        onClick={() => removePendingAt(i)}
+                        aria-label="Dosyayı kaldır"
+                      >
+                        <IconX className="size-4" />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={submitting}
+              onClick={() => setCreateOpen(false)}
+            >
+              Kapat
+            </Button>
+            <Button type="button" className="gap-2" disabled={submitting} onClick={() => void submitTicket()}>
+              <IconSend className="size-4" />
+              {submitting ? "Gönderiliyor…" : "Talebi gönder"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[min(92vh,calc(100vh-2rem))] gap-0 overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Talep — Admin aksiyonu</DialogTitle>
             <DialogDescription>
@@ -623,6 +698,131 @@ export function SupportTicketsClient() {
                   </ul>
                 </div>
               ) : null}
+
+              <div className="rounded-md border border-border/80 bg-muted/20 p-3 text-sm">
+                <div className="text-muted-foreground mb-2 flex items-center gap-2 text-xs font-medium">
+                  <IconHistory className="size-4 shrink-0" aria-hidden />
+                  Aksiyon geçmişi
+                </div>
+                {historyLoading ? (
+                  <p className="text-muted-foreground text-xs">Geçmiş yükleniyor…</p>
+                ) : ticketHistory.length === 0 ? (
+                  <p className="text-muted-foreground text-xs">
+                    Kayıtlı geçmiş yok (sistem güncellemesinden önce oluşturulmuş taleplerde ilk
+                    kayıt yoktur).
+                  </p>
+                ) : (
+                  <ul className="max-h-[min(40vh,280px)] space-y-3 overflow-y-auto overscroll-contain pr-1">
+                    {ticketHistory.map((h) => {
+                      const actorName = personelLabel(h.actor)
+                      const time = formatDateTimeIstanbul(h.createdAt)
+                      const isCreated = h.eventType === "CREATED"
+                      const meta = isCreated ? parseAttachmentMeta(h.attachmentMeta) : []
+
+                      return (
+                        <li
+                          key={h.id}
+                          className="border-border/60 bg-background/80 rounded-md border px-2.5 py-2 text-xs"
+                        >
+                          <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+                            <span className="text-foreground font-semibold">
+                              {isCreated ? "Talep oluşturuldu" : "Admin güncellemesi"}
+                            </span>
+                            <span className="text-muted-foreground tabular-nums">{time}</span>
+                          </div>
+                          <p className="text-muted-foreground mt-0.5">
+                            <span className="text-foreground font-medium">{actorName}</span>
+                            {h.actor.departman ? (
+                              <span> · {h.actor.departman}</span>
+                            ) : null}
+                          </p>
+
+                          {isCreated ? (
+                            <div className="mt-2 space-y-2">
+                              {h.subjectSnapshot?.trim() ? (
+                                <p>
+                                  <span className="text-muted-foreground">Konu: </span>
+                                  <span className="text-foreground font-medium">
+                                    {h.subjectSnapshot}
+                                  </span>
+                                </p>
+                              ) : null}
+                              {h.contentSnapshot?.trim() ? (
+                                <div className="bg-muted/50 max-h-28 overflow-y-auto rounded p-2">
+                                  <p className="text-muted-foreground mb-0.5 text-[10px] font-medium uppercase tracking-wide">
+                                    Oluşturma anındaki açıklama
+                                  </p>
+                                  <p className="text-foreground whitespace-pre-wrap break-words">
+                                    {h.contentSnapshot}
+                                  </p>
+                                </div>
+                              ) : null}
+                              {meta.length > 0 ? (
+                                <div>
+                                  <p className="text-muted-foreground mb-1 text-[10px] font-medium uppercase tracking-wide">
+                                    Eklenen ekler (oluşturma)
+                                  </p>
+                                  <ul className="text-foreground space-y-0.5">
+                                    {meta.map((m, i) => (
+                                      <li key={`${m.fileName}-${i}`}>
+                                        {m.fileName}{" "}
+                                        <span className="text-muted-foreground">
+                                          ({formatBytes(m.sizeBytes)})
+                                        </span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ) : null}
+                              {h.statusTo ? (
+                                <p className="text-muted-foreground">
+                                  İlk durum:{" "}
+                                  <span className="text-foreground font-medium">
+                                    {STATUS_LABEL[h.statusTo]}
+                                  </span>
+                                </p>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className="mt-2 space-y-1.5">
+                              {h.statusFrom && h.statusTo && h.statusFrom !== h.statusTo ? (
+                                <p className="text-foreground">
+                                  Durum:{" "}
+                                  <span className="font-medium">{STATUS_LABEL[h.statusFrom]}</span>
+                                  <span className="text-muted-foreground"> → </span>
+                                  <span className="font-medium">{STATUS_LABEL[h.statusTo]}</span>
+                                </p>
+                              ) : (
+                                <p className="text-muted-foreground">
+                                  Durum:{" "}
+                                  <span className="text-foreground font-medium">
+                                    {h.statusTo ? STATUS_LABEL[h.statusTo] : "—"}
+                                  </span>
+                                </p>
+                              )}
+                              {h.adminNote?.trim() ? (
+                                <div className="bg-muted/50 rounded p-2">
+                                  <p className="text-muted-foreground mb-0.5 text-[10px] font-medium uppercase tracking-wide">
+                                    Bu adımda yazılan not
+                                  </p>
+                                  <p className="text-foreground whitespace-pre-wrap break-words">
+                                    {h.adminNote}
+                                  </p>
+                                </div>
+                              ) : (
+                                <p className="text-muted-foreground italic">
+                                  Bu kayıtta yeni metin notu yok (yalnızca durum güncellendi).
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </div>
+
               <div className="grid gap-2">
                 <Label>Durum</Label>
                 <Select

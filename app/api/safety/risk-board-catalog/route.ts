@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client"
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
+import { requireSafetyManagementApi } from "@/lib/require-safety-management-api"
 import { riskBoardKeyFromTitle } from "@/lib/safety-risk-board-key"
 import { riskBoardCatalogEntriesSchema } from "@/lib/safety-risk-catalog-schema"
 import type { RiskBoardSeedRow } from "@/lib/safety-risk-seed"
@@ -27,6 +28,8 @@ function baselinePrevious(
 
 export async function GET() {
   try {
+    const gate = await requireSafetyManagementApi()
+    if (!gate.ok) return gate.response
     const session = await auth()
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -63,6 +66,8 @@ export async function GET() {
 
 export async function PUT(req: NextRequest) {
   try {
+    const gate = await requireSafetyManagementApi()
+    if (!gate.ok) return gate.response
     const session = await auth()
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -164,6 +169,8 @@ export async function PUT(req: NextRequest) {
 /** Tüm katalog satırlarını ve kayıtlı bow-tie (SafetyRiskBoard) kayıtlarını siler. */
 export async function DELETE() {
   try {
+    const gate = await requireSafetyManagementApi()
+    if (!gate.ok) return gate.response
     const session = await auth()
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

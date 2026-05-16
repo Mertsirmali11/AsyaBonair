@@ -82,6 +82,7 @@ export async function GET() {
       birthdays,
       tasksInWindow,
       certificateRows,
+      certificateRowsExpired,
       supportTicketsPreview,
     ] = await Promise.all([
       prisma.meeting.findMany({
@@ -205,6 +206,35 @@ export async function GET() {
               aircraft: { id: number; register: string; msn: string }
             }[]
           ),
+      canAccessConfigurationsArea(viewer?.departman)
+        ? prisma.aircraftDocument.findMany({
+            where: {
+              category: "certificate",
+              isArchived: false,
+              validUntil: { not: null, lt: todayStart },
+              aircraft: { isArchived: false },
+            },
+            select: {
+              id: true,
+              docType: true,
+              fileName: true,
+              validUntil: true,
+              aircraft: {
+                select: { id: true, register: true, msn: true },
+              },
+            },
+            orderBy: { validUntil: "asc" },
+            take: 50,
+          })
+        : Promise.resolve(
+            [] as {
+              id: number
+              docType: string
+              fileName: string
+              validUntil: Date | null
+              aircraft: { id: number; register: string; msn: string }
+            }[]
+          ),
       viewer
         ? prisma.supportTicket.findMany({
             where: canManageSupportTicketsAsAdmin(viewer.departman)
@@ -291,6 +321,27 @@ export async function GET() {
         }
       })
 
+    const certificatesExpired = certificateRowsExpired.map((r) => {
+      const v = r.validUntil!
+      const untilUtc = Date.UTC(
+        v.getUTCFullYear(),
+        v.getUTCMonth(),
+        v.getUTCDate()
+      )
+      const daysExpired = Math.max(
+        0,
+        Math.round((todayUtcMs - untilUtc) / 86400000)
+      )
+      return {
+        id: r.id,
+        docType: r.docType,
+        fileName: r.fileName,
+        validUntil: v.toISOString(),
+        daysExpired,
+        aircraft: r.aircraft,
+      }
+    })
+
     return NextResponse.json(
       prismaJson({
         announcements: announcementsWithAck,
@@ -300,6 +351,7 @@ export async function GET() {
         tasksDueToday,
         tasksDueNext30Days,
         certificatesExpiringSoon,
+        certificatesExpired,
         supportTicketsPreview,
         supportTicketsAdminView: viewer
           ? canManageSupportTicketsAsAdmin(viewer.departman)

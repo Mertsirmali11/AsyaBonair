@@ -1,10 +1,11 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useEffect, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { format, parseISO, isWithinInterval } from "date-fns"
-import { tr } from "date-fns/locale"
+import { tr as trLocale } from "date-fns/locale"
+import { useLanguage } from "@/lib/i18n/context"
 import {
   Plus, CheckCircle2, XCircle, Clock, ChevronDown, Filter,
 } from "lucide-react"
@@ -14,6 +15,15 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select"
+import {
+  LEAVE_SUBCATEGORY_LABELS,
+  LEAVE_SUBCATEGORY_VALUES,
+  leaveSubcategoryLabel,
+  type LeaveSubcategory,
+} from "@/lib/leave-subcategory"
 import { cn } from "@/lib/utils"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -24,6 +34,7 @@ interface LeaveRequest {
   id: number
   startDate: string
   endDate: string
+  subcategory: LeaveSubcategory | null
   reason: string | null
   status: LeaveStatus
   reviewNote: string | null
@@ -53,30 +64,18 @@ interface PageData {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function statusBadge(status: LeaveStatus) {
-  const map = {
-    PENDING: { label: "Beklemede", icon: Clock, cls: "bg-amber-100 text-amber-800 border-amber-200" },
-    APPROVED: { label: "Onaylandı", icon: CheckCircle2, cls: "bg-green-100 text-green-800 border-green-200" },
-    REJECTED: { label: "Reddedildi", icon: XCircle, cls: "bg-red-100 text-red-800 border-red-200" },
-  } as const
-  const { label, icon: Icon, cls } = map[status]
-  return (
-    <span className={cn("inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium", cls)}>
-      <Icon size={11} />
-      {label}
-    </span>
-  )
-}
+// statusBadge is defined inside LeaveRequestsClient to access translations
 
 function fullName(p: { isim: string | null; soyisim: string | null }) {
   return [p.isim, p.soyisim].filter(Boolean).join(" ") || "—"
 }
 
-function dateRange(start: string, end: string) {
+function dateRange(start: string, end: string, locale: string) {
   const s = parseISO(start)
   const e = parseISO(end)
-  if (s.toDateString() === e.toDateString()) return format(s, "d MMM yyyy", { locale: tr })
-  return `${format(s, "d MMM", { locale: tr })} – ${format(e, "d MMM yyyy", { locale: tr })}`
+  const dateFnsLocale = locale === "tr" ? trLocale : undefined
+  if (s.toDateString() === e.toDateString()) return format(s, "d MMM yyyy", { locale: dateFnsLocale })
+  return `${format(s, "d MMM", { locale: dateFnsLocale })} – ${format(e, "d MMM yyyy", { locale: dateFnsLocale })}`
 }
 
 function isActiveToday(req: LeaveRequest): boolean {
@@ -99,18 +98,34 @@ function NewRequestDialog({
   onClose: () => void
   onCreated: (req: LeaveRequest) => void
 }) {
+  const { t } = useLanguage()
+  const lr = t.leaveRequests
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
+  const [subcategory, setSubcategory] = useState<LeaveSubcategory | "">("")
   const [reason, setReason] = useState("")
   const [loading, setLoading] = useState(false)
 
+  useEffect(() => {
+    if (!open) {
+      setStartDate("")
+      setEndDate("")
+      setSubcategory("")
+      setReason("")
+    }
+  }, [open])
+
   const handleSubmit = async () => {
     if (!startDate || !endDate) {
-      toast.error("Başlangıç ve bitiş tarihi zorunlu.")
+      toast.error(lr.errors.startEndRequired)
+      return
+    }
+    if (!subcategory) {
+      toast.error(lr.errors.selectSubcategory)
       return
     }
     if (endDate < startDate) {
-      toast.error("Bitiş tarihi başlangıçtan önce olamaz.")
+      toast.error(lr.errors.endBeforeStart)
       return
     }
     setLoading(true)
@@ -119,16 +134,16 @@ function NewRequestDialog({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ startDate, endDate, reason }),
+        body: JSON.stringify({ startDate, endDate, subcategory, reason }),
       })
       const data = (await res.json()) as { leaveRequest?: LeaveRequest; error?: string }
       if (!res.ok) throw new Error(data.error || `Hata (${res.status})`)
-      toast.success("İzin talebi oluşturuldu.")
+      toast.success(lr.createSuccess)
       onCreated(data.leaveRequest!)
       onClose()
-      setStartDate(""); setEndDate(""); setReason("")
+      setStartDate(""); setEndDate(""); setSubcategory(""); setReason("")
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Talep oluşturulamadı.")
+      toast.error(e instanceof Error ? e.message : lr.errors.createFailed)
     } finally {
       setLoading(false)
     }
@@ -138,31 +153,49 @@ function NewRequestDialog({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Yeni İzin Talebi</DialogTitle>
+          <DialogTitle>{lr.newRequest}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="text-sm font-medium">Başlangıç Tarihi</label>
+              <label className="text-sm font-medium">{lr.startDate}</label>
               <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium">Bitiş Tarihi</label>
+              <label className="text-sm font-medium">{lr.endDate}</label>
               <input type="date" value={endDate} min={startDate} onChange={(e) => setEndDate(e.target.value)}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
             </div>
           </div>
           <div className="space-y-1">
-            <label className="text-sm font-medium">Açıklama (opsiyonel)</label>
+            <label className="text-sm font-medium">{lr.subcategory}</label>
+            <Select
+              value={subcategory || undefined}
+              onValueChange={(v) => setSubcategory(v as LeaveSubcategory)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={lr.selectSubcategory} />
+              </SelectTrigger>
+              <SelectContent>
+                {LEAVE_SUBCATEGORY_VALUES.map((val) => (
+                  <SelectItem key={val} value={val}>
+                    {LEAVE_SUBCATEGORY_LABELS[val]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium">{lr.description}</label>
             <Textarea value={reason} onChange={(e) => setReason(e.target.value)}
-              placeholder="İzin sebebinizi kısaca belirtin…" rows={3} className="resize-none" />
+              placeholder={lr.descriptionPlaceholder} rows={3} className="resize-none" />
           </div>
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={loading}>İptal</Button>
+          <Button variant="ghost" onClick={onClose} disabled={loading}>{t.common.cancel}</Button>
           <Button onClick={handleSubmit} disabled={loading}>
-            {loading ? "Gönderiliyor…" : "Talep Oluştur"}
+            {loading ? lr.sending : lr.createRequest}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -181,6 +214,8 @@ function ReviewDialog({
   onClose: () => void
   onReviewed: (updated: LeaveRequest) => void
 }) {
+  const { t, locale } = useLanguage()
+  const lr = t.leaveRequests
   const [note, setNote] = useState("")
   const [loading, setLoading] = useState(false)
 
@@ -196,12 +231,12 @@ function ReviewDialog({
       })
       const data = (await res.json()) as { leave?: LeaveRequest; error?: string }
       if (!res.ok) throw new Error(data.error || `Hata (${res.status})`)
-      toast.success(status === "APPROVED" ? "İzin onaylandı." : "İzin reddedildi.")
+      toast.success(status === "APPROVED" ? lr.approveSuccess : lr.rejectSuccess)
       onReviewed(data.leave!)
       onClose()
       setNote("")
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "İşlem başarısız.")
+      toast.error(e instanceof Error ? e.message : lr.errors.actionFailed)
     } finally {
       setLoading(false)
     }
@@ -211,32 +246,36 @@ function ReviewDialog({
     <Dialog open={!!leave} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>İzin Talebini İncele</DialogTitle>
+          <DialogTitle>{lr.reviewDialog}</DialogTitle>
         </DialogHeader>
         {leave && (
           <div className="space-y-4 py-2">
             <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1.5 text-sm">
-              <p><span className="font-medium">Çalışan:</span> {fullName(leave.employee)}</p>
+              <p><span className="font-medium">{lr.employee}:</span> {fullName(leave.employee)}</p>
               <p><span className="font-medium">Departman:</span> {leave.employee.departman ?? "—"}</p>
               {leave.employee.title && <p><span className="font-medium">Unvan:</span> {leave.employee.title.titleName}</p>}
-              <p><span className="font-medium">Tarih:</span> {dateRange(leave.startDate, leave.endDate)}</p>
-              {leave.reason && <p><span className="font-medium">Sebep:</span> {leave.reason}</p>}
+              <p><span className="font-medium">{lr.dateRange}:</span> {dateRange(leave.startDate, leave.endDate, locale)}</p>
+              <p>
+                <span className="font-medium">{lr.subcategory}:</span>{" "}
+                {leaveSubcategoryLabel(leave.subcategory)}
+              </p>
+              {leave.reason && <p><span className="font-medium">{lr.reason}:</span> {leave.reason}</p>}
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium">İnceleme Notu (opsiyonel)</label>
+              <label className="text-sm font-medium">{lr.reviewNote}</label>
               <Textarea value={note} onChange={(e) => setNote(e.target.value)}
-                placeholder="Onay / red gerekçesi…" rows={2} className="resize-none" />
+                placeholder={lr.reviewNotePlaceholder} rows={2} className="resize-none" />
             </div>
           </div>
         )}
         <DialogFooter className="gap-2">
-          <Button variant="ghost" onClick={onClose} disabled={loading}>Kapat</Button>
+          <Button variant="ghost" onClick={onClose} disabled={loading}>{t.common.close}</Button>
           <Button variant="destructive" onClick={() => act("REJECTED")} disabled={loading}>
-            <XCircle size={14} className="mr-1" />Reddet
+            <XCircle size={14} className="mr-1" />{t.common.reject}
           </Button>
           <Button onClick={() => act("APPROVED")} disabled={loading}
             className="bg-green-600 hover:bg-green-700 text-white">
-            <CheckCircle2 size={14} className="mr-1" />Onayla
+            <CheckCircle2 size={14} className="mr-1" />{t.common.approve}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -249,15 +288,43 @@ function ReviewDialog({
 export function LeaveRequestsClient({ data }: { data: PageData }) {
   const { ctx } = data
   const router = useRouter()
+  const { t, locale } = useLanguage()
+  const lr = t.leaveRequests
   const [, startTransition] = useTransition()
+
+  const statusBadge = (status: LeaveStatus) => {
+    const map = {
+      PENDING: { label: lr.pending, icon: Clock, cls: "bg-amber-100 text-amber-800 border-amber-200" },
+      APPROVED: { label: lr.approved, icon: CheckCircle2, cls: "bg-green-100 text-green-800 border-green-200" },
+      REJECTED: { label: lr.rejected, icon: XCircle, cls: "bg-red-100 text-red-800 border-red-200" },
+    } as const
+    const { label, icon: Icon, cls } = map[status]
+    return (
+      <span className={cn("inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium", cls)}>
+        <Icon size={11} />
+        {label}
+      </span>
+    )
+  }
   const [requests, setRequests] = useState<LeaveRequest[]>(data.requests)
   const [statusFilter, setStatusFilter] = useState<LeaveStatus | "ALL">("ALL")
+  const [scope, setScope] = useState<"DEPARTMENT" | "MINE">(
+    ctx.isManager || ctx.isGlobalAdmin ? "DEPARTMENT" : "MINE"
+  )
   const [showNew, setShowNew] = useState(false)
   const [reviewing, setReviewing] = useState<LeaveRequest | null>(null)
 
-  const filtered = statusFilter === "ALL"
-    ? requests
-    : requests.filter((r) => r.status === statusFilter)
+  const scopedRequests =
+    ctx.isManager || ctx.isGlobalAdmin
+      ? scope === "MINE"
+        ? requests.filter((r) => r.employee.id === ctx.calisanId)
+        : requests
+      : requests
+
+  const filtered =
+    statusFilter === "ALL"
+      ? scopedRequests
+      : scopedRequests.filter((r) => r.status === statusFilter)
 
   const handleCreated = (req: LeaveRequest) => {
     setRequests((prev) => [req, ...prev])
@@ -274,20 +341,50 @@ export function LeaveRequestsClient({ data }: { data: PageData }) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold">İzin Talepleri</h1>
+          <h1 className="text-xl font-bold">{lr.title}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             {ctx.isGlobalAdmin
-              ? "Tüm departmanlar"
+              ? lr.allDepartments
               : ctx.isManager
-                ? `${ctx.departman} — yönetici görünümü`
-                : "Kişisel izin talepleri"}
+                ? `${ctx.departman} — ${lr.managerView}`
+                : lr.personalLeave}
           </p>
         </div>
         <Button onClick={() => setShowNew(true)} size="sm" className="gap-1.5">
           <Plus size={15} />
-          Yeni Talep
+          {lr.newRequest}
         </Button>
       </div>
+
+      {/* Manager scope tabs */}
+      {(ctx.isManager || ctx.isGlobalAdmin) && (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setScope("DEPARTMENT")}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+              scope === "DEPARTMENT"
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border text-muted-foreground hover:bg-muted"
+            )}
+          >
+            Departman Talepleri
+          </button>
+          <button
+            type="button"
+            onClick={() => setScope("MINE")}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+              scope === "MINE"
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border text-muted-foreground hover:bg-muted"
+            )}
+          >
+            Benim Taleplerim
+          </button>
+        </div>
+      )}
 
       {/* Filter tabs */}
       <div className="flex items-center gap-1 border-b border-border pb-3">
@@ -301,9 +398,9 @@ export function LeaveRequestsClient({ data }: { data: PageData }) {
                 ? "bg-primary text-primary-foreground"
                 : "text-muted-foreground hover:bg-muted"
             )}>
-            {s === "ALL" ? "Tümü" : s === "PENDING" ? "Beklemede" : s === "APPROVED" ? "Onaylı" : "Reddedildi"}
+            {s === "ALL" ? t.common.all : s === "PENDING" ? lr.pending : s === "APPROVED" ? lr.approved : lr.rejected}
             <span className="ml-1 opacity-60">
-              ({s === "ALL" ? requests.length : requests.filter((r) => r.status === s).length})
+              ({s === "ALL" ? scopedRequests.length : scopedRequests.filter((r) => r.status === s).length})
             </span>
           </button>
         ))}
@@ -315,22 +412,26 @@ export function LeaveRequestsClient({ data }: { data: PageData }) {
           <thead>
             <tr className="bg-muted/50 text-left text-xs text-muted-foreground uppercase tracking-wide">
               {(ctx.isManager || ctx.isGlobalAdmin) && (
-                <th className="px-4 py-3 font-medium">Çalışan</th>
+                <th className="px-4 py-3 font-medium">{lr.employee}</th>
               )}
-              <th className="px-4 py-3 font-medium">Tarih Aralığı</th>
-              <th className="px-4 py-3 font-medium">Sebep</th>
-              <th className="px-4 py-3 font-medium">Durum</th>
-              <th className="px-4 py-3 font-medium">Onaylayıcı</th>
+              <th className="px-4 py-3 font-medium">{lr.dateRange}</th>
+              <th className="px-4 py-3 font-medium">{lr.subcategory}</th>
+              <th className="px-4 py-3 font-medium">{lr.reason}</th>
+              <th className="px-4 py-3 font-medium">{lr.status}</th>
+              <th className="px-4 py-3 font-medium">{lr.approver}</th>
               {(ctx.isManager || ctx.isGlobalAdmin) && (
-                <th className="px-4 py-3 font-medium">İşlem</th>
+                <th className="px-4 py-3 font-medium">{lr.action}</th>
               )}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground text-sm">
-                  Bu filtrede izin talebi bulunamadı.
+                <td
+                  colSpan={(ctx.isManager || ctx.isGlobalAdmin) ? 7 : 5}
+                  className="px-4 py-10 text-center text-muted-foreground text-sm"
+                >
+                  {lr.noRequests}
                 </td>
               </tr>
             ) : (
@@ -352,19 +453,22 @@ export function LeaveRequestsClient({ data }: { data: PageData }) {
                       </td>
                     )}
                     <td className="px-4 py-3 whitespace-nowrap">
-                      {dateRange(req.startDate, req.endDate)}
+                      {dateRange(req.startDate, req.endDate, locale)}
                       {active && (
                         <Badge variant="destructive" className="ml-2 text-[10px] py-0 px-1.5">
-                          İzinli
+                          {lr.activeToday}
                         </Badge>
                       )}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground text-sm max-w-[180px]">
+                      {leaveSubcategoryLabel(req.subcategory)}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground max-w-[200px] truncate">
                       {req.reason ?? <span className="italic opacity-50">—</span>}
                     </td>
                     <td className="px-4 py-3">{statusBadge(req.status)}</td>
                     <td className="px-4 py-3 text-muted-foreground text-xs">
-                      {req.approver ? fullName(req.approver) : <span className="italic opacity-50">Atanmadı</span>}
+                      {req.approver ? fullName(req.approver) : <span className="italic opacity-50">{lr.notAssigned}</span>}
                     </td>
                     {(ctx.isManager || ctx.isGlobalAdmin) && (
                       <td className="px-4 py-3">
@@ -372,7 +476,7 @@ export function LeaveRequestsClient({ data }: { data: PageData }) {
                           <Button size="sm" variant="outline" className="h-7 gap-1 text-xs"
                             onClick={() => setReviewing(req)}>
                             <ChevronDown size={12} />
-                            İncele
+                            {lr.review}
                           </Button>
                         ) : (
                           <span className="text-xs text-muted-foreground italic">

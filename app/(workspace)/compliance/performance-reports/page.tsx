@@ -1,6 +1,8 @@
 import { auth } from "@/auth"
 import { redirect } from "next/navigation"
-import { canAccessQualityOrAdminSettings } from "@/lib/department-access"
+
+import { DEPARTMENT_PERMISSION_KEYS } from "@/lib/department-permission-keys"
+import { getResolvedDepartmentPermissionsForUser } from "@/lib/department-permissions-resolve"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { PerformanceReportsClient } from "./performance-reports-client"
 import type { PerformanceReportsData } from "@/app/api/performance-reports/route"
@@ -25,7 +27,10 @@ async function fetchPerformanceData(): Promise<PerformanceReportsData | null> {
 export default async function PerformanceReportsPage() {
   const session = await auth()
   if (!session) redirect("/login")
-  if (!canAccessQualityOrAdminSettings(session.user?.departman)) {
+  const permissions = await getResolvedDepartmentPermissionsForUser(
+    session.user?.departman
+  )
+  if (!permissions[DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING]) {
     redirect("/dashboard")
   }
 

@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto"
 import { NextRequest, NextResponse } from "next/server"
+import { SupportTicketStatus } from "@prisma/client"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
 import {
@@ -13,6 +14,12 @@ import { canManageSupportTicketsAsAdmin } from "@/lib/support-ticket-access"
 import { deletePdfFromStorage, uploadBinaryToStorage } from "@/lib/supabase-storage"
 
 export const runtime = "nodejs"
+
+function isMissingTableError(e: unknown): boolean {
+  if (!e || typeof e !== "object") return false
+  const code = "code" in e ? (e as { code?: unknown }).code : undefined
+  return code === "P2021"
+}
 
 const attachmentSelect = {
   id: true,
@@ -234,6 +241,31 @@ export async function POST(req: NextRequest) {
         attachments: { select: attachmentSelect, orderBy: { id: "asc" } },
       },
     })
+
+    try {
+      await prisma.supportTicketHistory.create({
+        data: {
+          supportTicketId: row.id,
+          actorId: calisan.id,
+          eventType: "CREATED",
+          statusTo: SupportTicketStatus.OPEN,
+          subjectSnapshot: subject?.trim().slice(0, 200) || null,
+          contentSnapshot: content,
+          attachmentMeta:
+            full && full.attachments.length > 0
+              ? full.attachments.map((a) => ({
+                  fileName: a.fileName,
+                  sizeBytes: a.sizeBytes,
+                }))
+              : [],
+        },
+      })
+    } catch (e) {
+      if (!isMissingTableError(e)) throw e
+      console.warn(
+        "[support-tickets] history table missing; skipping history create"
+      )
+    }
 
     return NextResponse.json(full)
   } catch (e) {

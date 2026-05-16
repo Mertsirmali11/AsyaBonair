@@ -10,9 +10,13 @@ import {
 import { hireDateFromApprovalTimestamp } from "@/lib/approval-hire-date"
 import { workerRegistrationPhotoPublicUrl } from "@/lib/worker-registration-photo-url"
 import {
+  isPilotDepartmentName,
   PILOT_RANKS,
-  WORKER_REGISTRATION_DEPARTMENTS,
 } from "@/lib/worker-registration-constants"
+import {
+  fetchRegisteredDepartmentNames,
+  isDepartmentInRegistry,
+} from "@/lib/organization-departments"
 
 function mimeFromPath(p: string): string {
   const lower = p.toLowerCase()
@@ -188,16 +192,19 @@ export async function PATCH(
       { status: 400 }
     )
   }
-  if (
-    !WORKER_REGISTRATION_DEPARTMENTS.includes(
-      departman as (typeof WORKER_REGISTRATION_DEPARTMENTS)[number]
+  const deptRegistry = await fetchRegisteredDepartmentNames(prisma)
+  if (!isDepartmentInRegistry(departman, deptRegistry)) {
+    return NextResponse.json(
+      {
+        error:
+          "Geçersiz departman. Önce Configurations → Departmanlar’da tanımlayın.",
+      },
+      { status: 400 }
     )
-  ) {
-    return NextResponse.json({ error: "Invalid department." }, { status: 400 })
   }
 
   const pilotRank = (body?.ekstra3 || "").trim()
-  if (departman === "Pilot") {
+  if (isPilotDepartmentName(departman)) {
     if (!PILOT_RANKS.includes(pilotRank as (typeof PILOT_RANKS)[number])) {
       return NextResponse.json(
         { error: "Pilot department requires position Captain or F/O." },

@@ -8,7 +8,10 @@ import {
   effectiveDepartmanForDepartmentForms,
   normalizeDeptLabel,
 } from "@/lib/department-form-access"
-import { getOrganizationDepartmentOptions, isOrganizationDepartment } from "@/lib/organization-departments"
+import {
+  fetchRegisteredDepartmentNames,
+  isDepartmentInRegistry,
+} from "@/lib/organization-departments"
 import {
   isAllowedDepartmentFormFile,
   lowerExtension,
@@ -184,7 +187,7 @@ export async function GET() {
       })),
       canManageAllDepartmentForms: manageAll,
       viewerDepartman: departman,
-      departmentOptions: getOrganizationDepartmentOptions(),
+      departmentOptions: await fetchRegisteredDepartmentNames(prisma),
     })
   } catch (e) {
     console.error("[department-forms] GET:", e)
@@ -264,8 +267,12 @@ export async function POST(req: NextRequest) {
   if (!title) {
     return NextResponse.json({ error: "Başlık gerekli." }, { status: 400 })
   }
-  if (!isOrganizationDepartment(department)) {
-    return NextResponse.json({ error: "Geçerli bir departman seçin." }, { status: 400 })
+  const deptRegistry = await fetchRegisteredDepartmentNames(prisma)
+  if (!isDepartmentInRegistry(department, deptRegistry)) {
+    return NextResponse.json(
+      { error: "Geçerli bir departman seçin (Configurations → Departmanlar)." },
+      { status: 400 }
+    )
   }
   if (!manageAll) {
     if (!normalizeDeptLabel(departman)) {

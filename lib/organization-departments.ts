@@ -1,72 +1,72 @@
 /**
- * Kurum departmanları — `components/user-management` ile aynı sabit liste
- * (manuel sahibi departmanı ve çalışan formu tek kaynak).
+ * Kurum departmanları yalnızca `custom_departments` kayıtlarından gelir
+ * (Configurations → Departmanlar). Sabit ürün listesi yoktur.
  */
-export const ORGANIZATION_DEPARTMENTS = [
-  "Maintenance",
-  "Human Resources",
-  "Handling",
-  "Camo",
-  "Engineering",
-  "Kitchen & Cleaning Staff",
-  "Supply",
-  "Accounting",
-  "Compliance",
-  "Quality",
-  "Admin",
-  "Administrative Affairs",
-  "IT",
-  "Planning",
-  "Pilot",
-] as const
 
-export type OrganizationDepartment = (typeof ORGANIZATION_DEPARTMENTS)[number]
-
-export function getOrganizationDepartmentOptions(): string[] {
-  return [...ORGANIZATION_DEPARTMENTS]
+type CustomDeptDelegate = {
+  findMany(args: {
+    orderBy: { name: "asc" }
+    select: { name: true }
+  }): Promise<{ name: string }[]>
 }
 
-/** Varsayılan sıra korunur; ek isimler alfabetik sonda, tekrarsız (büyük/küçük harf). */
+/** Veritabanında kayıtlı departman adları (alfabetik). */
+export async function fetchRegisteredDepartmentNames(prisma: {
+  customDepartment: CustomDeptDelegate
+}): Promise<string[]> {
+  const rows = await prisma.customDepartment.findMany({
+    orderBy: { name: "asc" },
+    select: { name: true },
+  })
+  return rows.map((r) => r.name)
+}
+
+/** "Liste" modunda seçilen departman kayıtlı mı (büyük/küçük harf duyarsız)? */
+export function isDepartmentInRegistry(
+  value: string | null | undefined,
+  registry: readonly string[]
+): boolean {
+  const t = (value ?? "").trim()
+  if (!t) return false
+  const lower = t.toLowerCase()
+  return registry.some((r) => r.trim().toLowerCase() === lower)
+}
+
+/**
+ * Kayıtlı departmanlar + çalışan kayıtlarında görünen ek isimler (henüz tabloya eklenmemiş olabilir)
+ * — kullanıcı yönetimi filtreleri ve benzeri için.
+ */
 export function mergeDepartmentLists(
-  base: readonly string[],
-  extra: string[]
+  configured: readonly string[],
+  fromEmployees: string[]
 ): string[] {
   const seen = new Set<string>()
   const out: string[] = []
-  const tryPush = (raw: string) => {
+  const push = (raw: string) => {
     const t = raw.trim()
     if (!t) return
-    const key = t.toLowerCase()
-    if (seen.has(key)) return
-    seen.add(key)
+    const k = t.toLowerCase()
+    if (seen.has(k)) return
+    seen.add(k)
     out.push(t)
   }
-  for (const b of base) tryPush(b)
+  for (const c of configured) push(c)
   const extras: string[] = []
-  for (const e of extra) {
+  for (const e of fromEmployees) {
     const t = e.trim()
     if (!t) continue
-    const key = t.toLowerCase()
-    if (seen.has(key)) continue
-    seen.add(key)
+    const k = t.toLowerCase()
+    if (seen.has(k)) continue
+    seen.add(k)
     extras.push(t)
   }
-  extras.sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }))
+  extras.sort((a, b) => a.localeCompare(b, "tr", { sensitivity: "base" }))
   return [...out, ...extras]
-}
-
-export function isOrganizationDepartment(
-  value: string | null | undefined
-): value is OrganizationDepartment {
-  return (
-    !!value &&
-    (ORGANIZATION_DEPARTMENTS as readonly string[]).includes(value.trim())
-  )
 }
 
 const MAX_CUSTOM_MANUAL_DEPARTMENT_LEN = 100
 
-/** Listede olmayan manuel sahibi departmanı (serbest metin, kontrollü uzunluk). */
+/** Liste dışında serbest metin (manuel) — uzunluk ve kontrol karakterleri. */
 export function isValidCustomManualDepartment(value: string | null | undefined): boolean {
   const t = (value ?? "").trim()
   if (t.length < 1 || t.length > MAX_CUSTOM_MANUAL_DEPARTMENT_LEN) return false
