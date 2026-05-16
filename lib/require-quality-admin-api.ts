@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 
 import { auth } from "@/auth"
-import { canAccessQualityOrAdminSettings } from "@/lib/department-access"
+import { DEPARTMENT_PERMISSION_KEYS } from "@/lib/department-permission-keys"
+import { getResolvedDepartmentPermissionsForUser } from "@/lib/department-permissions-resolve"
 
 export async function requireQualityOrAdminApi(): Promise<
   { ok: true } | { ok: false; response: NextResponse }
@@ -13,7 +14,10 @@ export async function requireQualityOrAdminApi(): Promise<
       response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
     }
   }
-  if (!canAccessQualityOrAdminSettings(session.user?.departman)) {
+  const permissions = await getResolvedDepartmentPermissionsForUser(
+    session.user?.departman
+  )
+  if (!permissions[DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING]) {
     return {
       ok: false,
       response: NextResponse.json({ error: "Forbidden" }, { status: 403 }),

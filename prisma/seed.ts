@@ -31,6 +31,25 @@ const prisma = new PrismaClient({
   log: ["error", "warn"],
 })
 
+/** Örnek ortam: demo personel kayıtlarıyla uyumlu başlangıç departmanları (Configurations ile aynı kaynak). */
+const SEED_DEPARTMENT_NAMES = [
+  "Maintenance",
+  "Human Resources",
+  "Handling",
+  "Camo",
+  "Engineering",
+  "Kitchen & Cleaning Staff",
+  "Supply",
+  "Accounting",
+  "Compliance",
+  "Quality",
+  "Admin",
+  "Administrative Affairs",
+  "IT",
+  "Planning",
+  "Pilot",
+] as const
+
 async function clearAllData() {
   await prisma.$transaction(async (tx) => {
     await tx.safetyObjective.deleteMany()
@@ -59,6 +78,7 @@ async function clearAllData() {
     await tx.outgoingCorrespondenceDeptConfig.deleteMany()
     await tx.ucaklar.deleteMany()
     await tx.meetingType.deleteMany()
+    await tx.customDepartment.deleteMany()
     await tx.calisan.deleteMany()
     await tx.session.deleteMany()
     await tx.account.deleteMany()
@@ -68,11 +88,19 @@ async function clearAllData() {
   console.log("Cleared all application tables.")
 }
 
+async function seedCustomDepartments() {
+  await prisma.customDepartment.createMany({
+    data: [...SEED_DEPARTMENT_NAMES].map((name) => ({ name })),
+  })
+  console.log(`Seeded ${SEED_DEPARTMENT_NAMES.length} departments (custom_departments).`)
+}
+
 async function main() {
   await prisma.$connect()
   console.log("Database connected.")
 
   await clearAllData()
+  await seedCustomDepartments()
 
   const pwd = await bcrypt.hash("bonair2025", 10)
 

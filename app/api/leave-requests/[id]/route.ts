@@ -159,6 +159,7 @@ export async function PATCH(
       data: {
         status: newStatus,
         reviewNote: body.reviewNote?.trim() ?? null,
+        ...(isSelf ? {} : { approverId: ctx.calisanId }),
       },
       include: {
         employee: {

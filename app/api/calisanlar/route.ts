@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server"
+import { auth } from "@/auth"
 import { calisanAvatarPublicUrl } from "@/lib/calisan-avatar"
 import { prisma } from "@/lib/prisma-server"
+import { canAccessConfigurationsArea } from "@/lib/department-access"
+import { validatePassword, passwordPolicyMessage } from "@/lib/password-policy"
 import bcrypt from "bcryptjs"
 
 export async function GET() {
+  const session = await auth()
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
   try {
     const calisanlar = await prisma.calisan.findMany({
       orderBy: { createdAt: "desc" },
@@ -57,6 +64,15 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const session = await auth()
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  // Sadece configurations erişimi olan departmanlar çalışan ekleyebilir
+  if (!canAccessConfigurationsArea(session.user.departman)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
   try {
     const body = await request.json()
     const isPilot = body.departman === "Pilot"
@@ -69,7 +85,20 @@ export async function POST(request: Request) {
       )
     }
 
-    const hashedPassword = await bcrypt.hash(body.password || "123456", 10)
+    if (!body.password) {
+      return NextResponse.json(
+        { error: `Şifre zorunludur. Gereksinimler: ${passwordPolicyMessage()}` },
+        { status: 400 }
+      )
+    }
+    const pwCheck = validatePassword(body.password)
+    if (!pwCheck.valid) {
+      return NextResponse.json(
+        { error: `Parola politikasına uymuyor: ${pwCheck.errors.join("; ")}` },
+        { status: 400 }
+      )
+    }
+    const hashedPassword = await bcrypt.hash(body.password, 10)
 
     const calisan = await prisma.calisan.create({
       data: {

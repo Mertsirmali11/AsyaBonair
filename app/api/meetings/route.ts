@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
 import { prismaJson } from "@/lib/prisma-json"
 import { nextBonMeMeetingNumber } from "@/lib/next-bon-me-number"
@@ -12,6 +13,11 @@ function getResend() {
 const MEETINGS_UNFILTERED_CAP = 500
 
 export async function GET(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   const { searchParams } = new URL(req.url)
   const year = searchParams.get("year")
 
@@ -93,6 +99,11 @@ function normalizeExternalParticipants(raw: unknown): {
 }
 
 export async function POST(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   const body = await req.json()
   const { title, plannedDate, meetingTypeId, participantIds, externalEmails, isOnline, agenda } = body
 

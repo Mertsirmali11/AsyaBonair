@@ -31,12 +31,14 @@ import {
 } from "@tabler/icons-react"
 
 import { useDmInbox } from "@/components/dm-inbox-provider"
+import { useLanguage } from "@/lib/i18n/context"
+import { LanguageToggle } from "@/components/language-toggle"
 import { cn } from "@/lib/utils"
 import {
   canAccessConfigurationsArea,
-  canAccessQualityOrAdminSettings,
   canApproveWorkerRegistrations,
 } from "@/lib/department-access"
+import { DEPARTMENT_PERMISSION_KEYS } from "@/lib/department-permission-keys"
 import {
   canViewComplianceMonitoringNav,
   canViewSafetyManagementNav,
@@ -72,88 +74,7 @@ type NavItem = {
   icon: React.ComponentType<{ className?: string }>
 }
 
-const NAV_TOP: NavItem[] = [
-  { title: "Dashboard", url: "/dashboard", icon: IconDashboard },
-  { title: "Support Ticket", url: "/support-tickets", icon: IconTicket },
-  { title: "Report Hazard", url: "/report-hazard", icon: IconAlertTriangle },
-  { title: "Hazard Inbox", url: "/hazard-inbox", icon: IconInbox },
-]
-
-const NAV_MID: NavItem[] = [
-  { title: "Emergency Response", url: "/emergency", icon: IconUrgent },
-  { title: "FRMS", url: "/frms", icon: IconFileDescription },
-  { title: "Meetings", url: "/meetings", icon: IconCalendarEvent },
-]
-
-const NAV_AFTER_CONTROLLED_DOCS: NavItem[] = [
-  { title: "Tasks & Actions", url: "/tasks", icon: IconChecklist },
-  {
-    title: "Performance Reports",
-    url: "/compliance/performance-reports",
-    icon: IconChartBar,
-  },
-  { title: "AI Report Creator", url: "/ai-reports", icon: IconRobot },
-  { title: "Leave Requests", url: "/leave-requests", icon: IconCalendarOff },
-  { title: "Company Status Board", url: "/company-status", icon: IconBuildingSkyscraper },
-  { title: "Addons", url: "/addons", icon: IconPuzzle },
-]
-
-const configurationsSubItems: {
-  title: string
-  url: string
-  approversOnly?: boolean
-  qualityOrAdminOnly?: boolean
-  /** Route is only active on exact pathname (not `/child` paths under the same segment). */
-  matchExact?: boolean
-}[] = [
-  { title: "New worker", url: "/configurations/new-worker", approversOnly: true },
-  { title: "User Settings", url: "/configurations", matchExact: true },
-  { title: "Departments", url: "/configurations/departments" },
-  {
-    title: "Safety settings",
-    url: "/configurations/safety-settings",
-    qualityOrAdminOnly: true,
-  },
-  { title: "Audit Settings", url: "/configurations/audit-settings" },
-  { title: "Correspondences", url: "/configurations/correspondences" },
-]
-
-const announcementSystemSubItems: {
-  title: string
-  url: string
-  configurationsOnly?: boolean
-}[] = [
-  { title: "View announcements", url: "/dashboard" },
-  {
-    title: "Manage announcements",
-    url: "/configurations/announcements",
-    configurationsOnly: true,
-  },
-]
-
-const controlledDocumentsSubItems: {
-  title: string
-  url: string
-  configurationsOnly?: boolean
-}[] = [
-  { title: "Manuals", url: "/documents" },
-  { title: "Forms", url: "/documents/forms" },
-  { title: "Document Procedure", url: "/documents/document-procedure" },
-  { title: "Aircraft Settings", url: "/documents/aircraft-settings", configurationsOnly: true },
-]
-
-const correspondencesSubItems = [
-  { title: "Incoming Correspondences", url: "/correspondences/incoming" },
-  { title: "Outgoing Correspondences", url: "/correspondences/outgoing" },
-]
-
-const safetyManagementSubItems = [{ title: "Risk Board", url: "/safety/risk-board" }]
-
-const complianceMonitoringSubItems = [
-  { title: "Audit Plan", url: "/compliance/audit-plan" },
-  { title: "Checklists", url: "/compliance/checklists" },
-  { title: "Findings Follow Up", url: "/compliance/findings-follow-up" },
-]
+// Nav arrays are built inside the component using t.nav.* translations
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   user: User
@@ -169,6 +90,65 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const pathname = usePathname()
   const { hasUnread } = useDmInbox()
+  const { t } = useLanguage()
+
+  // ── Translated nav arrays (rebuilt on locale change) ──────────────────────
+  const NAV_TOP: NavItem[] = [
+    { title: t.nav.dashboard, url: "/dashboard", icon: IconDashboard },
+    { title: t.nav.supportTicket, url: "/support-tickets", icon: IconTicket },
+    { title: t.nav.reportHazard, url: "/report-hazard", icon: IconAlertTriangle },
+    { title: t.nav.hazardInbox, url: "/hazard-inbox", icon: IconInbox },
+  ]
+
+  const NAV_MID: NavItem[] = [
+    // { title: t.nav.emergencyResponse, url: "/emergency", icon: IconUrgent }, // sayfa yok → 404
+    // { title: t.nav.frms, url: "/frms", icon: IconFileDescription }, // sayfa yok → 404
+    { title: t.nav.meetings, url: "/meetings", icon: IconCalendarEvent },
+  ]
+
+  const NAV_AFTER_CONTROLLED_DOCS: NavItem[] = [
+    { title: t.nav.tasksActions, url: "/tasks", icon: IconChecklist },
+    { title: t.nav.performanceReports, url: "/compliance/performance-reports", icon: IconChartBar },
+    { title: t.nav.aiReportCreator, url: "/ai-reports", icon: IconRobot },
+    { title: t.nav.leaveRequests, url: "/leave-requests", icon: IconCalendarOff },
+    { title: t.nav.companyStatusBoard, url: "/company-status", icon: IconBuildingSkyscraper },
+    // { title: t.nav.addons, url: "/addons", icon: IconPuzzle }, // sayfa yok → 404
+  ]
+
+  const configurationsSubItems = [
+    { title: t.nav.newWorker, url: "/configurations/new-worker", approversOnly: true },
+    { title: t.nav.userSettings, url: "/configurations", matchExact: true },
+    { title: t.nav.departments, url: "/configurations/departments" },
+    { title: t.nav.authorization, url: "/configurations/department-permissions" },
+    { title: t.nav.safetySettings, url: "/configurations/safety-settings", qualityOrAdminOnly: true },
+    { title: t.nav.auditSettings, url: "/configurations/audit-settings" },
+    { title: t.nav.correspondences, url: "/configurations/correspondences" },
+  ]
+
+  const announcementSystemSubItems = [
+    { title: t.nav.viewAnnouncements, url: "/dashboard" },
+    { title: t.nav.manageAnnouncements, url: "/configurations/announcements", configurationsOnly: true },
+  ]
+
+  const controlledDocumentsSubItems = [
+    { title: t.nav.manuals, url: "/documents" },
+    { title: t.nav.forms, url: "/documents/forms" },
+    { title: t.nav.documentProcedure, url: "/documents/document-procedure" },
+    { title: t.nav.aircraftSettings, url: "/documents/aircraft-settings", configurationsOnly: true },
+  ]
+
+  const correspondencesSubItems = [
+    { title: t.nav.incomingCorrespondences, url: "/correspondences/incoming" },
+    { title: t.nav.outgoingCorrespondences, url: "/correspondences/outgoing" },
+  ]
+
+  const safetyManagementSubItems = [{ title: t.nav.riskBoard, url: "/safety/risk-board" }]
+
+  const complianceMonitoringSubItems = [
+    { title: t.nav.auditPlan, url: "/compliance/audit-plan" },
+    { title: t.nav.checklists, url: "/compliance/checklists" },
+    { title: t.nav.findingsFollowUp, url: "/compliance/findings-follow-up" },
+  ]
   const flushMessagesGutter =
     pathname === "/messages" || pathname?.startsWith("/messages/")
   const messagesRouteActive =
@@ -197,9 +177,53 @@ export function AppSidebar({
     pathname?.startsWith("/configurations/announcements") || false
   )
 
-  const hasConfigurationsAccess = canAccessConfigurationsArea(user.departman)
-  const canReviewRegistrations = canApproveWorkerRegistrations(user.departman)
-  const canSafetyQualityPage = canAccessQualityOrAdminSettings(user.departman)
+  const [deptPermissions, setDeptPermissions] = React.useState<Record<
+    string,
+    boolean
+  > | null>(null)
+
+  React.useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch("/api/me/department-permissions", {
+          cache: "no-store",
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok || cancelled || !data.permissions) return
+        setDeptPermissions(data.permissions as Record<string, boolean>)
+      } catch {
+        /* yalnızca legacy */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [user.departman])
+
+  const resolveDeptPermission = React.useCallback(
+    (key: string, legacyValue: boolean): boolean => {
+      if (!deptPermissions) return legacyValue
+      const v = deptPermissions[key]
+      return typeof v === "boolean" ? v : legacyValue
+    },
+    [deptPermissions]
+  )
+
+  const legacyComplianceMonitoring = canViewComplianceMonitoringNav(user.departman)
+
+  const hasConfigurationsAccess = resolveDeptPermission(
+    DEPARTMENT_PERMISSION_KEYS.CONFIGURATIONS_AREA,
+    canAccessConfigurationsArea(user.departman)
+  )
+  const canReviewRegistrations = resolveDeptPermission(
+    DEPARTMENT_PERMISSION_KEYS.WORKER_APPROVAL,
+    canApproveWorkerRegistrations(user.departman)
+  )
+  const canSafetyQualityPage = resolveDeptPermission(
+    DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING,
+    legacyComplianceMonitoring
+  )
   const showConfigurationsNav =
     hasConfigurationsAccess || canReviewRegistrations || canSafetyQualityPage
   const visibleConfigurationSubItems = configurationsSubItems.filter((item) => {
@@ -212,29 +236,16 @@ export function AppSidebar({
     return true
   })
 
-  const visibleComplianceMonitoringSubItems = React.useMemo(
-    () =>
-      complianceMonitoringSubItems.filter((item) => {
-        if (
-          item.url === "/compliance/audit-plan" ||
-          item.url === "/compliance/checklists" ||
-          item.url === "/compliance/findings-follow-up"
-        ) {
-          return showAuditPlanNav
-        }
-        return true
-      }),
-    [showAuditPlanNav]
-  )
+  const visibleComplianceMonitoringSubItems = complianceMonitoringSubItems.filter((item) => {
+    // Audit Plan alt menüsü yalnızca belirli admin e-postalarına açık.
+    if (item.url === "/compliance/audit-plan") return showAuditPlanNav
+    return true
+  })
 
-  const visibleAnnouncementSystemSubItems = React.useMemo(
-    () =>
-      announcementSystemSubItems.filter((item) => {
-        if (item.configurationsOnly) return hasConfigurationsAccess
-        return true
-      }),
-    [hasConfigurationsAccess]
-  )
+  const visibleAnnouncementSystemSubItems = announcementSystemSubItems.filter((item) => {
+    if (item.configurationsOnly) return hasConfigurationsAccess
+    return true
+  })
 
   React.useEffect(() => {
     const storedConfigurations = window.localStorage.getItem(
@@ -359,8 +370,14 @@ export function AppSidebar({
     return () => el.removeEventListener("scroll", onScroll)
   }, [])
 
-  const showComplianceNav = canViewComplianceMonitoringNav(user.departman)
-  const showSafetyNav = canViewSafetyManagementNav(user.departman)
+  const showComplianceNav = resolveDeptPermission(
+    DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING,
+    legacyComplianceMonitoring
+  )
+  const showSafetyNav = resolveDeptPermission(
+    DEPARTMENT_PERMISSION_KEYS.SAFETY_MANAGEMENT,
+    canViewSafetyManagementNav(user.departman)
+  )
 
   const isControlledDocumentsSubActive = (subUrl: string) => {
     if (subUrl === "/documents") return pathname === "/documents"
@@ -429,7 +446,7 @@ export function AppSidebar({
                   >
                     <div className="flex items-center gap-2">
                       <IconClipboardCheck className="size-5" />
-                      <span>Compliance Monitoring</span>
+                      <span>{t.nav.complianceMonitoring}</span>
                     </div>
                     <IconChevronDown
                       className={cn(
@@ -484,7 +501,7 @@ export function AppSidebar({
                   >
                     <div className="flex items-center gap-2">
                       <IconShieldCheck className="size-5" />
-                      <span>Safety Management</span>
+                      <span>{t.nav.safetyManagement}</span>
                     </div>
                     <IconChevronDown
                       className={cn(
@@ -563,7 +580,7 @@ export function AppSidebar({
                 >
                   <div className="flex items-center gap-2">
                     <IconFileDescription className="size-5" />
-                    <span>Controlled Documents</span>
+                    <span>{t.nav.controlledDocuments}</span>
                   </div>
                   <IconChevronDown
                     className={cn(
@@ -598,7 +615,10 @@ export function AppSidebar({
             </SidebarMenuItem>
           </Collapsible>
 
-          {NAV_AFTER_CONTROLLED_DOCS.map((item) => {
+          {NAV_AFTER_CONTROLLED_DOCS.filter((item) => {
+            if (item.url === "/compliance/performance-reports") return showComplianceNav
+            return true
+          }).map((item) => {
             const isActive =
               pathname === item.url || pathname?.startsWith(`${item.url}/`)
             const announcementSystemNavActive =
@@ -623,7 +643,7 @@ export function AppSidebar({
                   </SidebarMenuButton>
                 </SidebarMenuItem>
 
-                {item.title === "Performance Reports" ? (
+                {item.url === "/compliance/performance-reports" ? (
                   <Collapsible
                     open={announcementSystemOpen}
                     onOpenChange={setAnnouncementSystemOpen}
@@ -640,7 +660,7 @@ export function AppSidebar({
                         >
                           <div className="flex items-center gap-2">
                             <IconSpeakerphone className="size-5" />
-                            <span>Announcement System</span>
+                            <span>{t.nav.announcementSystem}</span>
                           </div>
                           <IconChevronDown
                             className={cn(
@@ -696,7 +716,7 @@ export function AppSidebar({
             >
               <Link href="/messages">
                 <IconMessage className="size-5" />
-                <span>Messages</span>
+                <span>{t.nav.messages}</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -717,7 +737,7 @@ export function AppSidebar({
                   >
                     <div className="flex items-center gap-2">
                       <IconSettings className="size-5" />
-                      <span>Configurations</span>
+                      <span>{t.nav.configurations}</span>
                     </div>
                     <IconChevronDown className={cn(
                       "size-4 transition-transform duration-200",
@@ -770,7 +790,7 @@ export function AppSidebar({
                   >
                     <div className="flex items-center gap-2">
                       <IconMail className="size-5" />
-                      <span>Correspondences</span>
+                      <span>{t.nav.correspondences}</span>
                     </div>
                     <IconChevronDown className={cn(
                       "size-4 transition-transform duration-200",
@@ -804,6 +824,7 @@ export function AppSidebar({
             </Collapsible>
           )}
 
+          {/* Account sayfası yok → 404 — aktif edilince aşağıdaki satırları aç
           <SidebarMenuItem>
             <SidebarMenuButton
               asChild
@@ -814,14 +835,18 @@ export function AppSidebar({
             >
               <Link href="/account">
                 <IconUser className="size-5" />
-                <span>Account Managing</span>
+                <span>{t.common.account}</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
+          */}
         </SidebarMenu>
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-sidebar-border p-2">
+      <SidebarFooter className="border-t border-sidebar-border p-2 space-y-1">
+        <div className="flex justify-center px-1 py-1">
+          <LanguageToggle className="w-full justify-center" />
+        </div>
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
@@ -833,7 +858,7 @@ export function AppSidebar({
               className="h-10 px-3 rounded-lg text-red-600 hover:bg-red-50 hover:text-red-700"
             >
               <IconLogout className="size-5" />
-              <span>Log out</span>
+              <span>{t.common.logOut}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

@@ -1,13 +1,21 @@
 import { NextResponse } from "next/server"
+import { auth } from "@/auth"
 import { calisanAvatarPublicUrl } from "@/lib/calisan-avatar"
 import { prisma } from "@/lib/prisma-server"
 import { deleteCalisanAvatarFromStorage } from "@/lib/supabase-storage"
+import { canAccessConfigurationsArea } from "@/lib/department-access"
+import { validatePassword } from "@/lib/password-policy"
 import bcrypt from "bcryptjs"
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const session = await auth()
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   try {
     const { id } = await params
     const calisan = await prisma.calisan.findUnique({
@@ -39,6 +47,14 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const session = await auth()
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  if (!canAccessConfigurationsArea(session.user.departman)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
   try {
     const { id } = await params
     const body = await request.json()
@@ -80,6 +96,13 @@ export async function PUT(
     }
 
     if (body.password && body.password.trim() !== "") {
+      const pwCheck = validatePassword(body.password)
+      if (!pwCheck.valid) {
+        return NextResponse.json(
+          { error: `Parola politikasına uymuyor: ${pwCheck.errors.join("; ")}` },
+          { status: 400 }
+        )
+      }
       updateData.password = await bcrypt.hash(body.password, 10)
     }
 
@@ -114,6 +137,14 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const session = await auth()
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  if (!canAccessConfigurationsArea(session.user.departman)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
   try {
     const { id } = await params
     const numericId = parseInt(id)

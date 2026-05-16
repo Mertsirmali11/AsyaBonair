@@ -53,3 +53,6 @@ prisma/migrations/*
 !/public/uploads/incoming-papers/.gitkeep
 /uploads/*
 !/uploads/.gitkeep
+
+# Claude Code internal worktrees
+.claude/worktrees/

@@ -483,7 +483,11 @@ export function ConfigAuditSettingsClient() {
           <h2 className="text-lg font-semibold tracking-tight">2. Sub-category</h2>
           <p className="text-muted-foreground text-sm">
             Options under each category (e.g. lines under Internal). They appear in Create Audit
-            after you pick a category.
+            after you pick a category.{" "}
+            <span className="text-foreground/80">
+              Sort order is the display sequence in those lists (lower numbers first; same number
+              ties by id).
+            </span>
           </p>
         </div>
 
@@ -526,7 +530,7 @@ export function ConfigAuditSettingsClient() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/50 hover:bg-muted/50">
-                <TableHead className="whitespace-nowrap">Order</TableHead>
+                <TableHead className="whitespace-nowrap">Sort order</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead className="whitespace-nowrap">Active</TableHead>
                 <TableHead className="text-right whitespace-nowrap">Actions</TableHead>

@@ -35,8 +35,8 @@ import { DatePicker } from "@/components/ui/date-picker"
 import { ProfilePhotoCropDialog } from "@/components/profile-photo-crop-dialog"
 import {
   mergeDepartmentLists,
-  ORGANIZATION_DEPARTMENTS,
 } from "@/lib/organization-departments"
+import { isPilotDepartmentName } from "@/lib/worker-registration-constants"
 import {
   downloadUserSettingsTablePdf,
   downloadUserSettingsTableXlsx,
@@ -90,7 +90,7 @@ const defaultColumns: ColumnDef[] = [
     label: "Title",
     sortKey: "ekstra2",
     getValue: (c) =>
-      c.departman === "Pilot" ? (c.ekstra3 || "-") : (c.ekstra2 || "-"),
+      isPilotDepartmentName(c.departman) ? (c.ekstra3 || "-") : (c.ekstra2 || "-"),
   },
   { key: "tcNo", label: "ID Number", sortKey: "tcNo", getValue: (c) => c.tcNo || "-" },
   { key: "dogumTarihi", label: "Date of Birth", sortKey: "dogumTarihi", getValue: (c) => c.dogumTarihi || "" },
@@ -175,14 +175,12 @@ export function UserManagement({
   const [avatarCropFile, setAvatarCropFile] = useState<File | null>(null)
   const [sortField, setSortField] = useState<SortField>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
-  const [departmentOptions, setDepartmentOptions] = useState<string[]>(() =>
-    mergeDepartmentLists(ORGANIZATION_DEPARTMENTS, [])
-  )
+  const [departmentOptions, setDepartmentOptions] = useState<string[]>(() => [])
   /** Boş = tüm departmanlar */
   const [departmentFilter, setDepartmentFilter] = useState("")
   const activeColumns = defaultColumns
   const selectedDepartment = formData.departman
-  const shouldShowPilotRankField = selectedDepartment === "Pilot"
+  const shouldShowPilotRankField = isPilotDepartmentName(selectedDepartment)
 
   const fetchCalisanlar = useCallback(async (mode: "initial" | "refresh" = "initial") => {
     const silent = mode === "refresh" && hasLoadedOnceRef.current
@@ -508,7 +506,7 @@ export function UserManagement({
     const rows = filteredAndSortedData.map((calisan) =>
       activeColumns.map((col) => {
         if (col.key === "titleCol") {
-          return calisan.departman === "Pilot"
+          return isPilotDepartmentName(calisan.departman)
             ? (calisan.ekstra3 || "-")
             : (calisan.ekstra2 || "-")
         }
@@ -1095,7 +1093,7 @@ export function UserManagement({
                       </TableCell>
                       <TableCell className="border-r border-gray-200">{calisan.departman || "-"}</TableCell>
                       <TableCell className="border-r border-gray-200">
-                        {calisan.departman === "Pilot"
+                        {isPilotDepartmentName(calisan.departman)
                           ? (calisan.ekstra3 || "-")
                           : (calisan.ekstra2 || "-")}
                       </TableCell>

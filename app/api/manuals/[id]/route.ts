@@ -5,8 +5,8 @@ import { assertCanManageCompanyManuals } from "@/lib/announcements-access"
 import { isAdminDepartment } from "@/lib/department-access"
 import { slugifyManualTitle } from "@/lib/company-manual-slug"
 import {
-  getOrganizationDepartmentOptions,
-  isOrganizationDepartment,
+  fetchRegisteredDepartmentNames,
+  isDepartmentInRegistry,
   isValidCustomManualDepartment,
 } from "@/lib/organization-departments"
 import { deleteCompanyManualFile } from "@/lib/company-manuals-storage"
@@ -108,6 +108,9 @@ export async function PATCH(
   if (!title) {
     return NextResponse.json({ error: "Başlık gerekli." }, { status: 400 })
   }
+
+  const opts = await fetchRegisteredDepartmentNames(prisma)
+
   if (departmentMode === "custom") {
     if (!isValidCustomManualDepartment(departmentRaw)) {
       return NextResponse.json(
@@ -118,15 +121,14 @@ export async function PATCH(
         { status: 400 }
       )
     }
-  } else if (!isOrganizationDepartment(departmentRaw)) {
-    return NextResponse.json({ error: "Geçerli bir departman seçin." }, { status: 400 })
+  } else if (!isDepartmentInRegistry(departmentRaw, opts)) {
+    return NextResponse.json(
+      { error: "Listeden kayıtlı bir departman seçin (Configurations → Departmanlar)." },
+      { status: 400 }
+    )
   }
 
   const department = departmentRaw
-  const opts = getOrganizationDepartmentOptions()
-  if (departmentMode === "list" && opts.length > 0 && !opts.includes(department)) {
-    return NextResponse.json({ error: "Geçerli bir departman seçin." }, { status: 400 })
-  }
 
   let nextSlug = existing.slug
   if (title !== existing.title) {

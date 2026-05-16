@@ -5,6 +5,8 @@ import {
   getLeaveAccessContext,
   findDepartmentApprover,
 } from "@/lib/leave-access"
+import type { LeaveRequestSubcategory } from "@prisma/client"
+import { isLeaveSubcategory } from "@/lib/leave-subcategory"
 
 // ─── Shared select ────────────────────────────────────────────────────────────
 
@@ -12,6 +14,7 @@ const leaveSelect = {
   id: true,
   startDate: true,
   endDate: true,
+  subcategory: true,
   reason: true,
   status: true,
   reviewNote: true,
@@ -128,11 +131,23 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as {
       startDate?: string
       endDate?: string
+      subcategory?: string
       reason?: string
     }
 
     if (!body.startDate || !body.endDate) {
       return NextResponse.json({ error: "startDate ve endDate zorunlu." }, { status: 400 })
+    }
+    if (
+      body.subcategory === undefined ||
+      body.subcategory === null ||
+      typeof body.subcategory !== "string" ||
+      !isLeaveSubcategory(body.subcategory)
+    ) {
+      return NextResponse.json(
+        { error: "Geçerli bir izin alt kategorisi seçin." },
+        { status: 400 }
+      )
     }
 
     const start = new Date(body.startDate)
@@ -153,6 +168,7 @@ export async function POST(req: NextRequest) {
         approverId,
         startDate: start,
         endDate: end,
+        subcategory: body.subcategory as LeaveRequestSubcategory,
         reason: body.reason?.trim() ?? null,
         status: "PENDING",
       },

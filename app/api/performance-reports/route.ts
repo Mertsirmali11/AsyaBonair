@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
+
 import { auth } from "@/auth"
+import { DEPARTMENT_PERMISSION_KEYS } from "@/lib/department-permission-keys"
+import { getResolvedDepartmentPermissionsForUser } from "@/lib/department-permissions-resolve"
 import { prisma } from "@/lib/prisma-server"
-import { canAccessQualityOrAdminSettings } from "@/lib/department-access"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -78,7 +80,10 @@ export async function GET() {
     if (!session?.user?.email) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-    if (!canAccessQualityOrAdminSettings(session.user.departman)) {
+    const permissions = await getResolvedDepartmentPermissionsForUser(
+      session.user.departman
+    )
+    if (!permissions[DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING]) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 

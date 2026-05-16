@@ -5,26 +5,45 @@ export const authConfig: NextAuthConfig = {
   pages: {
     signIn: "/login",
   },
+  cookies: {
+    sessionToken: {
+      name: "bonair.session-token",
+      options: {
+        httpOnly: true,
+        sameSite: "lax" as const,
+        path: "/",
+        secure: process.env.NODE_ENV === "production",
+        maxAge: 8 * 60 * 60, // 8 saat
+      },
+    },
+  },
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user
       const path = nextUrl.pathname
-      const needsAuth =
-        path.startsWith("/dashboard") ||
-        path.startsWith("/messages")
-      const isOnAuthPage =
-        path.startsWith("/login") || path.startsWith("/register")
 
-      if (needsAuth) {
-        if (isLoggedIn) return true
-        return false
+      // Public paths: login, register, API routes, static assets
+      const isPublic =
+        path.startsWith("/login") ||
+        path.startsWith("/register") ||
+        path.startsWith("/api/") ||
+        path.startsWith("/_next/") ||
+        path.startsWith("/favicon") ||
+        path === "/"
+
+      // Authenticated users trying to access auth pages → redirect to dashboard
+      if ((path.startsWith("/login") || path.startsWith("/register")) && isLoggedIn) {
+        return Response.redirect(new URL("/dashboard", nextUrl))
       }
 
-      if (isOnAuthPage) {
-        if (isLoggedIn) {
-          return Response.redirect(new URL("/dashboard", nextUrl))
-        }
-        return true
+      // Public paths always pass through
+      if (isPublic) return true
+
+      // Everything else requires authentication
+      if (!isLoggedIn) {
+        const loginUrl = new URL("/login", nextUrl)
+        loginUrl.searchParams.set("callbackUrl", path)
+        return Response.redirect(loginUrl)
       }
 
       return true

@@ -24,6 +24,7 @@ import {
 } from "lucide-react"
 import { formatDateOnlyIstanbul, formatDateTimeIstanbul } from "@/lib/date-format"
 import { isAdminDepartment } from "@/lib/department-access"
+import { useLanguage } from "@/lib/i18n/context"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -106,6 +107,15 @@ interface CertificateExpiryAlert {
   aircraft: { id: number; register: string; msn: string }
 }
 
+interface CertificateExpiredAlert {
+  id: number
+  docType: string
+  fileName: string
+  validUntil: string
+  daysExpired: number
+  aircraft: { id: number; register: string; msn: string }
+}
+
 interface SupportTicketPreview {
   id: number
   subject: string | null
@@ -118,13 +128,6 @@ interface SupportTicketPreview {
     email: string
     departman: string | null
   }
-}
-
-const SUPPORT_STATUS_TR: Record<string, string> = {
-  OPEN: "Açık",
-  IN_PROGRESS: "İşlemde",
-  RESOLVED: "Çözüldü",
-  CLOSED: "Kapatıldı",
 }
 
 function supportPersonelLabel(c: SupportTicketPreview["creator"]): string {
@@ -145,7 +148,20 @@ const ANNOUNCEMENT_SCROLL_END_PX = 16
 
 export function DashboardHome({ user }: { user: DashboardUser }) {
   const pathname = usePathname()
+  const { t } = useLanguage()
+  const d = t.dashboard
   const hasLoadedOnceRef = useRef(false)
+
+  /** Support ticket status label lookup */
+  const supportStatusLabel = (status: string): string => {
+    switch (status) {
+      case "OPEN":        return d.statusOpen
+      case "IN_PROGRESS": return d.statusInProgress
+      case "RESOLVED":    return d.statusResolved
+      case "CLOSED":      return d.statusClosed
+      default:            return status
+    }
+  }
 
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [todayMeetings, setTodayMeetings] = useState<Meeting[]>([])
@@ -157,6 +173,9 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
   )
   const [certificatesExpiringSoon, setCertificatesExpiringSoon] = useState<
     CertificateExpiryAlert[]
+  >([])
+  const [certificatesExpired, setCertificatesExpired] = useState<
+    CertificateExpiredAlert[]
   >([])
   const [supportTicketsPreview, setSupportTicketsPreview] = useState<
     SupportTicketPreview[]
@@ -206,6 +225,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
           setTasksDueToday(data.tasksDueToday ?? [])
           setTasksDueNext30Days(data.tasksDueNext30Days ?? [])
           setCertificatesExpiringSoon(data.certificatesExpiringSoon ?? [])
+          setCertificatesExpired(data.certificatesExpired ?? [])
           setSupportTicketsPreview(data.supportTicketsPreview ?? [])
           setSupportTicketsAdminView(!!data.supportTicketsAdminView)
           setLoadError(null)
@@ -388,81 +408,151 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
         {loading && !loadError && (
           <p className="text-muted-foreground text-sm">Loading summary…</p>
         )}
-        {(certificatesExpiringSoon.length > 0 || (!loading && !loadError)) && (
+        {(certificatesExpiringSoon.length > 0 ||
+          certificatesExpired.length > 0 ||
+          (!loading && !loadError)) && (
           <div
             className={
-              certificatesExpiringSoon.length > 0 && !loading && !loadError
+              (certificatesExpiringSoon.length > 0 ||
+                certificatesExpired.length > 0) &&
+              !loading &&
+              !loadError
                 ? "grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start"
                 : "flex flex-col gap-4"
             }
           >
-            {certificatesExpiringSoon.length > 0 && (
-              <div
-                role="status"
-                className="rounded-lg border border-amber-300/80 bg-amber-50 px-3 py-2.5 text-sm text-amber-950 shadow-sm dark:border-amber-700/50 dark:bg-amber-950/35 dark:text-amber-50"
-              >
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="flex min-w-0 gap-2">
-                    <FileWarning
-                      className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-400"
-                      aria-hidden
-                    />
-                    <div className="min-w-0">
-                      <p className="font-semibold leading-tight text-amber-950 dark:text-amber-100">
-                        Süresi dolmak üzere olan uçak sertifikaları
-                      </p>
-                      <p className="mt-0.5 line-clamp-2 text-xs text-amber-900/85 dark:text-amber-200/90">
-                        30 gün veya daha az kalan sertifikalar (Controlled
-                        Documents → Aircraft).
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <ul className="mt-2 max-h-[min(28vh,200px)] space-y-1.5 overflow-y-auto overscroll-contain border-t border-amber-200/80 pt-2 pr-0.5 dark:border-amber-800/60">
-                  {certificatesExpiringSoon.map((c) => (
-                    <li
-                      key={c.id}
-                      className="flex flex-col gap-0.5 sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-between sm:gap-x-3"
+            {(certificatesExpired.length > 0 ||
+              certificatesExpiringSoon.length > 0) &&
+              !loading &&
+              !loadError && (
+                <div className="flex flex-col gap-3">
+                  {certificatesExpired.length > 0 && (
+                    <div
+                      role="alert"
+                      className="rounded-lg border border-red-300/90 bg-red-50 px-3 py-2.5 text-sm text-red-950 shadow-sm dark:border-red-800/55 dark:bg-red-950/40 dark:text-red-50"
                     >
-                      <div className="min-w-0">
-                        <Link
-                          href={`/documents/aircraft-settings/${c.aircraft.id}`}
-                          className="font-medium text-amber-950 underline-offset-4 hover:underline dark:text-amber-100"
-                        >
-                          {c.aircraft.register}
-                        </Link>
-                        <span className="text-muted-foreground"> — </span>
-                        <span className="text-amber-950/95 dark:text-amber-100/95">
-                          {c.docType}
-                        </span>
-                        <span className="block truncate text-xs text-amber-900/80 dark:text-amber-200/80">
-                          {c.fileName}
-                        </span>
+                      <div className="flex min-w-0 gap-2">
+                        <AlertTriangle
+                          className="mt-0.5 size-4 shrink-0 text-red-700 dark:text-red-400"
+                          aria-hidden
+                        />
+                        <div className="min-w-0">
+                          <p className="font-semibold leading-tight text-red-950 dark:text-red-100">
+                            {d.expiredCerts}
+                          </p>
+                          <p className="mt-0.5 line-clamp-2 text-xs text-red-900/85 dark:text-red-200/90">
+                            {d.expiredCertsDesc}
+                          </p>
+                        </div>
                       </div>
-                      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] tabular-nums">
-                        <span>
-                          Bitiş:{" "}
-                          <span className="font-medium">
-                            {formatDateOnlyIstanbul(c.validUntil)}
-                          </span>
-                        </span>
-                        <span
-                          className={
-                            c.daysRemaining <= 7
-                              ? "font-semibold text-red-700 dark:text-red-400"
-                              : "font-medium text-amber-900 dark:text-amber-300"
-                          }
-                        >
-                          {c.daysRemaining === 0
-                            ? "Bugün son gün"
-                            : `${c.daysRemaining} gün kaldı`}
-                        </span>
+                      <ul className="mt-2 max-h-[min(28vh,200px)] space-y-1.5 overflow-y-auto overscroll-contain border-t border-red-200/80 pt-2 pr-0.5 dark:border-red-800/60">
+                        {certificatesExpired.map((c) => (
+                          <li
+                            key={c.id}
+                            className="flex flex-col gap-0.5 sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-between sm:gap-x-3"
+                          >
+                            <div className="min-w-0">
+                              <Link
+                                href={`/documents/aircraft-settings/${c.aircraft.id}`}
+                                className="font-medium text-red-950 underline-offset-4 hover:underline dark:text-red-100"
+                              >
+                                {c.aircraft.register}
+                              </Link>
+                              <span className="text-muted-foreground"> — </span>
+                              <span className="text-red-950/95 dark:text-red-100/95">
+                                {c.docType}
+                              </span>
+                              <span className="block truncate text-xs text-red-900/80 dark:text-red-200/85">
+                                {c.fileName}
+                              </span>
+                            </div>
+                            <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] tabular-nums">
+                              <span>
+                                {d.validUntil}:{" "}
+                                <span className="font-medium">
+                                  {formatDateOnlyIstanbul(c.validUntil)}
+                                </span>
+                              </span>
+                              <span className="font-semibold text-red-800 dark:text-red-300">
+                                {c.daysExpired === 0
+                                  ? d.certExpired
+                                  : `${c.daysExpired} ${d.daysOverdue}`}
+                              </span>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {certificatesExpiringSoon.length > 0 && (
+                    <div
+                      role="status"
+                      className="rounded-lg border border-amber-300/80 bg-amber-50 px-3 py-2.5 text-sm text-amber-950 shadow-sm dark:border-amber-700/50 dark:bg-amber-950/35 dark:text-amber-50"
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="flex min-w-0 gap-2">
+                          <FileWarning
+                            className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-400"
+                            aria-hidden
+                          />
+                          <div className="min-w-0">
+                            <p className="font-semibold leading-tight text-amber-950 dark:text-amber-100">
+                              {d.expiringSoonCerts}
+                            </p>
+                            <p className="mt-0.5 line-clamp-2 text-xs text-amber-900/85 dark:text-amber-200/90">
+                              {d.expiringSoonDesc}
+                            </p>
+                          </div>
+                        </div>
                       </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+                      <ul className="mt-2 max-h-[min(28vh,200px)] space-y-1.5 overflow-y-auto overscroll-contain border-t border-amber-200/80 pt-2 pr-0.5 dark:border-amber-800/60">
+                        {certificatesExpiringSoon.map((c) => (
+                          <li
+                            key={c.id}
+                            className="flex flex-col gap-0.5 sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-between sm:gap-x-3"
+                          >
+                            <div className="min-w-0">
+                              <Link
+                                href={`/documents/aircraft-settings/${c.aircraft.id}`}
+                                className="font-medium text-amber-950 underline-offset-4 hover:underline dark:text-amber-100"
+                              >
+                                {c.aircraft.register}
+                              </Link>
+                              <span className="text-muted-foreground"> — </span>
+                              <span className="text-amber-950/95 dark:text-amber-100/95">
+                                {c.docType}
+                              </span>
+                              <span className="block truncate text-xs text-amber-900/80 dark:text-amber-200/80">
+                                {c.fileName}
+                              </span>
+                            </div>
+                            <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] tabular-nums">
+                              <span>
+                                {d.validUntil}:{" "}
+                                <span className="font-medium">
+                                  {formatDateOnlyIstanbul(c.validUntil)}
+                                </span>
+                              </span>
+                              <span
+                                className={
+                                  c.daysRemaining <= 7
+                                    ? "font-semibold text-red-700 dark:text-red-400"
+                                    : "font-medium text-amber-900 dark:text-amber-300"
+                                }
+                              >
+                                {c.daysRemaining === 0
+                                  ? d.lastDayToday
+                                  : `${c.daysRemaining} ${d.daysLeft}`}
+                              </span>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
 
             {!loading && !loadError && (
               <div className="rounded-lg border border-violet-200/90 bg-violet-50/95 px-3 py-2.5 text-sm text-violet-950 shadow-sm dark:border-violet-800/60 dark:bg-violet-950/35 dark:text-violet-100">
@@ -474,14 +564,10 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                     />
                     <div className="min-w-0">
                       <p className="font-semibold leading-tight text-violet-950 dark:text-violet-50">
-                        {supportTicketsAdminView
-                          ? "Gelen destek talepleri"
-                          : "Destek taleplerim"}
+                        {supportTicketsAdminView ? d.incomingTickets : d.myTickets}
                       </p>
                       <p className="mt-0.5 line-clamp-2 text-xs text-violet-900/85 dark:text-violet-200/90">
-                        {supportTicketsAdminView
-                          ? "Son talepler; ayrıntılar için Support Ticket sayfası."
-                          : "Özet; yeni talep için Support Ticket sayfası."}
+                        {supportTicketsAdminView ? d.incomingTicketsDesc : d.myTicketsDesc}
                       </p>
                     </div>
                   </div>
@@ -495,9 +581,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                 </div>
                 {supportTicketsPreview.length === 0 ? (
                   <p className="mt-2 border-t border-violet-200/80 pt-2 text-xs text-violet-800/90 dark:border-violet-800/50 dark:text-violet-200/85">
-                    {supportTicketsAdminView
-                      ? "Henüz kayıtlı destek talebi yok."
-                      : "Henüz destek talebi göndermediniz."}
+                    {supportTicketsAdminView ? d.noIncomingTickets : d.noMyTickets}
                   </p>
                 ) : (
                   <ul className="mt-2 max-h-[min(36vh,280px)] space-y-1.5 overflow-y-auto overscroll-contain border-t border-violet-200/80 pt-2 pr-0.5 dark:border-violet-800/50">
@@ -513,7 +597,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                               : supportTruncate(t.content, 56)}
                           </span>
                           <span className="text-[10px] font-medium uppercase tracking-wide text-violet-700 dark:text-violet-300">
-                            {SUPPORT_STATUS_TR[t.status] ?? t.status}
+                            {supportStatusLabel(t.status)}
                           </span>
                         </div>
                         {supportTicketsAdminView ? (
@@ -575,11 +659,11 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Bell size={18} className="text-primary" />
-                <h2 className="text-lg font-bold">Announcements</h2>
+                <h2 className="text-lg font-bold">{d.announcements}</h2>
               </div>
               {canAnnounce && (
                 <Button size="sm" onClick={() => setOpen(true)} className="gap-1">
-                  <Plus size={14} /> New announcement
+                  <Plus size={14} /> {d.newAnnouncement}
                 </Button>
               )}
             </div>
@@ -587,11 +671,11 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
             <div className="flex flex-col gap-3 max-h-[600px] overflow-y-auto">
               {loading && !loadError && announcements.length === 0 ? (
                 <div className="rounded-lg border bg-card p-6 text-center text-sm text-muted-foreground">
-                  Loading announcements…
+                  {d.loadingAnnouncements}
                 </div>
               ) : !loading && !loadError && announcements.length === 0 ? (
                 <div className="rounded-lg border bg-card p-6 text-center text-muted-foreground">
-                  No announcements yet.
+                  {d.noAnnouncements}
                 </div>
               ) : announcements.map((a) => {
                 const expanded = openAnnouncementId === a.id
@@ -635,7 +719,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                             ref={expanded ? announcementScrollBodyRef : undefined}
                             className="max-h-[min(320px,48dvh)] min-h-0 overflow-y-auto overscroll-y-contain px-4 pt-3 pb-3 [-webkit-overflow-scrolling:touch] [overflow-anchor:none]"
                             tabIndex={0}
-                            aria-label="Duyuru metni"
+                            aria-label={d.announcements}
                             onScroll={(e) =>
                               updateAckReadinessFromEl(a.id, e.currentTarget)
                             }
@@ -678,20 +762,18 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                                 : "font-medium text-amber-800 dark:text-amber-200"
                             )}
                           >
-                            {ackScrollReady[a.id]
-                              ? "Metni inceledikten sonra onaylayabilirsiniz."
-                              : "Önce duyurunun tamamını aşağı kaydırarak okuyun; ardından «Okudum, anladım» etkinleşir."}
+                            {ackScrollReady[a.id] ? d.readyToAck : d.scrollToRead}
                           </p>
                         ) : (
                           <p className="mb-2 text-xs text-muted-foreground">
-                            Bu duyuruyu onayladınız.
+                            {d.alreadyAcked}
                           </p>
                         )}
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="flex flex-wrap items-center gap-2">
                             {a.acknowledgedByMe ? (
                               <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                                Okudum, anladım (onaylandı)
+                                {d.ackedLabel}
                               </span>
                             ) : (
                               <Button
@@ -702,7 +784,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                                 title={
                                   ackScrollReady[a.id]
                                     ? undefined
-                                    : "Metnin tamamını görüntüleyin"
+                                    : d.scrollHint
                                 }
                                 disabled={
                                   ackingId === a.id || !ackScrollReady[a.id]
@@ -711,9 +793,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                                   void handleAckAnnouncement(a.id)
                                 }
                               >
-                                {ackingId === a.id
-                                  ? "Kaydediliyor…"
-                                  : "Okudum, anladım"}
+                                {ackingId === a.id ? d.saving : d.ackLabel}
                               </Button>
                             )}
                           </div>
@@ -727,7 +807,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                               onClick={() => handleDeleteAnnouncement(a.id)}
                             >
                               <Trash2 className="size-3.5" />
-                              {deletingId === a.id ? "Siliniyor…" : "Sil"}
+                              {deletingId === a.id ? d.deleting : t.common.delete}
                             </Button>
                           )}
                         </div>
@@ -918,22 +998,22 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>New announcement</DialogTitle>
+            <DialogTitle>{d.newAnnouncement}</DialogTitle>
           </DialogHeader>
           <div className="flex flex-col gap-4 mt-2">
             <div>
-              <Label>Title <span className="text-red-500">*</span></Label>
-              <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Announcement title" className="mt-1" />
+              <Label>{d.announcementTitle} <span className="text-red-500">*</span></Label>
+              <Input value={title} onChange={e => setTitle(e.target.value)} placeholder={d.announcementTitlePlaceholder} className="mt-1" />
             </div>
             <div>
-              <Label>Content <span className="text-red-500">*</span></Label>
-              <Textarea value={content} onChange={e => setContent(e.target.value)} placeholder="Announcement body..." className="mt-1 min-h-32" />
+              <Label>{d.announcementContent} <span className="text-red-500">*</span></Label>
+              <Textarea value={content} onChange={e => setContent(e.target.value)} placeholder={d.announcementContentPlaceholder} className="mt-1 min-h-32" />
             </div>
             <Button
               onClick={handleAnnounce}
               disabled={saving || !title || !content}
             >
-              {saving ? "Sending..." : "Publish and email staff"}
+              {saving ? d.publishingAnnouncement : d.publishAnnouncement}
             </Button>
           </div>
         </DialogContent>

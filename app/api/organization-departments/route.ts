@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server"
 
 import { auth } from "@/auth"
-import { canAccessConfigurationsArea } from "@/lib/department-access"
 import {
-  ORGANIZATION_DEPARTMENTS,
-  isValidCustomManualDepartment,
-  mergeDepartmentLists,
-} from "@/lib/organization-departments"
+  canAccessConfigurationsArea,
+  canApproveWorkerRegistrations,
+} from "@/lib/department-access"
+import { isValidCustomManualDepartment } from "@/lib/organization-departments"
 import { prisma } from "@/lib/prisma-server"
 
 export async function GET() {
@@ -15,22 +14,25 @@ export async function GET() {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-    if (!canAccessConfigurationsArea(session.user.departman)) {
+    const dept = session.user.departman
+    const mayManageConfig = canAccessConfigurationsArea(dept)
+    const mayReadForApprovals = canApproveWorkerRegistrations(dept)
+    if (!mayManageConfig && !mayReadForApprovals) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
     const custom = await prisma.customDepartment.findMany({
       orderBy: { name: "asc" },
     })
-    const departments = mergeDepartmentLists(
-      ORGANIZATION_DEPARTMENTS,
-      custom.map((c) => c.name)
-    )
-    return NextResponse.json({ departments })
+    const departments = custom.map((c) => c.name)
+    return NextResponse.json({
+      departments,
+      customDepartments: custom.map((c) => ({ id: c.id, name: c.name })),
+    })
   } catch (e) {
     console.error("GET /api/organization-departments:", e)
     return NextResponse.json(
-      { error: "Could not load departments" },
+      { error: "Departmanlar yüklenemedi." },
       { status: 500 }
     )
   }
@@ -50,18 +52,16 @@ export async function POST(request: Request) {
     const raw = String(body?.name ?? "").trim()
     if (!isValidCustomManualDepartment(raw)) {
       return NextResponse.json(
-        { error: "Invalid department name (1–100 characters)." },
+        { error: "Geçersiz departman adı (1–100 karakter, geçersiz kontrol karakterleri yok)." },
         { status: 400 }
       )
     }
 
-    const custom = await prisma.customDepartment.findMany()
-    const merged = mergeDepartmentLists(ORGANIZATION_DEPARTMENTS, custom.map((c) => c.name))
-    if (merged.some((d) => d.toLowerCase() === raw.toLowerCase())) {
-      return NextResponse.json(
-        { error: "This department is already in the list." },
-        { status: 400 }
-      )
+    const existing = await prisma.customDepartment.findMany({
+      select: { name: true },
+    })
+    if (existing.some((e) => e.name.toLowerCase() === raw.toLowerCase())) {
+      return NextResponse.json({ error: "Bu departman adı zaten kayıtlı." }, { status: 400 })
     }
 
     await prisma.customDepartment.create({ data: { name: raw } })
@@ -69,23 +69,20 @@ export async function POST(request: Request) {
     const updated = await prisma.customDepartment.findMany({
       orderBy: { name: "asc" },
     })
-    const departments = mergeDepartmentLists(
-      ORGANIZATION_DEPARTMENTS,
-      updated.map((c) => c.name)
-    )
-    return NextResponse.json({ departments })
+    const departments = updated.map((c) => c.name)
+    return NextResponse.json({
+      departments,
+      customDepartments: updated.map((c) => ({ id: c.id, name: c.name })),
+    })
   } catch (e: unknown) {
     const code = (e as { code?: string })?.code
     if (code === "P2002") {
       return NextResponse.json(
-        { error: "This department name already exists." },
+        { error: "Bu departman adı zaten kayıtlı." },
         { status: 400 }
       )
     }
     console.error("POST /api/organization-departments:", e)
-    return NextResponse.json(
-      { error: "Could not add department" },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Departman eklenemedi." }, { status: 500 })
   }
 }

@@ -1,21 +1,12 @@
+import { normalizeDepartmentKey } from "@/lib/department-access"
+
 /** Same limit as employee avatar uploads (21 MB). */
 export const WORKER_REGISTRATION_PHOTO_MAX_BYTES = 21 * 1024 * 1024
 
-export const WORKER_REGISTRATION_DEPARTMENTS = [
-  "Maintenance",
-  "Human Resources",
-  "Handling",
-  "Camo",
-  "Engineering",
-  "Kitchen & Cleaning Staff",
-  "Supply",
-  "Accounting",
-  "Quality",
-  "Administrative Affairs",
-  "IT",
-  "Planning",
-  "Pilot",
-] as const
+/** Onay sırasında atanan departman tam olarak böyle ise pilot rütbesi sorulur. */
+export function isPilotDepartmentName(departman: string | null | undefined): boolean {
+  return normalizeDepartmentKey(departman) === "pilot"
+}
 
 export const PILOT_RANKS = ["Captain", "F/O"] as const
 

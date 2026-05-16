@@ -3,11 +3,14 @@ import type { Prisma } from "@prisma/client"
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
+import { requireSafetyManagementApi } from "@/lib/require-safety-management-api"
 import { riskBoardKeyFromTitle, SAFETY_RISK_BOARD_KEY_MAX } from "@/lib/safety-risk-board-key"
 import { riskBoardStateBodySchema } from "@/lib/safety-risk-board-schema"
 
 export async function GET(req: NextRequest) {
   try {
+    const gate = await requireSafetyManagementApi()
+    if (!gate.ok) return gate.response
     const session = await auth()
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -36,6 +39,8 @@ export async function GET(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   try {
+    const gate = await requireSafetyManagementApi()
+    if (!gate.ok) return gate.response
     const session = await auth()
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

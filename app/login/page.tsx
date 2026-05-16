@@ -32,7 +32,12 @@ export default function LoginPage() {
       })
 
       if (result?.error) {
-        setError("Invalid email or password")
+        if (result.error.includes("TOO_MANY_ATTEMPTS")) {
+          const min = result.error.split(":")[1] ?? "10"
+          setError(`Çok fazla başarısız deneme. Lütfen ${min} dakika sonra tekrar deneyin.`)
+        } else {
+          setError("E-posta veya şifre hatalı.")
+        }
         setIsLoading(false)
         return
       }

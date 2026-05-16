@@ -121,6 +121,7 @@ model Calisan {
   auditFindingExtensions  AuditFindingExtension[]  @relation("AuditFindingExtensionRequester")
   supportTicketsCreated SupportTicket[] @relation("SupportTicketCreator")
   supportTicketsAdminUpdated SupportTicket[] @relation("SupportTicketAdmin")
+  supportTicketHistoryActions SupportTicketHistory[] @relation("SupportTicketHistoryActor")
   /// Unvan ilişkisi
   title           DepartmentTitle? @relation(fields: [titleId], references: [id], onDelete: SetNull)
   /// İzin talepleri — çalışan olarak
@@ -142,9 +143,23 @@ model CustomDepartment {
   @@map("custom_departments")
 }
 
+/// Departman × izin anahtarı — yoksa `lib/department-permissions-legacy` varsayılanları geçerlidir.
+model DepartmentPermission {
+  id             String   @id @default(cuid())
+  departmentKey  String   @map("department_key") @db.VarChar(120)
+  permissionKey  String   @map("permission_key") @db.VarChar(80)
+  allowed        Boolean
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([departmentKey, permissionKey])
+  @@index([departmentKey])
+  @@map("department_permissions")
+}
+
 /// Departman bazlı unvanlar (Compliance-Manager, Hangar-Technician vb.)
 model DepartmentTitle {
-  /// departmentName, ORGANIZATION_DEPARTMENTS listesindeki değerlerle eşleşmeli.
+  /// departmentName — Configurations → Departmanlar ile aynı metin olmalı.
   id             Int      @id @default(autoincrement())
   departmentName String   @map("department_name") @db.VarChar(100)
   titleName      String   @map("title_name") @db.VarChar(200)
@@ -166,6 +181,13 @@ enum LeaveRequestStatus {
   REJECTED
 }
 
+enum LeaveRequestSubcategory {
+  MAZERET_IZIN
+  UCRETSIZ_IZIN
+  YILLIK_UCRETLI_IZIN
+  IDARI_IZIN
+}
+
 /// Personel izin talepleri — departman izolasyonu zorunlu.
 model LeaveRequest {
   id           Int                @id @default(autoincrement())
@@ -174,6 +196,7 @@ model LeaveRequest {
   approverId   Int?               @map("approver_id")
   startDate    DateTime           @map("start_date") @db.Date
   endDate      DateTime           @map("end_date") @db.Date
+  subcategory  LeaveRequestSubcategory?
   reason       String?            @db.Text
   status       LeaveRequestStatus @default(PENDING)
   /// Onaylama / red notu
@@ -594,7 +617,7 @@ model CompanyManual {
   /// Supabase bucket-relative path (orijinal PDF/Office; önizleme ve revizyon akışı)
   fileStoragePath String? @map("file_storage_path") @db.Text
   fileName        String? @map("file_name") @db.VarChar(255)
-  /// Manuelin ait olduğu kurum departmanı (`lib/organization-departments` ile User Management aynı liste)
+  /// Manuelin ait olduğu kurum departmanı (Configurations → Departmanlar kayıtları veya özel etiket)
   department  String?  @db.VarChar(100) @map("department")
   /// Kurumsal manuel numarası (örn. OM-A, MNL-001)
   manualNumber String? @map("manual_no") @db.VarChar(120)
@@ -610,12 +633,29 @@ model CompanyManual {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   creator Calisan? @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  chunks  ManualChunk[]
 
   @@unique([seriesId, revision], map: "company_manuals_series_revision_uniq")
   @@index([title])
   @@index([seriesId])
   @@index([isCurrent])
   @@map("company_manuals")
+}
+
+/// pgvector embedding chunk'ları — her CompanyManual için 1000 karakterlik parçalar.
+model ManualChunk {
+  id         Int      @id @default(autoincrement())
+  manualId   Int      @map("manual_id")
+  chunkIndex Int      @map("chunk_index")
+  chunkText  String   @map("chunk_text") @db.Text
+  /// pgvector vector(768) — Prisma Unsupported, raw SQL ile yazılır/okunur.
+  embedding  Unsupported("vector(768)")?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  manual CompanyManual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+
+  @@index([manualId])
+  @@map("manual_chunks")
 }
 
 /// Kontrollü evrak — departman formları (revizyon serisi; Quality/Admin tümünü yönetir)
@@ -1163,6 +1203,7 @@ model SupportTicket {
   creator     Calisan  @relation("SupportTicketCreator", fields: [createdBy], references: [id], onDelete: Cascade)
   lastUpdater Calisan? @relation("SupportTicketAdmin", fields: [lastUpdatedBy], references: [id], onDelete: SetNull)
   attachments SupportTicketAttachment[]
+  history     SupportTicketHistory[]
 
   @@index([createdAt(sort: Desc)])
   @@index([status])
@@ -1183,4 +1224,26 @@ model SupportTicketAttachment {
 
   @@index([supportTicketId])
   @@map("support_ticket_attachments")
+}
+
+/// Destek talebi oluşturma ve admin güncellemeleri — tam geçmiş (audit).
+model SupportTicketHistory {
+  id              Int                  @id @default(autoincrement())
+  supportTicketId Int                  @map("support_ticket_id")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  actorId         Int                  @map("actor_id")
+  /// CREATED | ADMIN_UPDATE
+  eventType       String               @map("event_type") @db.VarChar(40)
+  statusFrom      SupportTicketStatus? @map("status_from")
+  statusTo        SupportTicketStatus? @map("status_to")
+  adminNote       String?              @map("admin_note") @db.Text
+  subjectSnapshot String?              @map("subject_snapshot") @db.VarChar(200)
+  contentSnapshot String?              @map("content_snapshot") @db.Text
+  attachmentMeta  Json?                @map("attachment_meta")
+
+  ticket SupportTicket @relation(fields: [supportTicketId], references: [id], onDelete: Cascade)
+  actor  Calisan       @relation("SupportTicketHistoryActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([supportTicketId, createdAt])
+  @@map("support_ticket_history")
 }

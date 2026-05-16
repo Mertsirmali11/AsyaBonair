@@ -33,6 +33,7 @@ export default async function LeaveRequestsPage() {
         id: true,
         startDate: true,
         endDate: true,
+        subcategory: true,
         reason: true,
         status: true,
         reviewNote: true,

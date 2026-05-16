@@ -7,8 +7,8 @@ import {
   effectiveEmployeeDepartman,
 } from "@/lib/announcements-access"
 import {
-  getOrganizationDepartmentOptions,
-  isOrganizationDepartment,
+  fetchRegisteredDepartmentNames,
+  isDepartmentInRegistry,
   isValidCustomManualDepartment,
 } from "@/lib/organization-departments"
 import {
@@ -105,7 +105,7 @@ export async function GET() {
 
     const canManageManuals =
       !!calisan && isAdminDepartment(departman)
-    const departmentOptions = getOrganizationDepartmentOptions()
+    const departmentOptions = await fetchRegisteredDepartmentNames(prisma)
 
     return NextResponse.json({
       manuals: manuals.map((m) => {
@@ -238,6 +238,8 @@ export async function POST(req: NextRequest) {
   if (!title) {
     return NextResponse.json({ error: "Başlık gerekli." }, { status: 400 })
   }
+  const deptRegistry = await fetchRegisteredDepartmentNames(prisma)
+
   if (departmentMode === "custom") {
     if (!isValidCustomManualDepartment(department)) {
       return NextResponse.json(
@@ -248,8 +250,11 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       )
     }
-  } else if (!isOrganizationDepartment(department)) {
-    return NextResponse.json({ error: "Geçerli bir departman seçin." }, { status: 400 })
+  } else if (!isDepartmentInRegistry(department, deptRegistry)) {
+    return NextResponse.json(
+      { error: "Listeden kayıtlı bir departman seçin (Configurations → Departmanlar)." },
+      { status: 400 }
+    )
   }
   if (!Number.isFinite(revisionNum) || revisionNum < 0 || revisionNum > 999999) {
     return NextResponse.json(
