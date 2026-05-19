@@ -141,14 +141,43 @@ export async function POST(request: Request) {
       }
     }
 
-    let paperNo: string
+    // Allocate the paper number and create the DB record atomically in one
+    // Serializable transaction. This prevents two concurrent requests from
+    // reading the same maxSeq and generating duplicate numbers, because
+    // PostgreSQL SSI will abort one if they overlap on the same row range.
+    // File uploads happen AFTER the record exists so the creation is safe.
+    let correspondence: Awaited<ReturnType<typeof prisma.outgoingCorrespondence.create>>
     try {
-      paperNo = await prisma.$transaction(
-        async (tx) =>
-          allocateOutgoingPaperNo(tx, OUTGOING_SINGLE_DEPARTMENT_KEY, {
-            paperPrefix: OUTGOING_SINGLE_PREFIX,
-            includeYearInPaperNo: true,
-          }),
+      correspondence = await prisma.$transaction(
+        async (tx) => {
+          const paperNo = await allocateOutgoingPaperNo(
+            tx,
+            OUTGOING_SINGLE_DEPARTMENT_KEY,
+            { paperPrefix: OUTGOING_SINGLE_PREFIX, includeYearInPaperNo: true }
+          )
+          return tx.outgoingCorrespondence.create({
+            data: {
+              paperNo,
+              departmentKey: OUTGOING_SINGLE_DEPARTMENT_KEY,
+              to,
+              subject,
+              date,
+              content: content || null,
+              createdBy: createdBy ? parseInt(createdBy) : null,
+            },
+            include: {
+              creator: {
+                select: {
+                  id: true,
+                  isim: true,
+                  soyisim: true,
+                  email: true,
+                  departman: true,
+                },
+              },
+            },
+          })
+        },
         {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
           maxWait: 10_000,
@@ -163,6 +192,8 @@ export async function POST(request: Request) {
       )
     }
 
+    const paperNo = correspondence.paperNo!
+
     const releaseAllocatedNumber = async () => {
       await releaseOutgoingPaperSlot(prisma, {
         departmentKey: OUTGOING_SINGLE_DEPARTMENT_KEY,
@@ -171,9 +202,9 @@ export async function POST(request: Request) {
       })
     }
 
-    let pdfPath: string | null = null
-    let pdfFileName: string | null = null
-    let pdfAttachments: OutgoingStoredAttachment[] | null = null
+    const deleteCorrespondence = async () => {
+      await prisma.outgoingCorrespondence.delete({ where: { id: correspondence.id } })
+    }
 
     if (pdfFiles.length > 0) {
       const storageNames = assignUniquePdfStorageNames(pdfFiles)
@@ -189,11 +220,10 @@ export async function POST(request: Request) {
             for (const a of uploaded) {
               await deletePdfFromStorage(a.path)
             }
+            await deleteCorrespondence()
             await releaseAllocatedNumber()
             return NextResponse.json(
-              {
-                error: `Dosya yüklenemedi (${pdfFiles[i].name}): ${uploadResult.message}`,
-              },
+              { error: `Dosya yüklenemedi (${pdfFiles[i].name}): ${uploadResult.message}` },
               { status: 500 }
             )
           }
@@ -201,6 +231,7 @@ export async function POST(request: Request) {
         }
       } catch (fileError: unknown) {
         console.error("File upload error:", fileError)
+        await deleteCorrespondence()
         await releaseAllocatedNumber()
         const msg = fileError instanceof Error ? fileError.message : "Unknown error"
         return NextResponse.json(
@@ -209,48 +240,21 @@ export async function POST(request: Request) {
         )
       }
 
-      pdfAttachments = uploaded
-      pdfPath = uploaded[0]?.path ?? null
-      pdfFileName = uploaded[0]?.fileName ?? null
-    }
+      const pdfPath = uploaded[0]?.path ?? null
+      const pdfFileName = uploaded[0]?.fileName ?? null
 
-    let correspondence
-    try {
-      correspondence = await prisma.outgoingCorrespondence.create({
-        data: {
-          paperNo: paperNo,
-          departmentKey: OUTGOING_SINGLE_DEPARTMENT_KEY,
-          to: to,
-          subject: subject,
-          date: date,
-          content: content || null,
-          pdfPath: pdfPath,
-          pdfFileName: pdfFileName,
-          createdBy: createdBy ? parseInt(createdBy) : null,
-        },
-        include: {
-          creator: {
-            select: {
-              id: true,
-              isim: true,
-              soyisim: true,
-              email: true,
-              departman: true,
-            },
-          },
-        },
-      })
-    } catch (createErr: unknown) {
-      await releaseAllocatedNumber()
-      throw createErr
-    }
-
-    if (pdfAttachments?.length) {
       try {
-        await setOutgoingPdfAttachmentsJsonb(correspondence.id, pdfAttachments)
-      } catch (jsonbErr) {
-        console.error("setOutgoingPdfAttachmentsJsonb:", jsonbErr)
-        await prisma.outgoingCorrespondence.delete({ where: { id: correspondence.id } })
+        await prisma.outgoingCorrespondence.update({
+          where: { id: correspondence.id },
+          data: { pdfPath, pdfFileName },
+        })
+        await setOutgoingPdfAttachmentsJsonb(correspondence.id, uploaded)
+      } catch (updateErr) {
+        console.error("File metadata update error:", updateErr)
+        for (const a of uploaded) {
+          await deletePdfFromStorage(a.path)
+        }
+        await deleteCorrespondence()
         await releaseAllocatedNumber()
         return NextResponse.json(
           { error: "Could not save attachment metadata" },
@@ -274,10 +278,7 @@ export async function POST(request: Request) {
       },
     })
 
-    return NextResponse.json(
-      full ?? correspondence,
-      { status: 201 }
-    )
+    return NextResponse.json(full ?? correspondence, { status: 201 })
   } catch (error: unknown) {
     console.error("Error creating outgoing correspondence:", error)
     const err = error as { message?: string; code?: string; name?: string; stack?: string }
