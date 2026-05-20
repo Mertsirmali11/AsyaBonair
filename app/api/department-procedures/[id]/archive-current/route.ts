@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
 import {
@@ -42,53 +43,61 @@ export async function POST(
   }
 
   try {
-    const outcome = await prisma.$transaction(async (tx) => {
-      const row = await tx.departmentProcedure.findUnique({
-        where: { id: numericId },
-        select: {
-          id: true,
-          seriesId: true,
-          isCurrent: true,
-          department: true,
-        },
-      })
-      if (!row) return { ok: false as const, code: "NOT_FOUND" as const }
-      if (!canViewDepartmentFormRow(departman, row.department)) {
-        return { ok: false as const, code: "FORBIDDEN" as const }
-      }
-      if (!row.isCurrent) return { ok: false as const, code: "NOT_CURRENT" as const }
+    const outcome = await prisma.$transaction(
+      async (tx) => {
+        const row = await tx.departmentProcedure.findUnique({
+          where: { id: numericId },
+          select: {
+            id: true,
+            seriesId: true,
+            isCurrent: true,
+            department: true,
+          },
+        })
+        if (!row) return { ok: false as const, code: "NOT_FOUND" as const }
+        if (!canViewDepartmentFormRow(departman, row.department)) {
+          return { ok: false as const, code: "FORBIDDEN" as const }
+        }
+        if (!row.isCurrent) return { ok: false as const, code: "NOT_CURRENT" as const }
 
-      const cnt = await tx.departmentProcedure.count({
-        where: { seriesId: row.seriesId },
-      })
+        const cnt = await tx.departmentProcedure.count({
+          where: { seriesId: row.seriesId },
+        })
 
-      if (cnt < 2) {
-        await tx.departmentProcedure.update({
-          where: { id: row.id },
+        if (cnt < 2) {
+          await tx.departmentProcedure.update({
+            where: { id: row.id },
+            data: { isCurrent: false },
+          })
+          return { ok: true as const }
+        }
+
+        const successor = await tx.departmentProcedure.findFirst({
+          where: { seriesId: row.seriesId, id: { not: row.id } },
+          orderBy: { revision: "desc" },
+          select: { id: true },
+        })
+        if (!successor) {
+          return { ok: false as const, code: "NO_SUCCESSOR" as const }
+        }
+
+        await tx.departmentProcedure.updateMany({
+          where: { seriesId: row.seriesId },
           data: { isCurrent: false },
         })
+        await tx.departmentProcedure.update({
+          where: { id: successor.id },
+          data: { isCurrent: true },
+        })
         return { ok: true as const }
+      },
+      {
+        // Serializable isolation prevents a race where two concurrent archive
+        // requests both read isCurrent=true and pick different successors.
+        // PostgreSQL SSI will abort one with P2034; the catch below handles it.
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       }
-
-      const successor = await tx.departmentProcedure.findFirst({
-        where: { seriesId: row.seriesId, id: { not: row.id } },
-        orderBy: { revision: "desc" },
-        select: { id: true },
-      })
-      if (!successor) {
-        return { ok: false as const, code: "NO_SUCCESSOR" as const }
-      }
-
-      await tx.departmentProcedure.updateMany({
-        where: { seriesId: row.seriesId },
-        data: { isCurrent: false },
-      })
-      await tx.departmentProcedure.update({
-        where: { id: successor.id },
-        data: { isCurrent: true },
-      })
-      return { ok: true as const }
-    })
+    )
 
     if (!outcome.ok) {
       if (outcome.code === "FORBIDDEN") {
@@ -109,6 +118,17 @@ export async function POST(
     return NextResponse.json({ success: true })
   } catch (e: unknown) {
     console.error("archive-current department-procedure:", e)
+    // P2034 = serialization failure — another concurrent request already
+    // archived this revision; the client can retry or refresh.
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === "P2034"
+    ) {
+      return NextResponse.json(
+        { error: "Eşzamanlı işlem çakışması. Lütfen sayfayı yenileyip tekrar deneyin." },
+        { status: 409 }
+      )
+    }
     return NextResponse.json({ error: "Arşivlenemedi." }, { status: 500 })
   }
 }
