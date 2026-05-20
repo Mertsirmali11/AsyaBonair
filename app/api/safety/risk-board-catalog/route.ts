@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import type { Prisma } from "@prisma/client"
+import { Prisma } from "@prisma/client"
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
@@ -94,63 +94,70 @@ export async function PUT(req: NextRequest) {
     }
     const nextEntries = parsed.data
 
-    const stored = await prisma.safetyRiskBoardCatalog.findUnique({
-      where: { id: 1 },
-    })
-    const previous = baselinePrevious(stored)
-
-    const nextById = new Map(nextEntries.map((r) => [r.id, r]))
-    const prevById = new Map(previous.map((r) => [r.id, r]))
-
-    const removed = previous.filter((p) => !nextById.has(p.id))
-    const titleChanges: { oldTitle: string; newTitle: string }[] = []
-    for (const n of nextEntries) {
-      const p = prevById.get(n.id)
-      if (p && p.title.trim() !== n.title.trim()) {
-        titleChanges.push({ oldTitle: p.title, newTitle: n.title })
-      }
-    }
-
     const jsonEntries = nextEntries as unknown as Prisma.InputJsonValue
 
-    await prisma.$transaction(async (tx) => {
-      for (const p of removed) {
-        const key = riskBoardKeyFromTitle(p.title)
-        await tx.safetyRiskBoard.deleteMany({ where: { riskKey: key } })
-      }
-
-      for (const { oldTitle, newTitle } of titleChanges) {
-        const oldKey = riskBoardKeyFromTitle(oldTitle)
-        const newKey = riskBoardKeyFromTitle(newTitle)
-        const board = await tx.safetyRiskBoard.findUnique({
-          where: { riskKey: oldKey },
+    // Reading `stored` inside the Serializable transaction ensures that two
+    // concurrent PUT requests cannot both read the same previous catalog, compute
+    // different diffs, and then overwrite each other's changes. PostgreSQL SSI
+    // detects the read-write conflict and aborts one with P2034.
+    await prisma.$transaction(
+      async (tx) => {
+        const stored = await tx.safetyRiskBoardCatalog.findUnique({
+          where: { id: 1 },
         })
-        if (!board) continue
-        if (oldKey !== newKey) {
-          const clash = await tx.safetyRiskBoard.findUnique({
-            where: { riskKey: newKey },
-          })
-          if (clash) {
-            throw new Error(
-              "DUPLICATE_TITLE_KEY: Another saved risk board already uses this title."
-            )
+        const previous = baselinePrevious(stored)
+
+        const nextById = new Map(nextEntries.map((r) => [r.id, r]))
+        const prevById = new Map(previous.map((r) => [r.id, r]))
+
+        const removed = previous.filter((p) => !nextById.has(p.id))
+        const titleChanges: { oldTitle: string; newTitle: string }[] = []
+        for (const n of nextEntries) {
+          const p = prevById.get(n.id)
+          if (p && p.title.trim() !== n.title.trim()) {
+            titleChanges.push({ oldTitle: p.title, newTitle: n.title })
           }
         }
-        await tx.safetyRiskBoard.update({
-          where: { riskKey: oldKey },
-          data: {
-            riskKey: newKey,
-            riskTitle: newTitle.trim(),
-          },
-        })
-      }
 
-      await tx.safetyRiskBoardCatalog.upsert({
-        where: { id: 1 },
-        create: { id: 1, entries: jsonEntries },
-        update: { entries: jsonEntries },
-      })
-    })
+        for (const p of removed) {
+          const key = riskBoardKeyFromTitle(p.title)
+          await tx.safetyRiskBoard.deleteMany({ where: { riskKey: key } })
+        }
+
+        for (const { oldTitle, newTitle } of titleChanges) {
+          const oldKey = riskBoardKeyFromTitle(oldTitle)
+          const newKey = riskBoardKeyFromTitle(newTitle)
+          const board = await tx.safetyRiskBoard.findUnique({
+            where: { riskKey: oldKey },
+          })
+          if (!board) continue
+          if (oldKey !== newKey) {
+            const clash = await tx.safetyRiskBoard.findUnique({
+              where: { riskKey: newKey },
+            })
+            if (clash) {
+              throw new Error(
+                "DUPLICATE_TITLE_KEY: Another saved risk board already uses this title."
+              )
+            }
+          }
+          await tx.safetyRiskBoard.update({
+            where: { riskKey: oldKey },
+            data: {
+              riskKey: newKey,
+              riskTitle: newTitle.trim(),
+            },
+          })
+        }
+
+        await tx.safetyRiskBoardCatalog.upsert({
+          where: { id: 1 },
+          create: { id: 1, entries: jsonEntries },
+          update: { entries: jsonEntries },
+        })
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    )
 
     return NextResponse.json({ ok: true, entries: nextEntries })
   } catch (e) {
@@ -158,6 +165,17 @@ export async function PUT(req: NextRequest) {
     if (msg.startsWith("DUPLICATE_TITLE_KEY")) {
       return NextResponse.json(
         { error: msg.replace(/^DUPLICATE_TITLE_KEY: /, "") },
+        { status: 409 }
+      )
+    }
+    // P2034 = serialization failure — another concurrent request updated the
+    // catalog at the same time; the client should retry.
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === "P2034"
+    ) {
+      return NextResponse.json(
+        { error: "Eşzamanlı güncelleme çakışması. Lütfen tekrar deneyin." },
         { status: 409 }
       )
     }
