@@ -95,11 +95,13 @@ export async function POST(req: Request) {
 
   const items = parseAuditChecklistItemsFromBody(b.items)
 
-  const maxSort = await prisma.auditChecklist.aggregate({ _max: { sortOrder: true } })
-  const nextOrder = (maxSort._max.sortOrder ?? -1) + 1
-
   try {
     const finalRow = await prisma.$transaction(async (tx) => {
+      // Calculate nextOrder inside the transaction so concurrent POSTs
+      // cannot both read the same max and produce duplicate sortOrder values.
+      const maxSort = await tx.auditChecklist.aggregate({ _max: { sortOrder: true } })
+      const nextOrder = (maxSort._max.sortOrder ?? -1) + 1
+
       const created = await tx.auditChecklist.create({
         data: {
           title: title.slice(0, 400),
