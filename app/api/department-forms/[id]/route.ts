@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
 import {
@@ -76,6 +76,46 @@ export async function GET(
       hasOriginalFile: Boolean(row.fileStoragePath?.trim()),
     },
   })
+}
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { error, departman } = await viewerDepartman()
+  if (error) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  if (!canManageAllDepartmentForms(departman)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  const { id } = await params
+  const numericId = Number.parseInt(id, 10)
+  if (Number.isNaN(numericId)) {
+    return NextResponse.json({ error: "Invalid id" }, { status: 400 })
+  }
+
+  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null
+  if (!body || typeof body !== "object") {
+    return NextResponse.json({ error: "Geçersiz istek gövdesi." }, { status: 400 })
+  }
+
+  if (body.action === "approve" || body.action === "reject") {
+    if (body.action === "reject" && !body.reason) {
+      return NextResponse.json({ error: "Red nedeni gerekli." }, { status: 400 })
+    }
+    const updated = await prisma.departmentForm.update({
+      where: { id: numericId },
+      data: {
+        status: body.action === "approve" ? "approved" : "rejected",
+        rejectionReason: body.action === "reject" ? String(body.reason).trim() : null,
+      },
+      select: { id: true, status: true, rejectionReason: true },
+    })
+    return NextResponse.json(updated)
+  }
+
+  return NextResponse.json({ error: "Bilinmeyen action." }, { status: 400 })
 }
 
 export async function DELETE(

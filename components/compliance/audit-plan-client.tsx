@@ -9,6 +9,8 @@ import {
   ClipboardCheck,
   ClipboardList,
   Clock,
+  Download,
+  FileSpreadsheet,
   FileText,
   Filter,
   History,
@@ -656,19 +658,84 @@ export function AuditPlanClient() {
     const q = keyword.trim().toLowerCase()
     if (!q) return rows
     return rows.filter((r) =>
-      [
-        r.auditNumber,
-        r.field,
-        r.auditors,
-        r.status,
-        r.datePlanned,
-        r.ct,
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(q)
+      [r.auditNumber, r.field, r.auditors, r.status, r.datePlanned, r.ct]
+        .join(" ").toLowerCase().includes(q)
     )
   }, [rows, keyword])
+
+  // ─── Export ───────────────────────────────────────────────────────────────
+
+  const EXPORT_COLS = [
+    { header: "Audit Number",      key: "auditNumber"     },
+    { header: "Date (Planned)",    key: "datePlanned"     },
+    { header: "Date (Postponed)",  key: "datePostponed"   },
+    { header: "Initialized Date",  key: "initializedDate" },
+    { header: "Field",             key: "field"           },
+    { header: "C / T",             key: "ct"              },
+    { header: "Auditors",          key: "auditors"        },
+    { header: "Status",            key: "status"          },
+  ] as const
+
+  type ExportKey = typeof EXPORT_COLS[number]["key"]
+
+  const toExportRows = (src: AuditPlanRow[]) =>
+    src.map((r): Record<ExportKey, string> => ({
+      auditNumber:     r.auditNumber,
+      datePlanned:     r.datePlanned,
+      datePostponed:   r.datePostponed ?? "—",
+      initializedDate: r.initializedDate ?? "—",
+      field:           r.field,
+      ct:              r.ct,
+      auditors:        r.auditors,
+      status:          r.status,
+    }))
+
+  const handleExportExcel = async () => {
+    const { utils, writeFile } = await import("xlsx")
+    const data = toExportRows(filtered)
+    const ws = utils.json_to_sheet(data, { header: EXPORT_COLS.map((c) => c.key) })
+    EXPORT_COLS.forEach((col, i) => {
+      const cell = utils.encode_cell({ r: 0, c: i })
+      if (ws[cell]) ws[cell].v = col.header
+    })
+    ws["!cols"] = [
+      { wch: 18 }, { wch: 16 }, { wch: 18 }, { wch: 18 },
+      { wch: 30 }, { wch: 10 }, { wch: 35 }, { wch: 14 },
+    ]
+    const wb = utils.book_new()
+    utils.book_append_sheet(wb, ws, "Audit Plan")
+    writeFile(wb, `Audit_Plan_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
+  const handleExportPdf = async () => {
+    const { jsPDF } = await import("jspdf")
+    const { default: autoTable } = await import("jspdf-autotable")
+    const data = toExportRows(filtered)
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" })
+    doc.setFontSize(14)
+    doc.text("Audit Plan", 14, 14)
+    doc.setFontSize(9)
+    doc.text(`Dışa aktarma: ${new Date().toLocaleDateString("tr-TR")}  |  ${filtered.length} kayıt`, 14, 21)
+    autoTable(doc, {
+      startY: 27,
+      head: [EXPORT_COLS.map((c) => c.header)],
+      body: data.map((r) => EXPORT_COLS.map((c) => r[c.key])),
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [5, 150, 105], textColor: 255, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [245, 250, 247] },
+      columnStyles: {
+        0: { cellWidth: 28 },
+        1: { cellWidth: 22 },
+        2: { cellWidth: 24 },
+        3: { cellWidth: 24 },
+        4: { cellWidth: 40 },
+        5: { cellWidth: 14 },
+        6: { cellWidth: 50 },
+        7: { cellWidth: 18 },
+      },
+    })
+    doc.save(`Audit_Plan_${new Date().toISOString().slice(0, 10)}.pdf`)
+  }
 
   return (
     <>
@@ -743,6 +810,34 @@ export function AuditPlanClient() {
                   <List className="mr-1.5 size-4" />
                   Consolidated
                 </Button>
+
+                {/* ── Export ── */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={filtered.length === 0}
+                      title="Dışa aktar"
+                    >
+                      <Download className="mr-1.5 size-4" />
+                      Export
+                      <ChevronDown className="ml-1 size-3.5 opacity-60" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => void handleExportExcel()}>
+                      <FileSpreadsheet className="mr-2 size-4 text-emerald-600" />
+                      Excel (.xlsx)
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => void handleExportPdf()}>
+                      <FileText className="mr-2 size-4 text-red-500" />
+                      PDF (.pdf)
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
                 <Button
                   type="button"
                   size="sm"

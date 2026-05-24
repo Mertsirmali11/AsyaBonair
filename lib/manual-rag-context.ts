@@ -253,11 +253,11 @@ SYSTEM MANUALS — LATEST REVISIONS (${manuals.length} manual(s)): ${titles}
 ${ragLine}${truncLine}
 
 Rules:
-- Base your answer solely on the text segments below.
-- Cite the source in square brackets for each piece of information: [Manual Name - Rev.X] or [Manual Name].
-- If drawing from multiple manuals, consider all of them; explicitly note any contradictions.
-- Do not invent information not present in the segments; if necessary, say "No information on this topic was found in the loaded manuals."
-- End your response with a brief "Sources:" line listing the manuals you used.
+- Prioritize information from the text segments below.
+- Cite the source in square brackets: [Manual Name - Rev.X] or [Manual Name].
+- If the segments do not cover a topic, answer from your general aviation expertise and note it as [General Knowledge].
+- Do not invent specific regulatory article numbers or procedures you cannot verify.
+- End your response with a brief "Sources:" line.
 
 --- SYSTEM MANUAL TEXT ---
 ${contextBlock}`
@@ -274,11 +274,11 @@ SİSTEM MANUELLERİ — EN GÜNCEL REVİZYONLAR (${manuals.length} manuel): ${ti
 ${ragLine}${truncLine}
 
 Kurallar:
-- Yanıtı yalnızca aşağıdaki metin parçalarına dayandır.
+- Öncelikli olarak aşağıdaki metin parçalarını kullan.
 - Her bilgi için köşeli parantez içinde kaynağı belirt: [Manuel Adı - Rev.X] veya [Manuel Adı].
-- Birden fazla manuelDEN bilgi alıyorsan hepsini dikkate al; çelişki varsa açıkça belirt.
-- Parçalarda geçmeyen bilgiyi uydurma; gerekirse "Yüklü manuellerde bu konuya ilişkin bilgi bulunamadı." de.
-- Yanıtın sonunda kısa bir "Kaynak:" satırı ekle ve hangi manuellerden yararlandığını listele.
+- Parçalarda konu hakkında bilgi yoksa genel havacılık bilginle yanıt ver ve bunu [Genel Bilgi] olarak işaretle.
+- Doğrulayamadığın mevzuat maddelerini veya prosedür numaralarını uydurma.
+- Yanıtın sonunda kısa bir "Kaynak:" satırı ekle.
 
 --- SİSTEM MANUELLERİNDEN GELEN METİN ---
 ${contextBlock}`

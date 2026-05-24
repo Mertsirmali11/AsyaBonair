@@ -66,8 +66,10 @@ model Calisan {
   departman       String?   @db.VarChar(100)
   /// Çalışanın unvanı (DepartmentTitle FK — opsiyonel)
   titleId         Int?      @map("title_id")
-  /// Çalışanın mevcut fiziksel konumu (Ofis/Hangar/Remote/Saha). İzin varsa otomatik "OnLeave".
+  /// Çalışanın mevcut fiziksel konumu (Ofis/Hangar/Remote/Saha/Görevde). İzin varsa otomatik "OnLeave".
   workLocation    String?   @default("Office") @map("work_location") @db.VarChar(50)
+  /// Çalışanın durumu için seçtiği tarih (opsiyonel, görevde/saha için kullanılır)
+  workLocationDate DateTime? @map("work_location_date") @db.Date
   tcNo            String?   @unique @db.VarChar(20) @map("tc_no")
   dogumTarihi     DateTime? @map("dogum_tarihi") @db.Date
   telNo           String?   @db.VarChar(20) @map("tel_no")
@@ -122,6 +124,7 @@ model Calisan {
   supportTicketsCreated SupportTicket[] @relation("SupportTicketCreator")
   supportTicketsAdminUpdated SupportTicket[] @relation("SupportTicketAdmin")
   supportTicketHistoryActions SupportTicketHistory[] @relation("SupportTicketHistoryActor")
+  companyStatusLogs CompanyStatusLog[]
   /// Unvan ilişkisi
   title           DepartmentTitle? @relation(fields: [titleId], references: [id], onDelete: SetNull)
   /// İzin talepleri — çalışan olarak
@@ -514,6 +517,9 @@ model Meeting {
   status          String    @default("Planned") @db.VarChar(50)
   meetingMinutes  String?   @map("meeting_minutes") @db.Text
   actualDate      DateTime? @map("actual_date") @db.Date
+  meetingTime     String?   @map("meeting_time") @db.VarChar(10)  // HH:MM
+  location        String?   @db.VarChar(500)
+  compiledBy      String?   @map("compiled_by") @db.VarChar(200)
   filePath        String?   @map("file_path") @db.VarChar(1000)
   fileName        String?   @map("file_name") @db.VarChar(255)
   externalParticipants String? @map("external_participants") @db.Text
@@ -627,10 +633,13 @@ model CompanyManual {
   seriesId    String   @default(dbgenerated("(gen_random_uuid())::text")) @map("series_id") @db.VarChar(36)
   revision    Int      @default(0)
   /// Seride kullanıcıya / AI seçicisinde gösterilen güncel kayıt (yalnızca biri true)
-  isCurrent   Boolean  @default(true) @map("is_current")
-  createdBy   Int?     @map("created_by")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  isCurrent        Boolean  @default(true) @map("is_current")
+  /// approved | pending | rejected
+  status           String   @default("approved") @db.VarChar(20)
+  rejectionReason  String?  @map("rejection_reason") @db.Text
+  createdBy        Int?     @map("created_by")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   creator Calisan? @relation(fields: [createdBy], references: [id], onDelete: SetNull)
   chunks  ManualChunk[]
@@ -674,6 +683,9 @@ model DepartmentForm {
   seriesId    String   @default(dbgenerated("(gen_random_uuid())::text")) @map("series_id") @db.VarChar(36)
   revision    Int      @default(0)
   isCurrent   Boolean  @default(true) @map("is_current")
+  /// approved | pending | rejected
+  status          String   @default("approved") @db.VarChar(20)
+  rejectionReason String?  @map("rejection_reason") @db.Text
   createdBy   Int?     @map("created_by")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
@@ -992,6 +1004,10 @@ model AuditSession {
   startedAt        DateTime  @default(now()) @map("started_at")
   completedAt      DateTime? @map("completed_at")
   status           String    @default("InProgress") @db.VarChar(50) // InProgress | Completed
+  /// Denetçi genel yorumu (oturum bazında)
+  auditorComment   String?   @db.Text @map("auditor_comment")
+  /// Denetlenen genel yorumu / itirazı (oturum bazında)
+  auditeeComment   String?   @db.Text @map("auditee_comment")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
@@ -1246,4 +1262,20 @@ model SupportTicketHistory {
 
   @@index([supportTicketId, createdAt])
   @@map("support_ticket_history")
+}
+
+/// Çalışan konum güncellemeleri geçmişi — her PATCH isteğinde bir satır eklenir.
+/// Geçmiş tarih sorgusu: belirli bir tarih için çalışan başına en son kayıt alınır.
+model CompanyStatusLog {
+  id           Int      @id @default(autoincrement())
+  employeeId   Int      @map("employee_id")
+  workLocation String   @map("work_location") @db.VarChar(50)
+  statusDate   DateTime @map("status_date") @db.Date
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  employee Calisan @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, statusDate(sort: Desc)])
+  @@index([statusDate(sort: Desc)])
+  @@map("company_status_logs")
 }

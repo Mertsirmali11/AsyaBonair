@@ -32,19 +32,48 @@ type MsgRow = {
   attachmentPublicUrl: string | null
 }
 
+type MemberReadState = {
+  calisanId: number
+  displayName: string
+  lastReadMessageId: number
+  readAt: string
+}
+
+function computeSeenBy(
+  messageId: number,
+  senderId: number,
+  viewerId: number,
+  readStates: MemberReadState[]
+) {
+  if (senderId !== viewerId) return []
+  return readStates
+    .filter(
+      (r) =>
+        r.calisanId !== senderId && r.lastReadMessageId >= messageId
+    )
+    .map((r) => ({
+      id: r.calisanId,
+      displayName: r.displayName,
+      readAt: r.readAt,
+    }))
+}
+
 function mapMessage(
   m: MsgRow,
   calisanId: number,
-  otherLastRead: number,
+  readStates: MemberReadState[],
   senderDisplayName?: string
 ) {
+  const seenBy = computeSeenBy(m.id, m.senderId, calisanId, readStates)
   const base = {
     id: m.id,
     body: m.body,
     senderId: m.senderId,
     createdAt: m.createdAt.toISOString(),
     fromMe: m.senderId === calisanId,
-    readByOther: m.senderId === calisanId && otherLastRead >= m.id,
+    readByOther: seenBy.length > 0,
+    seenBy,
+    readByCount: seenBy.length,
     attachment: m.attachmentPublicUrl
       ? {
           url: m.attachmentPublicUrl,
@@ -112,17 +141,52 @@ async function groupMembersJson(conversationId: number) {
   return members
 }
 
-async function getOtherLastRead(conversationId: number, otherId: number) {
-  const otherRead = await prisma.dmReadState.findUnique({
-    where: {
-      conversationId_calisanId: {
-        conversationId,
-        calisanId: otherId,
+async function getConversationReadStates(
+  conversationId: number,
+  conv: {
+    isGroup: boolean
+    lowerUserId: number | null
+    higherUserId: number | null
+    members: { calisanId: number }[]
+  }
+): Promise<MemberReadState[]> {
+  const participantIds = conv.isGroup
+    ? conv.members.map((m) => m.calisanId)
+    : [conv.lowerUserId, conv.higherUserId].filter(
+        (id): id is number => id != null
+      )
+
+  if (participantIds.length === 0) return []
+
+  const [readStates, calisans] = await Promise.all([
+    prisma.dmReadState.findMany({
+      where: { conversationId, calisanId: { in: participantIds } },
+      select: {
+        calisanId: true,
+        lastReadMessageId: true,
+        updatedAt: true,
       },
-    },
-    select: { lastReadMessageId: true },
-  })
-  return otherRead?.lastReadMessageId ?? 0
+    }),
+    prisma.calisan.findMany({
+      where: { id: { in: participantIds } },
+      select: { id: true, isim: true, soyisim: true },
+    }),
+  ])
+
+  const nameMap = new Map(
+    calisans.map((c) => [
+      c.id,
+      [c.isim, c.soyisim].filter(Boolean).join(" ").trim() ||
+        `Çalışan #${c.id}`,
+    ])
+  )
+
+  return readStates.map((r) => ({
+    calisanId: r.calisanId,
+    displayName: nameMap.get(r.calisanId) ?? `Çalışan #${r.calisanId}`,
+    lastReadMessageId: r.lastReadMessageId ?? 0,
+    readAt: r.updatedAt.toISOString(),
+  }))
 }
 
 async function getMe() {
@@ -158,14 +222,19 @@ async function buildListPayload(
   rows: MsgRow[],
   conv: NonNullable<Awaited<ReturnType<typeof assertMember>>>,
   calisanId: number,
-  otherLastRead: number,
+  readStates: MemberReadState[],
   extra: Record<string, unknown>
 ) {
+  const otherLastRead = readStates
+    .filter((r) => r.calisanId !== calisanId)
+    .reduce((max, r) => Math.max(max, r.lastReadMessageId), 0)
+
   if (!conv.isGroup) {
     return NextResponse.json({
       ...extra,
-      messages: rows.map((m) => mapMessage(m, calisanId, otherLastRead)),
+      messages: rows.map((m) => mapMessage(m, calisanId, readStates)),
       otherLastReadMessageId: otherLastRead,
+      memberReadStates: readStates,
     })
   }
 
@@ -184,9 +253,10 @@ async function buildListPayload(
   return NextResponse.json({
     ...extra,
     messages: rows.map((m) =>
-      mapMessage(m, calisanId, 0, nameMap.get(m.senderId) ?? `#${m.senderId}`)
+      mapMessage(m, calisanId, readStates, nameMap.get(m.senderId) ?? `#${m.senderId}`)
     ),
-    otherLastReadMessageId: 0,
+    otherLastReadMessageId: otherLastRead,
+    memberReadStates: readStates,
   })
 }
 
@@ -209,12 +279,13 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
 
-  let otherLastRead = 0
+  let readStates: MemberReadState[] = []
   let avatarPair: { myAvatarUrl: string | null; otherAvatarUrl: string | null }
+
+  readStates = await getConversationReadStates(conversationId, conv)
 
   if (!conv.isGroup) {
     const otherId = otherParticipantId(conv, calisanId)
-    otherLastRead = await getOtherLastRead(conversationId, otherId)
     avatarPair = await avatarUrlsForDmParticipants(calisanId, otherId)
   } else {
     const meRow = await prisma.calisan.findUnique({
@@ -258,7 +329,7 @@ export async function GET(
       take: 200,
       select: messageSelect,
     })
-    return buildListPayload(rows, conv, calisanId, otherLastRead, {
+    return buildListPayload(rows, conv, calisanId, readStates, {
       mode: "since" as const,
       ...commonExtra,
     })
@@ -278,7 +349,7 @@ export async function GET(
     const hasOlder = rows.length > limit
     const page = hasOlder ? rows.slice(0, limit) : rows
     const asc = [...page].reverse()
-    return buildListPayload(asc, conv, calisanId, otherLastRead, {
+    return buildListPayload(asc, conv, calisanId, readStates, {
       mode: "older" as const,
       hasOlder,
       ...commonExtra,
@@ -295,7 +366,7 @@ export async function GET(
   const page = hasOlder ? rows.slice(0, limit) : rows
   const asc = [...page].reverse()
 
-  return buildListPayload(asc, conv, calisanId, otherLastRead, {
+  return buildListPayload(asc, conv, calisanId, readStates, {
     mode: "latest" as const,
     hasOlder,
     ...commonExtra,
@@ -390,11 +461,7 @@ export async function POST(
     data: { updatedAt: new Date() },
   })
 
-  let otherLastRead = 0
-  if (!conv.isGroup) {
-    const otherId = otherParticipantId(conv, calisanId)
-    otherLastRead = await getOtherLastRead(conversationId, otherId)
-  }
+  const readStates = await getConversationReadStates(conversationId, conv)
 
   const targets = conv.isGroup
     ? conv.members.map((m) => m.calisanId)
@@ -411,8 +478,8 @@ export async function POST(
     `Çalışan #${calisanId}`
 
   const messagePayload = conv.isGroup
-    ? mapMessage(msg, calisanId, 0, senderDisplayName)
-    : mapMessage(msg, calisanId, otherLastRead)
+    ? mapMessage(msg, calisanId, readStates, senderDisplayName)
+    : mapMessage(msg, calisanId, readStates)
 
   return NextResponse.json({
     message: messagePayload,

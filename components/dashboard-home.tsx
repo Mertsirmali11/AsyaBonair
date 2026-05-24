@@ -21,6 +21,7 @@ import {
   FileWarning,
   ChevronDown,
   Ticket,
+  BookOpen,
 } from "lucide-react"
 import { formatDateOnlyIstanbul, formatDateTimeIstanbul } from "@/lib/date-format"
 import { isAdminDepartment } from "@/lib/department-access"
@@ -182,6 +183,8 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
   >([])
   const [supportTicketsAdminView, setSupportTicketsAdminView] =
     useState(false)
+  const [pendingManualsCount, setPendingManualsCount] = useState(0)
+  const [pendingFormsCount, setPendingFormsCount] = useState(0)
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState("")
   const [content, setContent] = useState("")
@@ -228,6 +231,8 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
           setCertificatesExpired(data.certificatesExpired ?? [])
           setSupportTicketsPreview(data.supportTicketsPreview ?? [])
           setSupportTicketsAdminView(!!data.supportTicketsAdminView)
+          setPendingManualsCount(data.pendingManualsCount ?? 0)
+          setPendingFormsCount(data.pendingFormsCount ?? 0)
           setLoadError(null)
           hasLoadedOnceRef.current = true
           setLoading(false)
@@ -553,6 +558,62 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                   )}
                 </div>
               )}
+
+            {!loading && !loadError && pendingManualsCount > 0 && (
+              <div className="rounded-lg border border-amber-300/90 bg-amber-50 px-3 py-2.5 text-sm text-amber-950 shadow-sm dark:border-amber-700/50 dark:bg-amber-950/35 dark:text-amber-50">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex min-w-0 gap-2">
+                    <BookOpen
+                      className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-400"
+                      aria-hidden
+                    />
+                    <div className="min-w-0">
+                      <p className="font-semibold leading-tight text-amber-950 dark:text-amber-100">
+                        Onay Bekleyen Manuel Yüklemesi ({pendingManualsCount})
+                      </p>
+                      <p className="mt-0.5 text-xs text-amber-900/85 dark:text-amber-200/90">
+                        {pendingManualsCount} adet manuel yükleme talebiniz onayınızı bekliyor.
+                      </p>
+                    </div>
+                  </div>
+                  <Link
+                    href="/documents"
+                    className="inline-flex shrink-0 items-center gap-1 self-start text-sm font-semibold text-amber-800 underline-offset-4 hover:underline dark:text-amber-200 sm:self-center"
+                  >
+                    Manueller
+                    <ArrowRight className="size-4" />
+                  </Link>
+                </div>
+              </div>
+            )}
+
+            {!loading && !loadError && pendingFormsCount > 0 && (
+              <div className="rounded-lg border border-amber-300/90 bg-amber-50 px-3 py-2.5 text-sm text-amber-950 shadow-sm dark:border-amber-700/50 dark:bg-amber-950/35 dark:text-amber-50">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex min-w-0 gap-2">
+                    <BookOpen
+                      className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-400"
+                      aria-hidden
+                    />
+                    <div className="min-w-0">
+                      <p className="font-semibold leading-tight text-amber-950 dark:text-amber-100">
+                        Onay Bekleyen Form Yüklemesi ({pendingFormsCount})
+                      </p>
+                      <p className="mt-0.5 text-xs text-amber-900/85 dark:text-amber-200/90">
+                        {pendingFormsCount} adet form yükleme talebiniz onayınızı bekliyor.
+                      </p>
+                    </div>
+                  </div>
+                  <Link
+                    href="/documents/forms"
+                    className="inline-flex shrink-0 items-center gap-1 self-start text-sm font-semibold text-amber-800 underline-offset-4 hover:underline dark:text-amber-200 sm:self-center"
+                  >
+                    Formlar
+                    <ArrowRight className="size-4" />
+                  </Link>
+                </div>
+              </div>
+            )}
 
             {!loading && !loadError && (
               <div className="rounded-lg border border-violet-200/90 bg-violet-50/95 px-3 py-2.5 text-sm text-violet-950 shadow-sm dark:border-violet-800/60 dark:bg-violet-950/35 dark:text-violet-100">

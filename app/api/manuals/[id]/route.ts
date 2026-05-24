@@ -10,6 +10,7 @@ import {
   isValidCustomManualDepartment,
 } from "@/lib/organization-departments"
 import { deleteCompanyManualFile } from "@/lib/company-manuals-storage"
+import { indexManualChunks } from "@/lib/manual-chunk-indexer"
 
 function parseOptionalRevisionDateBody(raw: unknown): Date | null {
   if (raw === null || raw === undefined || raw === "") return null
@@ -74,6 +75,29 @@ export async function PATCH(
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "Geçersiz istek gövdesi." }, { status: 400 })
+  }
+
+  // ── Approve / Reject shortcut ─────────────────────────────────────────────
+  if (body.action === "approve" || body.action === "reject") {
+    if (body.action === "reject" && !body.reason) {
+      return NextResponse.json({ error: "Red nedeni gerekli." }, { status: 400 })
+    }
+    const updated = await prisma.companyManual.update({
+      where: { id: numericId },
+      data: {
+        status: body.action === "approve" ? "approved" : "rejected",
+        rejectionReason: body.action === "reject" ? String(body.reason).trim() : null,
+      },
+      select: { id: true, status: true, rejectionReason: true, contentText: true },
+    })
+    // Onaylanınca chunk'ları asenkron indexle
+    if (body.action === "approve") {
+      indexManualChunks(updated.id, updated.contentText).catch((e) =>
+        console.error("[manuals] chunk index (approve):", e)
+      )
+    }
+    const { contentText: _ct, ...rest } = updated
+    return NextResponse.json(rest)
   }
 
   const existing = await prisma.companyManual.findUnique({

@@ -61,6 +61,8 @@ type ManualRow = {
   createdBy: number | null
   seriesId?: string
   documentPreview?: "pdf" | "none" | "unsupported"
+  status?: "approved" | "pending" | "rejected"
+  rejectionReason?: string | null
   creator: {
     isim: string | null
     soyisim: string | null
@@ -145,6 +147,12 @@ export function ConfigManualsClient() {
   const [detailOpen, setDetailOpen] = React.useState(false)
   const [detailManual, setDetailManual] = React.useState<ManualRow | null>(null)
 
+  // Approval workflow
+  const [rejectOpen, setRejectOpen] = React.useState(false)
+  const [rejectTarget, setRejectTarget] = React.useState<ManualRow | null>(null)
+  const [rejectReason, setRejectReason] = React.useState("")
+  const [approving, setApproving] = React.useState<number | null>(null)
+
   React.useEffect(() => {
     if (!banner) return
     const t = window.setTimeout(() => setBanner(null), 5000)
@@ -219,6 +227,48 @@ export function ConfigManualsClient() {
   React.useEffect(() => {
     void load()
   }, [load])
+
+  const handleApprove = React.useCallback(async (manual: ManualRow) => {
+    setApproving(manual.id)
+    try {
+      const res = await fetch(`/api/manuals/${manual.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "approve" }),
+      })
+      if (res.ok) {
+        setBanner({ type: "ok", text: `"${manual.title}" onaylandı.` })
+        await load()
+      } else {
+        setBanner({ type: "err", text: "Onaylama başarısız." })
+      }
+    } finally {
+      setApproving(null)
+    }
+  }, [load])
+
+  const handleRejectSubmit = React.useCallback(async () => {
+    if (!rejectTarget || !rejectReason.trim()) return
+    setApproving(rejectTarget.id)
+    try {
+      const res = await fetch(`/api/manuals/${rejectTarget.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reject", reason: rejectReason.trim() }),
+      })
+      if (res.ok) {
+        setBanner({ type: "ok", text: `"${rejectTarget.title}" reddedildi.` })
+        setRejectOpen(false)
+        setRejectReason("")
+        setRejectTarget(null)
+        await load()
+      } else {
+        setBanner({ type: "err", text: "Reddetme başarısız." })
+      }
+    } finally {
+      setApproving(null)
+    }
+  }, [rejectTarget, rejectReason, load])
 
   const resetAddForm = () => {
     setTitle("")
@@ -567,27 +617,66 @@ export function ConfigManualsClient() {
         </div>
       )}
 
+      {/* ── Pending Approvals (admin only) ─────────────────────────────────── */}
+      {canManageManuals && items.some(m => m.status === "pending") && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-4 flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold text-amber-800 dark:text-amber-300">
+              ⏳ Onay Bekleyen Yüklemeler ({items.filter(m => m.status === "pending").length})
+            </span>
+          </div>
+          {items.filter(m => m.status === "pending").map(m => (
+            <div key={m.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-white dark:bg-amber-900/20 px-4 py-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-semibold">{m.title}</span>
+                <span className="text-xs text-muted-foreground">
+                  {formatUploaderLabel(m)} · {formatDateTimeIstanbul(m.createdAt)}
+                  {m.department && ` · ${m.department}`}
+                  {m.manualNumber && ` · No: ${m.manualNumber}`}
+                </span>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  disabled={approving === m.id}
+                  onClick={() => void handleApprove(m)}
+                >
+                  {approving === m.id ? "…" : "✓ Onayla"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  disabled={approving === m.id}
+                  onClick={() => { setRejectTarget(m); setRejectReason(""); setRejectOpen(true) }}
+                >
+                  ✕ Reddet
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Label htmlFor="manual-search" className="text-muted-foreground">
             Ara ve filtrele
           </Label>
-          {canManageManuals ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="gap-1.5 shrink-0"
-              title="Yeni manuel yükle"
-              onClick={() => {
-                resetAddForm()
-                setAddOpen(true)
-              }}
-            >
-              <IconPlus className="size-4" />
-              Yeni manuel
-            </Button>
-          ) : null}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="gap-1.5 shrink-0"
+            title={canManageManuals ? "Yeni manuel yükle" : "Manuel yükleme talebi oluştur"}
+            onClick={() => {
+              resetAddForm()
+              setAddOpen(true)
+            }}
+          >
+            <IconPlus className="size-4" />
+            {canManageManuals ? "Yeni manuel" : "Yükleme talebi"}
+          </Button>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
           <div className="flex min-w-0 flex-1 flex-col gap-2 sm:max-w-xs">
@@ -638,11 +727,11 @@ export function ConfigManualsClient() {
       >
         <DialogContent className="max-h-[min(90vh,640px)] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Yeni manuel yükle</DialogTitle>
+            <DialogTitle>{canManageManuals ? "Yeni manuel yükle" : "Manuel yükleme talebi"}</DialogTitle>
             <DialogDescription>
-              Departman, manuel bilgileri ve dosyayı girin. Metin dosyadan çıkarılır
-              (Bonair AI). Arşivdeki eski sürümler her kullanıcıya akordeon altında
-              gösterilir.
+              {canManageManuals
+                ? "Departman, manuel bilgileri ve dosyayı girin. Metin dosyadan çıkarılır (Bonair AI)."
+                : "Talebiniz admin onayına gönderilecektir. Onaylandıktan sonra yayınlanır."}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4 py-2">
@@ -1171,6 +1260,38 @@ export function ConfigManualsClient() {
         </DialogContent>
       </Dialog>
 
+      {/* ── Reject Dialog ──────────────────────────────────────────────────── */}
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Manuel Reddet</DialogTitle>
+            <DialogDescription>
+              <strong>{rejectTarget?.title}</strong> adlı yükleme talebi reddedilecek.
+              Kullanıcıya gösterilecek red nedenini yazın.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label>Red nedeni <span className="text-destructive">*</span></Label>
+            <textarea
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm min-h-[80px] resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+              placeholder="Örn: Eksik revizyon bilgisi, hatalı departman seçimi…"
+              value={rejectReason}
+              onChange={e => setRejectReason(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectOpen(false)}>İptal</Button>
+            <Button
+              variant="destructive"
+              disabled={!rejectReason.trim() || approving === rejectTarget?.id}
+              onClick={() => void handleRejectSubmit()}
+            >
+              {approving === rejectTarget?.id ? "Kaydediliyor…" : "Reddet"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Card>
         <CardHeader>
           <CardTitle>Yüklü manueller</CardTitle>
@@ -1219,13 +1340,22 @@ export function ConfigManualsClient() {
                           }
                         }}
                       >
-                        <p className="flex items-center gap-1.5 font-medium">
+                        <p className="flex items-center gap-1.5 font-medium flex-wrap">
                           <IconEye
                             className="text-muted-foreground size-4 shrink-0"
                             aria-hidden
                           />
                           {m.title}
+                          {m.status === "pending" && (
+                            <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">⏳ Onay bekliyor</span>
+                          )}
+                          {m.status === "rejected" && (
+                            <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">✕ Reddedildi</span>
+                          )}
                         </p>
+                        {m.status === "rejected" && m.rejectionReason && (
+                          <p className="text-xs text-red-600 mt-0.5">Red nedeni: {m.rejectionReason}</p>
+                        )}
                         <p className="text-muted-foreground text-xs">
                           Rev. {m.revision ?? 0}
                           {m.manualNumber ? ` · No: ${m.manualNumber}` : ""}

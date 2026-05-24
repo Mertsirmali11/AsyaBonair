@@ -36,6 +36,8 @@ const formSelect = {
   revision: true,
   seriesId: true,
   isCurrent: true,
+  status: true,
+  rejectionReason: true,
   createdBy: true,
   fileStoragePath: true,
   originalFileName: true,
@@ -72,6 +74,8 @@ function mapFormRowToClient(
     revision: number
     seriesId: string
     isCurrent: boolean
+    status?: string
+    rejectionReason?: string | null
     createdBy: number | null
     creator: {
       isim: string | null
@@ -108,11 +112,23 @@ export async function GET() {
     )
     const manageAll = canManageAllDepartmentForms(departman)
 
+    // Non-adminler kendi departmanlarının: approved + kendi yükledikleri pending/rejected
+    const ownCalisan = !manageAll && email
+      ? await prisma.calisan.findFirst({
+          where: { email: { equals: email, mode: "insensitive" } },
+          select: { id: true },
+        })
+      : null
+
     const currentWhere = manageAll
       ? { isCurrent: true }
       : {
           isCurrent: true,
           department: normalizeDeptLabel(departman) || "__none__",
+          OR: [
+            { status: "approved" },
+            ...(ownCalisan ? [{ createdBy: ownCalisan.id }] : []),
+          ],
         }
 
     const forms = await prisma.departmentForm.findMany({
@@ -223,6 +239,8 @@ export async function POST(req: NextRequest) {
     session.user.departman
   )
   const manageAll = canManageAllDepartmentForms(departman)
+  // Admin → hemen approved; diğerleri → pending (admin onayı bekler)
+  const uploadStatus = manageAll ? "approved" : "pending"
 
   const contentType = req.headers.get("content-type") || ""
   if (!contentType.includes("multipart/form-data")) {
@@ -473,6 +491,7 @@ export async function POST(req: NextRequest) {
             seriesId: prior.seriesId,
             revision: revisionNum,
             isCurrent: true,
+            status: uploadStatus,
             ...fileFields,
           },
           select: createdSelect,
@@ -514,11 +533,12 @@ export async function POST(req: NextRequest) {
         seriesId: seriesIdForUpload,
         revision: revisionNum,
         isCurrent: true,
+        status: uploadStatus,
         ...fileFields,
       },
       select: createdSelect,
     })
-    return NextResponse.json(toClientJson(row, { textExtractionFallback }))
+    return NextResponse.json({ ...toClientJson(row, { textExtractionFallback }), status: uploadStatus })
   } catch (e) {
     await deletePdfFromStorage(uploadRes.path)
     console.error("[department-forms] POST create:", e)

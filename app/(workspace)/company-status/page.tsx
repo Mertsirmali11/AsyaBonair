@@ -12,7 +12,7 @@ export default async function CompanyStatusPage() {
   const today = new Date()
   const todayUTC = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
 
-  const [employees, activeLeaves] = await Promise.all([
+  const [employees, activeLeaves, currentCalisan] = await Promise.all([
     prisma.calisan.findMany({
       where: { istenCikisTarihi: null },  // Aktif çalışanlar
       select: {
@@ -21,6 +21,7 @@ export default async function CompanyStatusPage() {
         soyisim: true,
         departman: true,
         workLocation: true,
+        workLocationDate: true,
         title: { select: { titleName: true, isManager: true } },
       },
       orderBy: [{ departman: "asc" }, { isim: "asc" }],
@@ -34,6 +35,14 @@ export default async function CompanyStatusPage() {
       },
       select: { employeeId: true, startDate: true, endDate: true },
     }),
+    // Oturumdaki kullanıcının calisan kaydı
+    prisma.calisan.findFirst({
+      where: {
+        email: { equals: session.user.email, mode: "insensitive" },
+        istenCikisTarihi: null,
+      },
+      select: { id: true, workLocation: true, workLocationDate: true },
+    }),
   ])
 
   const onLeaveIds = new Set(activeLeaves.map((l) => l.employeeId))
@@ -46,13 +55,25 @@ export default async function CompanyStatusPage() {
     titleName: emp.title?.titleName ?? null,
     isManager: emp.title?.isManager ?? false,
     workLocation: emp.workLocation ?? "Office",
+    workLocationDate: emp.workLocationDate
+      ? emp.workLocationDate.toISOString().slice(0, 10)
+      : null,
     isOnLeave: onLeaveIds.has(emp.id),
   }))
 
   return (
     <>
       <SetWorkspacePageTitle title="Company Status Board" />
-      <CompanyStatusClient data={prismaJson(statusBoard) as typeof statusBoard} />
+      <CompanyStatusClient
+        data={prismaJson(statusBoard) as typeof statusBoard}
+        currentEmployeeId={currentCalisan?.id ?? null}
+        currentWorkLocation={currentCalisan?.workLocation ?? "Office"}
+        currentWorkLocationDate={
+          currentCalisan?.workLocationDate
+            ? currentCalisan.workLocationDate.toISOString().slice(0, 10)
+            : null
+        }
+      />
     </>
   )
 }

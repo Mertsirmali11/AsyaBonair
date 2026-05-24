@@ -20,10 +20,32 @@ const nextConfig: NextConfig = {
   compress: true,
 
   async headers() {
+    // Manual dosya indirme rotası için X-Frame-Options SAMEORIGIN olmalı
+    // (PDF önizleme iframe'i için); diğer her şey DENY kalır.
+    const securityHeadersWithoutFrameOptions = SECURITY_HEADERS.filter(
+      (h) => h.key !== "X-Frame-Options"
+    )
     return [
       {
-        source: "/(.*)",
+        // Tüm rotalar için güvenlik başlıkları (dosya önizleme rotaları hariç)
+        source: "/((?!api/manuals/[^/]+/file)(?!api/department-forms/[^/]+/file).*)",
         headers: SECURITY_HEADERS,
+      },
+      {
+        // Manuel dosya indirme: iframe önizleme için SAMEORIGIN
+        source: "/api/manuals/:id/file",
+        headers: [
+          ...securityHeadersWithoutFrameOptions,
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+        ],
+      },
+      {
+        // Departman form dosya indirme: iframe önizleme için SAMEORIGIN
+        source: "/api/department-forms/:id/file",
+        headers: [
+          ...securityHeadersWithoutFrameOptions,
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+        ],
       },
     ]
   },

@@ -83,6 +83,8 @@ export async function GET() {
       tasksInWindow,
       certificateRows,
       certificateRowsExpired,
+      pendingManualsCount,
+      pendingFormsCount,
       supportTicketsPreview,
     ] = await Promise.all([
       prisma.meeting.findMany({
@@ -235,6 +237,16 @@ export async function GET() {
               aircraft: { id: number; register: string; msn: string }
             }[]
           ),
+      viewer && isAdminDepartment(viewer.departman)
+        ? prisma.companyManual.count({
+            where: { status: "pending", isCurrent: true },
+          })
+        : Promise.resolve(0),
+      viewer && isAdminDepartment(viewer.departman)
+        ? prisma.departmentForm.count({
+            where: { status: "pending", isCurrent: true },
+          })
+        : Promise.resolve(0),
       viewer
         ? prisma.supportTicket.findMany({
             where: canManageSupportTicketsAsAdmin(viewer.departman)
@@ -356,6 +368,8 @@ export async function GET() {
         supportTicketsAdminView: viewer
           ? canManageSupportTicketsAsAdmin(viewer.departman)
           : false,
+        pendingManualsCount,
+        pendingFormsCount,
       })
     )
   } catch (e) {

@@ -4,6 +4,26 @@ import { prisma } from "@/lib/prisma-server"
 
 type Ctx = { params: Promise<{ id: string }> }
 
+/**
+ * Try to read auditor_comment / auditee_comment via raw SQL.
+ * Fails silently if the columns don't exist yet (before the migration is run).
+ */
+async function fetchComments(id: number): Promise<{ auditorComment: string | null; auditeeComment: string | null }> {
+  try {
+    const rows = await prisma.$queryRaw<{ auditor_comment: string | null; auditee_comment: string | null }[]>`
+      SELECT auditor_comment, auditee_comment
+      FROM   audit_sessions
+      WHERE  id = ${id}
+    `
+    if (rows[0]) {
+      return { auditorComment: rows[0].auditor_comment, auditeeComment: rows[0].auditee_comment }
+    }
+  } catch {
+    // Columns not yet created — return nulls so the page still loads
+  }
+  return { auditorComment: null, auditeeComment: null }
+}
+
 export async function GET(_req: Request, ctx: Ctx) {
   const session = await requireAuditPlanSession()
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -30,7 +50,10 @@ export async function GET(_req: Request, ctx: Ctx) {
   })
 
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 })
-  return NextResponse.json(row)
+
+  // Append comment fields (raw SQL — safe even if columns don't exist yet)
+  const comments = await fetchComments(id)
+  return NextResponse.json({ ...row, ...comments })
 }
 
 export async function PATCH(req: Request, ctx: Ctx) {
@@ -46,7 +69,14 @@ export async function PATCH(req: Request, ctx: Ctx) {
 
   const b = body as Record<string, unknown>
   const status = typeof b.status === "string" ? b.status : undefined
+  const auditorComment = "auditorComment" in b
+    ? (typeof b.auditorComment === "string" ? b.auditorComment : null)
+    : undefined
+  const auditeeComment = "auditeeComment" in b
+    ? (typeof b.auditeeComment === "string" ? b.auditeeComment : null)
+    : undefined
 
+  // ── Status update (Prisma — existing columns only) ───────────────────────
   const updated = await prisma.auditSession.update({
     where: { id },
     data: {
@@ -55,5 +85,30 @@ export async function PATCH(req: Request, ctx: Ctx) {
     },
   })
 
-  return NextResponse.json(updated)
+  // ── Comment update (raw SQL — safe even if columns don't exist yet) ──────
+  if (auditorComment !== undefined || auditeeComment !== undefined) {
+    try {
+      if (auditorComment !== undefined && auditeeComment !== undefined) {
+        await prisma.$executeRaw`
+          UPDATE audit_sessions
+          SET    auditor_comment = ${auditorComment},
+                 auditee_comment = ${auditeeComment}
+          WHERE  id = ${id}
+        `
+      } else if (auditorComment !== undefined) {
+        await prisma.$executeRaw`
+          UPDATE audit_sessions SET auditor_comment = ${auditorComment} WHERE id = ${id}
+        `
+      } else if (auditeeComment !== undefined) {
+        await prisma.$executeRaw`
+          UPDATE audit_sessions SET auditee_comment = ${auditeeComment} WHERE id = ${id}
+        `
+      }
+    } catch {
+      // Columns not yet created — comment save is a no-op until migration is run
+    }
+  }
+
+  const comments = await fetchComments(id)
+  return NextResponse.json({ ...updated, ...comments })
 }

@@ -142,7 +142,9 @@ export function AppSidebar({
     { title: t.nav.outgoingCorrespondences, url: "/correspondences/outgoing" },
   ]
 
-  const safetyManagementSubItems = [{ title: t.nav.riskBoard, url: "/safety/risk-board" }]
+  const safetyManagementSubItems = [
+    // { title: t.nav.riskBoard, url: "/safety/risk-board" },
+  ]
 
   const complianceMonitoringSubItems = [
     { title: t.nav.auditPlan, url: "/compliance/audit-plan" },

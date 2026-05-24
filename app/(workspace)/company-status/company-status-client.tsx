@@ -1,7 +1,20 @@
 "use client"
 
-import { useState, useMemo } from "react"
-import { Building2, Hammer, Plane, Search, Users } from "lucide-react"
+import { useState, useMemo, useCallback, useEffect, useRef } from "react"
+import {
+  Building2,
+  Hammer,
+  Plane,
+  Search,
+  Users,
+  Pencil,
+  X,
+  CheckCircle2,
+  Briefcase,
+  MapPin,
+  History,
+  CalendarSearch,
+} from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { useLanguage } from "@/lib/i18n/context"
@@ -16,12 +29,28 @@ interface Employee {
   titleName: string | null
   isManager: boolean
   workLocation: string
+  workLocationDate: string | null
   isOnLeave: boolean
+  hasLog?: boolean
 }
 
-// ─── Status config (styling only) ────────────────────────────────────────────
+interface Props {
+  data: Employee[]
+  currentEmployeeId: number | null
+  currentWorkLocation: string | null
+  currentWorkLocationDate: string | null
+}
 
-const LOCATION_CONFIG: Record<string, { icon: React.ComponentType<{ size?: number; className?: string }>; badge: string; row: string }> = {
+// ─── Status config ────────────────────────────────────────────────────────────
+
+const LOCATION_CONFIG: Record<
+  string,
+  {
+    icon: React.ComponentType<{ size?: number; className?: string }>
+    badge: string
+    row: string
+  }
+> = {
   Office: {
     icon: Building2,
     badge: "bg-blue-100 text-blue-800 border-blue-200",
@@ -38,8 +67,13 @@ const LOCATION_CONFIG: Record<string, { icon: React.ComponentType<{ size?: numbe
     row: "",
   },
   Field: {
-    icon: Plane,
+    icon: MapPin,
     badge: "bg-amber-100 text-amber-800 border-amber-200",
+    row: "",
+  },
+  OnDuty: {
+    icon: Briefcase,
+    badge: "bg-green-100 text-green-800 border-green-200",
     row: "",
   },
   OnLeave: {
@@ -58,33 +92,277 @@ function fullName(emp: Employee) {
   return [emp.isim, emp.soyisim].filter(Boolean).join(" ") || "—"
 }
 
+function todayISODate() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status, label }: { status: string; label: string }) {
   const cfg = LOCATION_CONFIG[status] ?? LOCATION_CONFIG.Office
   const Icon = cfg.icon
   return (
-    <span className={cn(
-      "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
-      cfg.badge
-    )}>
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
+        cfg.badge
+      )}
+    >
       <Icon size={11} />
       {label}
     </span>
   )
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
+// ─── Update Status Modal ──────────────────────────────────────────────────────
 
-export function CompanyStatusClient({ data }: { data: Employee[] }) {
+interface UpdateModalProps {
+  open: boolean
+  onClose: () => void
+  initialLocation: string
+  initialDate: string | null
+  onSaved: (location: string, date: string | null) => void
+}
+
+function UpdateModal({
+  open,
+  onClose,
+  initialLocation,
+  initialDate,
+  onSaved,
+}: UpdateModalProps) {
   const { t } = useLanguage()
   const cs = t.companyStatus
 
+  const [location, setLocation] = useState(initialLocation || "Office")
+  const [date, setDate] = useState(initialDate ?? "")
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Sync with prop changes
+  useEffect(() => {
+    if (open) {
+      setLocation(initialLocation || "Office")
+      setDate(initialDate ?? "")
+      setError(null)
+    }
+  }, [open, initialLocation, initialDate])
+
+  const locationOptions = [
+    { value: "Office", label: cs.statusOffice },
+    { value: "Hangar", label: cs.statusHangar },
+    { value: "Remote", label: cs.statusRemote },
+    { value: "Field", label: cs.statusField },
+    { value: "OnDuty", label: cs.statusOnDuty },
+  ]
+
+  const handleSave = useCallback(async () => {
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch("/api/company-status", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workLocation: location,
+          workLocationDate: date || null,
+        }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setError((d as { error?: string }).error ?? cs.updateError)
+        return
+      }
+      onSaved(location, date || null)
+      onClose()
+    } catch {
+      setError(cs.updateError)
+    } finally {
+      setSaving(false)
+    }
+  }, [location, date, cs.updateError, onSaved, onClose])
+
+  if (!open) return null
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="font-semibold text-base">{cs.myStatusTitle}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Location selector */}
+        <div className="mb-4">
+          <label className="block text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
+            {cs.selectLocation}
+          </label>
+          <div className="grid grid-cols-1 gap-2">
+            {locationOptions.map((opt) => {
+              const cfg = LOCATION_CONFIG[opt.value]
+              const Icon = cfg.icon
+              const isSelected = location === opt.value
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setLocation(opt.value)}
+                  className={cn(
+                    "flex items-center gap-3 rounded-xl border px-4 py-2.5 text-sm font-medium transition-all text-left",
+                    isSelected
+                      ? "border-primary bg-primary/5 text-primary shadow-sm"
+                      : "border-border hover:border-primary/40 hover:bg-muted/30"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex-none rounded-full p-1.5",
+                      isSelected ? "bg-primary/10" : "bg-muted"
+                    )}
+                  >
+                    <Icon size={14} />
+                  </span>
+                  {opt.label}
+                  {isSelected && (
+                    <CheckCircle2
+                      size={15}
+                      className="ml-auto text-primary flex-none"
+                    />
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Date picker */}
+        <div className="mb-5">
+          <label className="block text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
+            {cs.selectDate}
+          </label>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          {date && (
+            <button
+              type="button"
+              onClick={() => setDate("")}
+              className="mt-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              × Tarihi temizle
+            </button>
+          )}
+        </div>
+
+        {/* Error */}
+        {error && (
+          <p className="mb-4 text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">
+            {error}
+          </p>
+        )}
+
+        {/* Actions */}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 rounded-lg border border-border py-2 text-sm font-medium hover:bg-muted/50 transition-colors"
+          >
+            {cs.cancel}
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="flex-1 rounded-lg bg-primary text-primary-foreground py-2 text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60"
+          >
+            {saving ? "…" : cs.save}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+export function CompanyStatusClient({
+  data: initialData,
+  currentEmployeeId,
+  currentWorkLocation,
+  currentWorkLocationDate,
+}: Props) {
+  const { t } = useLanguage()
+  const cs = t.companyStatus
+
+  const [data, setData] = useState<Employee[]>(initialData)
+  const [modalOpen, setModalOpen] = useState(false)
   const [deptFilter, setDeptFilter] = useState<string>("ALL")
   const [statusFilter, setStatusFilter] = useState<string>("ALL")
   const [search, setSearch] = useState("")
 
-  // Status label lookup using translations
+  // ── History date ────────────────────────────────────────────────────────────
+  const [historyDate, setHistoryDate] = useState<string>("")
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+
+  const isHistoryMode = historyDate !== ""
+
+  // Fetch historical data whenever historyDate changes
+  useEffect(() => {
+    if (!historyDate) {
+      setData(initialData)
+      setHistoryError(null)
+      return
+    }
+    // Don't fetch future dates
+    if (historyDate > todayISODate()) {
+      setData(initialData)
+      setHistoryError(null)
+      return
+    }
+
+    abortRef.current?.abort()
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
+
+    setHistoryLoading(true)
+    setHistoryError(null)
+
+    fetch(`/api/company-status?date=${historyDate}`, { signal: ctrl.signal })
+      .then((r) => r.json())
+      .then((json: { employees?: Employee[]; error?: string }) => {
+        if (json.error) {
+          setHistoryError(json.error)
+        } else if (json.employees) {
+          setData(json.employees)
+        }
+      })
+      .catch((err) => {
+        if (err.name !== "AbortError") setHistoryError(cs.updateError)
+      })
+      .finally(() => setHistoryLoading(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyDate])
+
+  // Status label lookup
   const getStatusLabel = (status: string): string => {
     switch (status) {
       case "Office":  return cs.statusOffice
@@ -92,13 +370,41 @@ export function CompanyStatusClient({ data }: { data: Employee[] }) {
       case "OnLeave": return cs.onLeave
       case "Remote":  return cs.statusRemote
       case "Field":   return cs.statusField
+      case "OnDuty":  return cs.statusOnDuty
       default:        return status
     }
   }
 
+  // Called after successful save
+  const handleSaved = useCallback(
+    (location: string, date: string | null) => {
+      // Only update live data if not in history mode
+      if (!isHistoryMode) {
+        setData((prev) =>
+          prev.map((emp) =>
+            emp.id === currentEmployeeId
+              ? { ...emp, workLocation: location, workLocationDate: date }
+              : emp
+          )
+        )
+      }
+    },
+    [currentEmployeeId, isHistoryMode]
+  )
+
+  // Current employee's row
+  const currentEmp = useMemo(
+    () => (!isHistoryMode ? data.find((e) => e.id === currentEmployeeId) ?? null : null),
+    [data, currentEmployeeId, isHistoryMode]
+  )
+  const myLocation = currentEmp?.workLocation ?? currentWorkLocation ?? "Office"
+  const myDate     = currentEmp?.workLocationDate ?? currentWorkLocationDate ?? null
+
   // Unique departments
   const departments = useMemo(() => {
-    const depts = [...new Set(data.map((e) => e.departman).filter(Boolean))] as string[]
+    const depts = [
+      ...new Set(data.map((e) => e.departman).filter(Boolean)),
+    ] as string[]
     return depts.sort((a, b) => a.localeCompare(b, "tr"))
   }, [data])
 
@@ -133,10 +439,89 @@ export function CompanyStatusClient({ data }: { data: Employee[] }) {
   return (
     <div className="flex flex-col gap-5 p-4 sm:p-6">
       {/* Header */}
-      <div>
-        <h1 className="text-xl font-bold">{cs.title}</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">{cs.subtitle}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold">{cs.title}</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">{cs.subtitle}</p>
+        </div>
+
+        {/* "Update my status" button — only when viewing today */}
+        {currentEmployeeId !== null && !isHistoryMode && (
+          <div className="flex flex-col items-end gap-1">
+            <button
+              type="button"
+              onClick={() => setModalOpen(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-primary bg-primary/5 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10 transition-colors"
+            >
+              <Pencil size={14} />
+              {cs.updateMyStatus}
+            </button>
+            <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <StatusBadge
+                status={!currentEmp?.isOnLeave ? myLocation : "OnLeave"}
+                label={getStatusLabel(!currentEmp?.isOnLeave ? myLocation : "OnLeave")}
+              />
+              {myDate && (
+                <span className="text-muted-foreground">
+                  {cs.dateLabel}: {myDate}
+                </span>
+              )}
+            </span>
+          </div>
+        )}
       </div>
+
+      {/* ── History date picker ─────────────────────────────────────────────── */}
+      <div className={cn(
+        "flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 transition-colors",
+        isHistoryMode
+          ? "border-amber-300 bg-amber-50 dark:bg-amber-900/10 dark:border-amber-700"
+          : "border-border bg-muted/20"
+      )}>
+        <CalendarSearch
+          size={16}
+          className={isHistoryMode ? "text-amber-600" : "text-muted-foreground"}
+        />
+        <span className={cn(
+          "text-sm font-medium",
+          isHistoryMode ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"
+        )}>
+          {isHistoryMode ? cs.historyLabel : cs.historyDatePicker}
+        </span>
+
+        <div className="flex items-center gap-2 ml-auto flex-wrap">
+          <input
+            type="date"
+            value={historyDate}
+            max={todayISODate()}
+            onChange={(e) => setHistoryDate(e.target.value)}
+            className={cn(
+              "rounded-lg border px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring bg-background",
+              isHistoryMode ? "border-amber-300" : "border-input"
+            )}
+          />
+          {isHistoryMode && (
+            <button
+              type="button"
+              onClick={() => setHistoryDate("")}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-200 transition-colors dark:bg-amber-900/20 dark:text-amber-400"
+            >
+              <X size={12} />
+              {cs.historyToday}
+            </button>
+          )}
+          {historyLoading && (
+            <span className="text-xs text-muted-foreground animate-pulse">Yükleniyor…</span>
+          )}
+        </div>
+      </div>
+
+      {/* History error */}
+      {historyError && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          {historyError}
+        </div>
+      )}
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -171,11 +556,14 @@ export function CompanyStatusClient({ data }: { data: Employee[] }) {
         </div>
 
         {/* Status filter */}
-        <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/30 p-0.5">
+        <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/30 p-0.5 flex-wrap">
           {[
             { key: "ALL",     label: cs.statusAll    },
             { key: "Office",  label: cs.statusOffice },
             { key: "Hangar",  label: cs.statusHangar },
+            { key: "Remote",  label: cs.statusRemote },
+            { key: "Field",   label: cs.statusField  },
+            { key: "OnDuty",  label: cs.statusOnDuty },
             { key: "OnLeave", label: cs.onLeave      },
           ].map(({ key, label }) => (
             <button key={key} type="button"
@@ -237,19 +625,29 @@ export function CompanyStatusClient({ data }: { data: Employee[] }) {
             {filtered.length === 0 ? (
               <tr>
                 <td colSpan={4} className="px-4 py-12 text-center text-muted-foreground">
-                  {cs.noEmployees}
+                  {isHistoryMode ? cs.historyNoData : cs.noEmployees}
                 </td>
               </tr>
             ) : (
               filtered.map((emp) => {
                 const status = getStatus(emp)
                 const cfg    = LOCATION_CONFIG[status] ?? LOCATION_CONFIG.Office
+                const isMe   = emp.id === currentEmployeeId && !isHistoryMode
                 return (
                   <tr key={emp.id}
-                    className={cn("transition-colors hover:bg-muted/20", cfg.row)}>
+                    className={cn(
+                      "transition-colors hover:bg-muted/20",
+                      cfg.row,
+                      isMe && "ring-1 ring-inset ring-primary/20 bg-primary/5"
+                    )}>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-foreground flex items-center gap-2">
+                      <div className="font-medium text-foreground flex items-center gap-2 flex-wrap">
                         {fullName(emp)}
+                        {isMe && (
+                          <span className="text-[10px] font-medium text-primary bg-primary/10 rounded-full px-1.5 py-0.5">
+                            Sen
+                          </span>
+                        )}
                         {emp.isManager && (
                           <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
                             {cs.manager}
@@ -264,7 +662,22 @@ export function CompanyStatusClient({ data }: { data: Employee[] }) {
                       {emp.titleName ?? <span className="italic opacity-50">—</span>}
                     </td>
                     <td className="px-4 py-3">
-                      <StatusBadge status={status} label={getStatusLabel(status)} />
+                      <div className="flex flex-col gap-1">
+                        <StatusBadge status={status} label={getStatusLabel(status)} />
+                        {/* Date label — only in today mode */}
+                        {emp.workLocationDate && !emp.isOnLeave && !isHistoryMode && (
+                          <span className="text-[11px] text-muted-foreground">
+                            {cs.dateLabel}: {emp.workLocationDate}
+                          </span>
+                        )}
+                        {/* In history mode, note if no log record existed */}
+                        {isHistoryMode && emp.hasLog === false && (
+                          <span className="text-[10px] text-muted-foreground/60 italic flex items-center gap-1">
+                            <History size={9} />
+                            {cs.noLogNote}
+                          </span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 )
@@ -272,10 +685,27 @@ export function CompanyStatusClient({ data }: { data: Employee[] }) {
             )}
           </tbody>
         </table>
-        <div className="border-t border-border bg-muted/20 px-4 py-2 text-xs text-muted-foreground">
-          {filtered.length} / {data.length} {cs.showingCount}
+        <div className="border-t border-border bg-muted/20 px-4 py-2 text-xs text-muted-foreground flex items-center gap-2">
+          {isHistoryMode && (
+            <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium">
+              <History size={11} />
+              {historyDate}
+            </span>
+          )}
+          <span className="ml-auto">
+            {filtered.length} / {data.length} {cs.showingCount}
+          </span>
         </div>
       </div>
+
+      {/* Update modal */}
+      <UpdateModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        initialLocation={myLocation}
+        initialDate={myDate}
+        onSaved={handleSaved}
+      />
     </div>
   )
 }

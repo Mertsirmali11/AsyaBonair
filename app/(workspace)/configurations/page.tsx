@@ -3,7 +3,10 @@ import { redirect } from "next/navigation"
 
 import { auth } from "@/auth"
 import { ConfigurationsPageShell } from "@/components/configurations-page-shell"
-import { canAccessConfigurationsArea } from "@/lib/department-access"
+import {
+  canAccessConfigurationsArea,
+  isAdminDepartment,
+} from "@/lib/department-access"
 
 const UserManagement = dynamic(
   () => import("@/components/user-management").then((m) => ({ default: m.UserManagement })),
@@ -31,7 +34,11 @@ export default async function ConfigurationsPage() {
       pageTitle="User settings"
       breadcrumbCurrent="User settings"
     >
-      <UserManagement hidePageTitle title="User Settings" />
+      <UserManagement
+        hidePageTitle
+        title="User Settings"
+        isAdminViewer={isAdminDepartment(session.user?.departman)}
+      />
     </ConfigurationsPageShell>
   )
 }

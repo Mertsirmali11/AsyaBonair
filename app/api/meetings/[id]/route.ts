@@ -35,10 +35,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
-  const body = await req.json()
+  const body = await req.json() as Record<string, unknown>
+
+  // Build a strict update payload — only known fields (prevents arbitrary field injection)
+  const data: Record<string, unknown> = {}
+  if ("title" in body)              data.title           = body.title
+  if ("status" in body)             data.status          = body.status
+  if ("actualDate" in body)         data.actualDate      = body.actualDate ? new Date(body.actualDate as string) : null
+  if ("meetingMinutes" in body)     data.meetingMinutes  = body.meetingMinutes
+  if ("agenda" in body)             data.agenda          = body.agenda
+  if ("meetingTime" in body)        data.meetingTime     = body.meetingTime
+  if ("location" in body)           data.location        = body.location
+  if ("compiledBy" in body)         data.compiledBy      = body.compiledBy
+
   const meeting = await prisma.meeting.update({
     where: { id: meetingId },
-    data: body,
+    data,
   })
   return NextResponse.json(prismaJson(meeting))
 }

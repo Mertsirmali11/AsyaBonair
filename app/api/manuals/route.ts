@@ -22,6 +22,7 @@ import {
   deleteCompanyManualFile,
   uploadCompanyManualFile,
 } from "@/lib/company-manuals-storage"
+import { indexManualChunks } from "@/lib/manual-chunk-indexer"
 
 export const runtime = "nodejs"
 
@@ -80,10 +81,30 @@ export async function GET() {
       session.user.departman
     )
 
+    const isAdmin = !!calisan && isAdminDepartment(departman)
+
+    // Admins see all (including pending/rejected); others see approved + their own
+    const ownCalisan = calisan
+      ? await prisma.calisan.findFirst({
+          where: { email: { equals: email, mode: "insensitive" } },
+          select: { id: true },
+        })
+      : null
+
+    const manualWhere = isAdmin
+      ? { isCurrent: true }
+      : {
+          isCurrent: true,
+          OR: [
+            { status: "approved" },
+            ...(ownCalisan ? [{ createdBy: ownCalisan.id }] : []),
+          ],
+        }
+
     const manuals = await prisma.companyManual.findMany({
-      where: { isCurrent: true },
-      orderBy: { title: "asc" },
-      select: manualSelect,
+      where: manualWhere,
+      orderBy: [{ status: "asc" }, { title: "asc" }],
+      select: { ...manualSelect, status: true, rejectionReason: true },
     })
 
     const seriesIds = [...new Set(manuals.map((m) => m.seriesId))]
@@ -173,9 +194,6 @@ function parseOptionalRevisionDate(raw: unknown): Date | null {
 }
 
 export async function POST(req: NextRequest) {
-  const gate = await assertCanManageCompanyManuals()
-  if (!gate.ok) return gate.response
-
   const session = await auth()
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -185,12 +203,18 @@ export async function POST(req: NextRequest) {
   const calisan = postEmail
     ? await prisma.calisan.findFirst({
         where: { email: { equals: postEmail, mode: "insensitive" } },
-        select: { id: true },
+        select: { id: true, departman: true },
       })
     : null
   if (!calisan) {
     return NextResponse.json({ error: "Employee not found" }, { status: 403 })
   }
+
+  // Admin → approved immediately; others → pending (awaiting admin approval)
+  const uploaderIsAdmin = isAdminDepartment(
+    effectiveEmployeeDepartman(calisan.departman, session.user.departman)
+  )
+  const uploadStatus = uploaderIsAdmin ? "approved" : "pending"
 
   const contentType = req.headers.get("content-type") || ""
   if (!contentType.includes("multipart/form-data")) {
@@ -401,6 +425,7 @@ export async function POST(req: NextRequest) {
             seriesId: prior.seriesId,
             revision: revisionNum,
             isCurrent: true,
+            status: uploadStatus,
           },
           select: createdManualSelect,
         })
@@ -422,6 +447,12 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         )
       }
+      // Approved ise asenkron indexle (fire-and-forget)
+      if (uploadStatus === "approved") {
+        indexManualChunks(created.id, contentText).catch((e) =>
+          console.error("[manuals] chunk index (revision):", e)
+        )
+      }
       return NextResponse.json(created)
     }
 
@@ -439,11 +470,18 @@ export async function POST(req: NextRequest) {
         seriesId: seriesIdForUpload,
         revision: revisionNum,
         isCurrent: true,
+        status: uploadStatus,
       },
       select: createdManualSelect,
     })
 
-    return NextResponse.json(manual)
+    // Approved ise asenkron indexle (fire-and-forget)
+    if (uploadStatus === "approved") {
+      indexManualChunks(manual.id, contentText).catch((e) =>
+        console.error("[manuals] chunk index (new):", e)
+      )
+    }
+    return NextResponse.json({ ...manual, status: uploadStatus })
   } catch (e) {
     console.error("[manuals] create after upload:", e)
     await deleteCompanyManualFile(uploaded.storagePath)

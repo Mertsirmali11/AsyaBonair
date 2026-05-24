@@ -31,6 +31,15 @@ export async function POST(req: Request) {
   // Check if session already exists
   const existing = await prisma.auditSession.findFirst({
     where: { auditPlanEntryId, auditChecklistId },
+    include: {
+      checklist: { include: { items: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] } } },
+      items: {
+        include: {
+          finding: { select: { id: true, findingCode: true, findingLevel: true, status: true } },
+          attachments: true,
+        },
+      },
+    },
   })
   if (existing) return NextResponse.json(existing)
 
@@ -38,7 +47,12 @@ export async function POST(req: Request) {
     data: { auditPlanEntryId, auditChecklistId, status: "InProgress" },
     include: {
       checklist: { include: { items: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] } } },
-      items: true,
+      items: {
+        include: {
+          finding: { select: { id: true, findingCode: true, findingLevel: true, status: true } },
+          attachments: true,
+        },
+      },
     },
   })
 

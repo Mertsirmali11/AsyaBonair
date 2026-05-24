@@ -90,6 +90,19 @@ type ChatAttachment = {
   size: number
 }
 
+type SeenByMember = {
+  id: number
+  displayName: string
+  readAt: string | null
+}
+
+type MemberReadState = {
+  calisanId: number
+  displayName: string
+  lastReadMessageId: number
+  readAt: string
+}
+
 type ChatMessage = {
   id: number
   body: string
@@ -97,6 +110,8 @@ type ChatMessage = {
   createdAt: string
   fromMe: boolean
   readByOther: boolean
+  seenBy?: SeenByMember[]
+  readByCount?: number
   attachment: ChatAttachment | null
   senderDisplayName?: string
 }
@@ -183,6 +198,40 @@ function readMembersFromPayload(data: unknown): ConvMember[] {
   return out
 }
 
+function readMemberReadStatesFromPayload(data: unknown): MemberReadState[] {
+  if (!data || typeof data !== "object") return []
+  const raw = (data as Record<string, unknown>).memberReadStates
+  if (!Array.isArray(raw)) return []
+  const out: MemberReadState[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue
+    const x = item as Record<string, unknown>
+    const calisanId = Number(x.calisanId)
+    const lastReadMessageId = Number(x.lastReadMessageId ?? 0)
+    const displayName = String(x.displayName ?? "").trim()
+    const readAt = String(x.readAt ?? "")
+    if (!Number.isFinite(calisanId) || !displayName) continue
+    out.push({
+      calisanId,
+      displayName,
+      lastReadMessageId: Number.isFinite(lastReadMessageId)
+        ? lastReadMessageId
+        : 0,
+      readAt,
+    })
+  }
+  return out
+}
+
+function formatSeenByLabel(seenBy: SeenByMember[]): string {
+  if (seenBy.length === 0) return ""
+  if (seenBy.length === 1) return seenBy[0]!.displayName
+  if (seenBy.length === 2) {
+    return `${seenBy[0]!.displayName}, ${seenBy[1]!.displayName}`
+  }
+  return `${seenBy[0]!.displayName}, ${seenBy[1]!.displayName} +${seenBy.length - 2}`
+}
+
 export function MessagesClient({
   currentCalisanId,
   currentUserName,
@@ -225,6 +274,9 @@ export function MessagesClient({
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [chatAvatars, setChatAvatars] = useState<ChatAvatars | null>(null)
   const [membersFromMessages, setMembersFromMessages] = useState<ConvMember[]>(
+    []
+  )
+  const [memberReadStates, setMemberReadStates] = useState<MemberReadState[]>(
     []
   )
 
@@ -274,10 +326,36 @@ export function MessagesClient({
 
   const [chatDetailsOpen, setChatDetailsOpen] = useState(false)
 
-  const applyOtherRead = useCallback((otherRead: number, list: ChatMessage[]) => {
-    return list.map((m) =>
-      m.fromMe ? { ...m, readByOther: otherRead >= m.id } : m
-    )
+  const applyReadStates = useCallback(
+    (readStates: MemberReadState[], list: ChatMessage[]) => {
+      return list.map((m) => {
+        if (!m.fromMe) return m
+        const seenBy = readStates
+          .filter(
+            (r) =>
+              r.calisanId !== currentCalisanId &&
+              r.lastReadMessageId >= m.id
+          )
+          .map((r) => ({
+            id: r.calisanId,
+            displayName: r.displayName,
+            readAt: r.readAt || null,
+          }))
+        return {
+          ...m,
+          seenBy,
+          readByOther: seenBy.length > 0,
+          readByCount: seenBy.length,
+        }
+      })
+    },
+    [currentCalisanId]
+  )
+
+  const mergeReadStatesFromPayload = useCallback((data: unknown) => {
+    const next = readMemberReadStatesFromPayload(data)
+    if (next.length > 0) setMemberReadStates(next)
+    return next
   }, [])
 
   const loadColleagues = useCallback(async () => {
@@ -308,9 +386,9 @@ export function MessagesClient({
         if (av) setChatAvatars(av)
         const mem = readMembersFromPayload(data)
         if (mem.length) setMembersFromMessages(mem)
-        const otherRead = data.otherLastReadMessageId ?? 0
+        const readStates = mergeReadStatesFromPayload(data)
         const list = (data.messages ?? []) as ChatMessage[]
-        setMessages(applyOtherRead(otherRead, list))
+        setMessages(applyReadStates(readStates, list))
         setHasOlder(!!data.hasOlder)
         await fetch(`/api/messages/conversations/${cid}/read`, { method: "POST" })
         return
@@ -325,11 +403,11 @@ export function MessagesClient({
       if (av) setChatAvatars(av)
       const mem = readMembersFromPayload(data)
       if (mem.length) setMembersFromMessages(mem)
+      const readStates = mergeReadStatesFromPayload(data)
       const newMsgs = (data.messages ?? []) as ChatMessage[]
-      const otherRead = data.otherLastReadMessageId ?? 0
 
       if (newMsgs.length === 0) {
-        setMessages((cur) => applyOtherRead(otherRead, cur))
+        setMessages((cur) => applyReadStates(readStates, cur))
         return
       }
 
@@ -338,11 +416,11 @@ export function MessagesClient({
         for (const m of cur) byId.set(m.id, m)
         for (const m of newMsgs) byId.set(m.id, m)
         const merged = Array.from(byId.values()).sort((a, b) => a.id - b.id)
-        return applyOtherRead(otherRead, merged)
+        return applyReadStates(readStates, merged)
       })
       await fetch(`/api/messages/conversations/${cid}/read`, { method: "POST" })
     },
-    [applyOtherRead]
+    [applyReadStates, mergeReadStatesFromPayload]
   )
 
   const loadMessages = useCallback(
@@ -350,6 +428,7 @@ export function MessagesClient({
       setLoadingMessages(true)
       setMessages([])
       setMembersFromMessages([])
+      setMemberReadStates([])
       setHasOlder(false)
       const convRow = conversations.find((c) => c.id === conversationId)
       setChatAvatars({
@@ -366,9 +445,9 @@ export function MessagesClient({
         if (av) setChatAvatars(av)
         const mem = readMembersFromPayload(data)
         if (mem.length) setMembersFromMessages(mem)
-        const otherRead = data.otherLastReadMessageId ?? 0
+        const readStates = mergeReadStatesFromPayload(data)
         const list = (data.messages ?? []) as ChatMessage[]
-        setMessages(applyOtherRead(otherRead, list))
+        setMessages(applyReadStates(readStates, list))
         setHasOlder(!!data.hasOlder)
         await fetch(`/api/messages/conversations/${conversationId}/read`, {
           method: "POST",
@@ -379,7 +458,8 @@ export function MessagesClient({
       }
     },
     [
-      applyOtherRead,
+      applyReadStates,
+      mergeReadStatesFromPayload,
       loadConversations,
       conversations,
       currentUserAvatarUrl,
@@ -408,15 +488,15 @@ export function MessagesClient({
       if (av) setChatAvatars(av)
       const mem = readMembersFromPayload(data)
       if (mem.length) setMembersFromMessages(mem)
+      const readStates = mergeReadStatesFromPayload(data)
       const older = (data.messages ?? []) as ChatMessage[]
-      const otherRead = data.otherLastReadMessageId ?? 0
       setHasOlder(!!data.hasOlder)
       setMessages((cur) => {
         const byId = new Map<number, ChatMessage>()
         for (const m of older) byId.set(m.id, m)
         for (const m of cur) byId.set(m.id, m)
         const merged = Array.from(byId.values()).sort((a, b) => a.id - b.id)
-        return applyOtherRead(otherRead, merged)
+        return applyReadStates(readStates, merged)
       })
       requestAnimationFrame(() => {
         const scrollEl = scrollRef.current
@@ -429,7 +509,7 @@ export function MessagesClient({
       loadingOlderRef.current = false
       setLoadingOlder(false)
     }
-  }, [hasOlder, applyOtherRead])
+  }, [hasOlder, applyReadStates, mergeReadStatesFromPayload])
 
   const onInboxRealtime = useCallback(
     (conversationId?: number) => {
@@ -1066,14 +1146,16 @@ export function MessagesClient({
                             <span className="tabular-nums text-[11px]">
                               {formatTimeOnlyIstanbul(m.createdAt).slice(0, 5)}
                             </span>
-                            {m.fromMe && !selectedConv.isGroup && (
+                            {m.fromMe && (
                               <span
                                 className="inline-flex shrink-0 items-center"
                                 title={
-                                  m.readByOther ? "Okundu" : "İletildi"
+                                  (m.seenBy?.length ?? 0) > 0
+                                    ? `Görüldü: ${(m.seenBy ?? []).map((s) => s.displayName).join(", ")}`
+                                    : "İletildi"
                                 }
                               >
-                                {m.readByOther ? (
+                                {(m.seenBy?.length ?? 0) > 0 ? (
                                   <BadgeCheck
                                     className="size-3.5 text-primary"
                                     strokeWidth={2}
@@ -1087,7 +1169,7 @@ export function MessagesClient({
                                   />
                                 )}
                                 <span className="sr-only">
-                                  {m.readByOther ? "Okundu" : "İletildi"}
+                                  {(m.seenBy?.length ?? 0) > 0 ? "Görüldü" : "İletildi"}
                                 </span>
                               </span>
                             )}
@@ -1109,6 +1191,22 @@ export function MessagesClient({
                           </Avatar>
                         )}
                       </div>
+                      {m.fromMe && (m.seenBy?.length ?? 0) > 0 ? (
+                        <p
+                          className={cn(
+                            "max-w-[min(100%,30rem)] text-[10px] leading-snug text-muted-foreground",
+                            "self-end pr-10 text-right"
+                          )}
+                          title={(m.seenBy ?? [])
+                            .map((s) => s.displayName)
+                            .join(", ")}
+                        >
+                          <span className="font-medium text-foreground/70">
+                            Görüldü:{" "}
+                          </span>
+                          {formatSeenByLabel(m.seenBy ?? [])}
+                        </p>
+                      ) : null}
                       </div>
                     )
                   })}

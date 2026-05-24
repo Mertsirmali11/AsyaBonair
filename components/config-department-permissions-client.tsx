@@ -207,6 +207,18 @@ export function ConfigDepartmentPermissionsClient() {
     return updates
   }, [baseline, working])
 
+  const isDirty = React.useMemo(() => {
+    for (const row of working) {
+      const base = baseline.find((b) => b.departmentKey === row.departmentKey)
+      if (!base) return true
+      for (const cell of row.cells) {
+        const bc = base.cells.find((c) => c.permissionKey === cell.permissionKey)
+        if ((bc?.mode ?? "inherit") !== cell.mode) return true
+      }
+    }
+    return false
+  }, [working, baseline])
+
   const save = React.useCallback(async () => {
     const updates = buildDiffUpdates()
     if (updates.length === 0) {
@@ -294,6 +306,19 @@ export function ConfigDepartmentPermissionsClient() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Sticky save bar — appears when there are unsaved changes */}
+        {isDirty && (
+          <div className="sticky bottom-4 z-50 flex items-center justify-between gap-4 rounded-xl border border-amber-300 bg-amber-50 px-5 py-3 shadow-lg dark:border-amber-700 dark:bg-amber-950/40">
+            <span className="text-sm font-medium text-amber-800 dark:text-amber-300">
+              ⚠ Kaydedilmemiş değişiklikler var
+            </span>
+            <Button type="button" onClick={save} disabled={saving} className="bg-emerald-600 hover:bg-emerald-700 text-white px-6">
+              <IconDeviceFloppy className="size-4" />
+              {saving ? "Kaydediliyor…" : "Kaydet"}
+            </Button>
+          </div>
+        )}
 
         <div className="overflow-x-auto rounded-lg border">
           <Table>

@@ -49,6 +49,8 @@ export async function GET(
         "Content-Type": contentTypeFromFileName(safeName),
         "Content-Disposition": `inline; filename="${safeName}"`,
         "Cache-Control": "private, max-age=3600",
+        // Allow same-origin iframes (overrides global X-Frame-Options: DENY)
+        "X-Frame-Options": "SAMEORIGIN",
       },
     })
   } catch (e) {

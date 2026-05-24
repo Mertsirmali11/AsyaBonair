@@ -19,6 +19,7 @@ import {
   Sparkles,
   BookOpen,
   LibraryBig,
+  RefreshCw,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -132,7 +133,7 @@ function ChatBubble({ msg }: { msg: ChatMessage }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
+export function AiReportsClient({ manualCount = 0, isAdmin = false }: { manualCount?: number; isAdmin?: boolean }) {
   const { t, locale } = useLanguage()
   const ai = t.ai
   const az = ai.analyze
@@ -177,6 +178,35 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
   const [chatInput, setChatInput] = useState("")
   const [isChatLoading, setIsChatLoading] = useState(false)
   const [liveManualCount, setLiveManualCount] = useState(manualCount)
+  const [reindexing, setReindexing] = useState(false)
+  const [reindexResult, setReindexResult] = useState<string | null>(null)
+
+  const handleReindexAll = useCallback(async () => {
+    if (reindexing) return
+    setReindexing(true)
+    setReindexResult(null)
+    try {
+      const res = await fetch("/api/manuals/reindex-all", {
+        method: "POST",
+        credentials: "same-origin",
+      })
+      const data = (await res.json()) as {
+        total?: number
+        totalChunks?: number
+        errorCount?: number
+        error?: string
+      }
+      if (!res.ok) throw new Error(data.error || "Yeniden indexleme başarısız.")
+      setReindexResult(
+        `✓ ${data.total ?? 0} manuel, ${data.totalChunks ?? 0} chunk indexlendi${data.errorCount ? ` (${data.errorCount} hata)` : ""}.`
+      )
+    } catch (e) {
+      setReindexResult(`✗ ${e instanceof Error ? e.message : "Hata"}`)
+    } finally {
+      setReindexing(false)
+    }
+  }, [reindexing])
+
   /** "all" = tüm manueller, sayı string'i = seçili manualId */
   const [selectedChatManual, setSelectedChatManual] = useState<string>("all")
   const chatBottomRef = useRef<HTMLDivElement>(null)
@@ -458,6 +488,20 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
                 </Select>
               )}
 
+              {isAdmin && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void handleReindexAll()}
+                  disabled={reindexing}
+                  title="Tüm manuellerin vektör indeksini yeniden oluştur (Admin)"
+                  className="gap-1.5 text-xs text-muted-foreground"
+                >
+                  <RefreshCw size={13} className={reindexing ? "animate-spin" : ""} />
+                  {reindexing ? "İndeksleniyor…" : "Yeniden İndeksle"}
+                </Button>
+              )}
+
               {chatMessages.length > 0 && (
                 <Button
                   variant="ghost" size="sm"
@@ -470,6 +514,14 @@ export function AiReportsClient({ manualCount = 0 }: { manualCount?: number }) {
               )}
             </div>
           </div>
+
+          {/* Reindex sonuç mesajı */}
+          {reindexResult && (
+            <div className={`px-6 py-2 text-xs border-b ${reindexResult.startsWith("✓") ? "bg-emerald-50 text-emerald-800 border-emerald-200" : "bg-red-50 text-red-800 border-red-200"}`}>
+              {reindexResult}
+              <button type="button" className="ml-2 underline" onClick={() => setReindexResult(null)}>kapat</button>
+            </div>
+          )}
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto">

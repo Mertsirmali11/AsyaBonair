@@ -4,6 +4,7 @@ import * as React from "react"
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { usePathname } from "next/navigation"
 import { IconArrowsSort, IconDotsVertical, IconFileSpreadsheet, IconFileTypePdf, IconPencil, IconPlus, IconSortAscending, IconSortDescending, IconTrash } from "@tabler/icons-react"
+import { Eye, EyeOff } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -150,11 +151,14 @@ interface UserManagementProps {
   title?: string
   /** When true, omit the in-component page title (shell provides the H1). */
   hidePageTitle?: boolean
+  /** Admin departmanı — şifre göster/gizle (yalnızca yeni girilen metin). */
+  isAdminViewer?: boolean
 }
 
 export function UserManagement({
   title = "User Management",
   hidePageTitle = false,
+  isAdminViewer = false,
 }: UserManagementProps) {
   const pathname = usePathname()
   const [calisanlar, setCalisanlar] = useState<Calisan[]>([])
@@ -175,6 +179,7 @@ export function UserManagement({
   const [avatarCropFile, setAvatarCropFile] = useState<File | null>(null)
   const [sortField, setSortField] = useState<SortField>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
+  const [showPassword, setShowPassword] = useState(false)
   const [departmentOptions, setDepartmentOptions] = useState<string[]>(() => [])
   /** Boş = tüm departmanlar */
   const [departmentFilter, setDepartmentFilter] = useState("")
@@ -574,6 +579,7 @@ export function UserManagement({
             setAvatarCropOpen(false)
             setAvatarCropFile(null)
             setFormData(initialFormData)
+            setShowPassword(false)
           }
         }}>
           <DialogTrigger asChild>
@@ -583,6 +589,7 @@ export function UserManagement({
                 setIsEditMode(false)
                 setSelectedCalisan(null)
                 setFormData(initialFormData)
+                setShowPassword(false)
               }}
             >
               <IconPlus className="size-4 shrink-0" />
@@ -633,18 +640,35 @@ export function UserManagement({
                       <Label htmlFor="password">
                         {isEditMode ? "Password (enter new password to change)" : "Password *"}
                       </Label>
-                      <Input
-                        id="password"
-                        name="password"
-                        type="password"
-                        value={formData.password}
-                        onChange={handleInputChange}
-                        placeholder={isEditMode ? "••••••••" : ""}
-                        required={!isEditMode}
-                      />
+                      <div className="relative">
+                        <Input
+                          id="password"
+                          name="password"
+                          type={isAdminViewer && showPassword ? "text" : "password"}
+                          value={formData.password}
+                          onChange={handleInputChange}
+                          placeholder={isEditMode ? "••••••••" : ""}
+                          required={!isEditMode}
+                          className={isAdminViewer ? "pr-11" : undefined}
+                        />
+                        {isAdminViewer ? (
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword((v) => !v)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                            tabIndex={-1}
+                            aria-label={showPassword ? "Hide password" : "Show password"}
+                          >
+                            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                          </button>
+                        ) : null}
+                      </div>
                       {isEditMode && (
                         <p className="text-xs text-muted-foreground">
-                          Leave empty to keep current password
+                          Leave empty to keep current password.
+                          {isAdminViewer
+                            ? " Stored passwords cannot be displayed; use the eye icon only when entering a new password."
+                            : null}
                         </p>
                       )}
                     </div>

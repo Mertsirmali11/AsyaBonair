@@ -32,6 +32,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -61,6 +62,8 @@ type FormRow = {
   department: string
   revision: number
   isCurrent: boolean
+  status?: "approved" | "pending" | "rejected"
+  rejectionReason?: string | null
   createdBy: number | null
   /** Yüklenen orijinal dosya depoda varsa PDF/Word/Excel yeni sekmede açılır */
   hasOriginalFile?: boolean
@@ -143,6 +146,58 @@ export function DepartmentFormsClient() {
   const canWriteAny =
     canManageAll || Boolean((viewerDepartman ?? "").trim())
 
+  // ── Onay / Red ────────────────────────────────────────────────────────────
+  const [rejectOpen, setRejectOpen] = React.useState(false)
+  const [rejectTarget, setRejectTarget] = React.useState<FormRow | null>(null)
+  const [rejectReason, setRejectReason] = React.useState("")
+  const [approving, setApproving] = React.useState<number | null>(null)
+
+  const handleApprove = React.useCallback(async (form: FormRow) => {
+    setApproving(form.id)
+    try {
+      const res = await fetch(`/api/department-forms/${form.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "approve" }),
+      })
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) throw new Error(data.error || "Onaylanamadı")
+      setItems((prev) =>
+        prev.map((m) => (m.id === form.id ? { ...m, status: "approved" as const, rejectionReason: null } : m))
+      )
+      setBanner({ type: "ok", text: `"${form.title}" onaylandı.` })
+    } catch (e) {
+      setBanner({ type: "err", text: e instanceof Error ? e.message : "Onaylanamadı" })
+    } finally {
+      setApproving(null)
+    }
+  }, [])
+
+  const handleRejectSubmit = React.useCallback(async () => {
+    if (!rejectTarget || !rejectReason.trim()) return
+    const target = rejectTarget
+    setRejectOpen(false)
+    setRejectTarget(null)
+    setRejectReason("")
+    try {
+      const res = await fetch(`/api/department-forms/${target.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reject", reason: rejectReason.trim() }),
+      })
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) throw new Error(data.error || "Reddedilemedi")
+      setItems((prev) =>
+        prev.map((m) =>
+          m.id === target.id ? { ...m, status: "rejected" as const, rejectionReason: rejectReason.trim() } : m
+        )
+      )
+      setBanner({ type: "ok", text: `"${target.title}" reddedildi.` })
+    } catch (e) {
+      setBanner({ type: "err", text: e instanceof Error ? e.message : "Reddedilemedi" })
+    }
+  }, [rejectTarget, rejectReason])
+
   React.useEffect(() => {
     if (!banner) return
     const t = window.setTimeout(() => setBanner(null), 6000)
@@ -177,6 +232,8 @@ export function DepartmentFormsClient() {
           creator: m.creator ?? null,
           hasOriginalFile: m.hasOriginalFile,
           documentPreview: m.documentPreview ?? "none",
+          status: (m.status ?? "approved") as FormRow["status"],
+          rejectionReason: m.rejectionReason ?? null,
           previousRevisions: Array.isArray(m.previousRevisions)
             ? m.previousRevisions.map((p) => ({
                 ...p,
@@ -520,6 +577,50 @@ export function DepartmentFormsClient() {
           departman ataması isteyin.
         </p>
       ) : null}
+
+      {/* ── Onay Bekleyen Formlar (yalnızca admin) ── */}
+      {canManageAll && items.some((m) => m.status === "pending") && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <p className="mb-2 text-sm font-semibold text-amber-900">
+            ⏳ Onay Bekleyen Yüklemeler ({items.filter((m) => m.status === "pending").length})
+          </p>
+          <div className="flex flex-col gap-2">
+            {items
+              .filter((m) => m.status === "pending")
+              .map((m) => (
+                <div
+                  key={m.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-amber-950">{m.title}</p>
+                    <p className="text-xs text-amber-700">
+                      {formatUploaderLabel(m)} · {m.department}
+                    </p>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      className="h-7 gap-1 bg-emerald-600 text-white hover:bg-emerald-700"
+                      disabled={approving === m.id}
+                      onClick={() => void handleApprove(m)}
+                    >
+                      ✓ Onayla
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="h-7 gap-1"
+                      onClick={() => { setRejectTarget(m); setRejectReason(""); setRejectOpen(true) }}
+                    >
+                      ✕ Reddet
+                    </Button>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
 
       {canManageAll ? (
         <p className="text-muted-foreground text-sm">
@@ -903,6 +1004,38 @@ export function DepartmentFormsClient() {
         </DialogContent>
       </Dialog>
 
+      {/* ── Red nedeni dialog ── */}
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Formu Reddet</DialogTitle>
+            <DialogDescription>
+              {rejectTarget?.title} — red nedenini yazın. Yükleyen kullanıcı bunu görecek.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3 py-2">
+            <Label htmlFor="form-reject-reason">Red nedeni <span className="text-destructive">*</span></Label>
+            <Textarea
+              id="form-reject-reason"
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Örn. Eksik imza, yanlış departman, güncel olmayan sürüm…"
+              rows={3}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectOpen(false)}>İptal</Button>
+            <Button
+              variant="destructive"
+              disabled={!rejectReason.trim()}
+              onClick={() => void handleRejectSubmit()}
+            >
+              Reddet
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog
         open={detailOpen}
         onOpenChange={(open) => {
@@ -1053,12 +1186,21 @@ export function DepartmentFormsClient() {
                             ? `[${(m.formNumber ?? "").trim()}] `
                             : ""}
                           {m.title}
+                          {m.status === "pending" && (
+                            <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">⏳ Beklemede</span>
+                          )}
+                          {m.status === "rejected" && (
+                            <span className="rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">✕ Reddedildi</span>
+                          )}
                         </p>
                         <p className="text-muted-foreground text-xs">
                           Rev. {m.revision} · {m.department}
                           {" · "}
                           {formatUploaderLabel(m)}
                         </p>
+                        {m.status === "rejected" && m.rejectionReason && (
+                          <p className="text-xs text-red-600">Red nedeni: {m.rejectionReason}</p>
+                        )}
                         <p className="text-muted-foreground text-xs">
                           {formatDateTimeIstanbul(m.createdAt)} (yükleme) ·{" "}
                           {formatDateTimeIstanbul(m.updatedAt)} (güncelleme) · {m.slug}
