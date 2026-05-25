@@ -70,6 +70,8 @@ model Calisan {
   workLocation    String?   @default("Office") @map("work_location") @db.VarChar(50)
   /// Çalışanın durumu için seçtiği tarih (opsiyonel, görevde/saha için kullanılır)
   workLocationDate DateTime? @map("work_location_date") @db.Date
+  /// Konum tarih aralığının bitiş günü (başlangıçtan farklıysa)
+  workLocationDateEnd DateTime? @map("work_location_date_end") @db.Date
   tcNo            String?   @unique @db.VarChar(20) @map("tc_no")
   dogumTarihi     DateTime? @map("dogum_tarihi") @db.Date
   telNo           String?   @db.VarChar(20) @map("tel_no")

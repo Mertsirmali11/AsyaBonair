@@ -931,8 +931,8 @@ function RiskAssessmentPrintDocument({
           <tr>
             <td style={{ width: "22%", verticalAlign: "top", padding: "4px 8px 4px 0" }}>
               <img
-                src="/logo.png"
-                alt="Bonair"
+                src="/logo-bonjour.png"
+                alt="Bonjour"
                 style={{
                   maxHeight: 45,
                   maxWidth: 140,

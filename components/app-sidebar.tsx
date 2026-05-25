@@ -396,8 +396,8 @@ export function AppSidebar({
         <Link href="/dashboard" className="flex justify-center">
           <div className="rounded-lg border border-gray-200 bg-white px-6 py-3 shadow-md">
             <Image
-              src="/logo.png"
-              alt="Logo"
+              src="/logo-bonjour.png"
+              alt="Bonjour Logo"
               width={140}
               height={45}
               className="h-auto w-auto object-contain"

@@ -1,18 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
-import { Prisma } from "@prisma/client"
+import {
+  parseIsoDate,
+  resolveStatusDateRange,
+} from "@/lib/company-status-dates"
 
 const VALID_LOCATIONS = ["Office", "Hangar", "Remote", "Field", "OnDuty"] as const
 type WorkLocation = (typeof VALID_LOCATIONS)[number]
-
-function parseDate(raw: unknown): Date | null {
-  if (!raw || typeof raw !== "string") return null
-  const s = raw.trim()
-  if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return null
-  const d = new Date(`${s}T12:00:00.000Z`)
-  return Number.isNaN(d.getTime()) ? null : d
-}
 
 // ─── GET /api/company-status?date=YYYY-MM-DD ─────────────────────────────────
 // Belirli bir tarihteki konum geçmişini döndürür.
@@ -29,7 +24,7 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url)
   const dateParam = searchParams.get("date")
-  const targetDate = parseDate(dateParam)
+  const targetDate = parseIsoDate(dateParam)
 
   if (!targetDate) {
     return NextResponse.json({ error: "Geçerli bir tarih gönderin (YYYY-MM-DD)." }, { status: 400 })
@@ -59,6 +54,7 @@ export async function GET(req: NextRequest) {
         departman: true,
         workLocation: true,
         workLocationDate: true,
+        workLocationDateEnd: true,
         title: { select: { titleName: true, isManager: true } },
       },
       orderBy: [{ departman: "asc" }, { isim: "asc" }],
@@ -93,6 +89,9 @@ export async function GET(req: NextRequest) {
     workLocationDate: emp.workLocationDate
       ? emp.workLocationDate.toISOString().slice(0, 10)
       : null,
+    workLocationDateEnd: emp.workLocationDateEnd
+      ? emp.workLocationDateEnd.toISOString().slice(0, 10)
+      : null,
     isOnLeave: onLeaveIds.has(emp.id),
     // Log'da kayıt var mı?
     hasLog: logMap.has(emp.id),
@@ -122,7 +121,22 @@ export async function PATCH(req: NextRequest) {
     )
   }
 
-  const locationDate = parseDate(body.workLocationDate)
+  const range = resolveStatusDateRange(
+    body.workLocationDate,
+    body.workLocationDateEnd
+  )
+  if (!range.ok) {
+    const messages: Record<string, string> = {
+      RANGE_END_BEFORE_START:
+        "Bitiş tarihi başlangıç tarihinden önce olamaz.",
+      RANGE_END_WITHOUT_START: "Önce başlangıç tarihini seçin.",
+      RANGE_TOO_LONG: "En fazla 90 günlük aralık seçebilirsiniz.",
+    }
+    return NextResponse.json(
+      { error: messages[range.error] ?? "Geçersiz tarih aralığı." },
+      { status: 400 }
+    )
+  }
 
   // E-posta ile çalışanı bul
   const calisan = await prisma.calisan.findFirst({
@@ -137,34 +151,40 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Çalışan kaydı bulunamadı." }, { status: 404 })
   }
 
-  // Log tarihi: seçilen tarih varsa o, yoksa bugün
-  const logDate = locationDate ?? new Date(
-    Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate())
-  )
-
-  // Güncelle + log ekle (transaction)
+  // Güncelle + her gün için log ekle (transaction)
   const [updated] = await prisma.$transaction([
     prisma.calisan.update({
       where: { id: calisan.id },
       data: {
         workLocation: location,
-        workLocationDate: locationDate,
+        workLocationDate: range.start,
+        workLocationDateEnd: range.end,
       },
-      select: { id: true, workLocation: true, workLocationDate: true },
-    }),
-    prisma.companyStatusLog.create({
-      data: {
-        employeeId: calisan.id,
-        workLocation: location,
-        statusDate: logDate,
+      select: {
+        id: true,
+        workLocation: true,
+        workLocationDate: true,
+        workLocationDateEnd: true,
       },
     }),
+    ...range.days.map((day) =>
+      prisma.companyStatusLog.create({
+        data: {
+          employeeId: calisan.id,
+          workLocation: location,
+          statusDate: day,
+        },
+      })
+    ),
   ])
 
   return NextResponse.json({
     ...updated,
     workLocationDate: updated.workLocationDate
       ? updated.workLocationDate.toISOString().slice(0, 10)
+      : null,
+    workLocationDateEnd: updated.workLocationDateEnd
+      ? updated.workLocationDateEnd.toISOString().slice(0, 10)
       : null,
   })
 }

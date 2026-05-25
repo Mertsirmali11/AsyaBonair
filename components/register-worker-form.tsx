@@ -124,8 +124,8 @@ export function RegisterWorkerForm() {
       <div className="flex justify-center">
         <div className="rounded-xl border bg-card px-10 py-4 shadow-sm">
           <Image
-            src="/logo.png"
-            alt="Bonair"
+            src="/logo-bonjour.png"
+            alt="Bonjour"
             width={180}
             height={45}
             className="h-auto w-auto"

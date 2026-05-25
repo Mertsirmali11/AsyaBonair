@@ -22,6 +22,7 @@ export default async function CompanyStatusPage() {
         departman: true,
         workLocation: true,
         workLocationDate: true,
+        workLocationDateEnd: true,
         title: { select: { titleName: true, isManager: true } },
       },
       orderBy: [{ departman: "asc" }, { isim: "asc" }],
@@ -41,7 +42,12 @@ export default async function CompanyStatusPage() {
         email: { equals: session.user.email, mode: "insensitive" },
         istenCikisTarihi: null,
       },
-      select: { id: true, workLocation: true, workLocationDate: true },
+      select: {
+        id: true,
+        workLocation: true,
+        workLocationDate: true,
+        workLocationDateEnd: true,
+      },
     }),
   ])
 
@@ -58,6 +64,9 @@ export default async function CompanyStatusPage() {
     workLocationDate: emp.workLocationDate
       ? emp.workLocationDate.toISOString().slice(0, 10)
       : null,
+    workLocationDateEnd: emp.workLocationDateEnd
+      ? emp.workLocationDateEnd.toISOString().slice(0, 10)
+      : null,
     isOnLeave: onLeaveIds.has(emp.id),
   }))
 
@@ -71,6 +80,11 @@ export default async function CompanyStatusPage() {
         currentWorkLocationDate={
           currentCalisan?.workLocationDate
             ? currentCalisan.workLocationDate.toISOString().slice(0, 10)
+            : null
+        }
+        currentWorkLocationDateEnd={
+          currentCalisan?.workLocationDateEnd
+            ? currentCalisan.workLocationDateEnd.toISOString().slice(0, 10)
             : null
         }
       />

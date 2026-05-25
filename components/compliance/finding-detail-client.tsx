@@ -35,7 +35,6 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
@@ -537,12 +536,12 @@ export function FindingDetailClient({ findingId }: { findingId: number }) {
 
       {/* Response dialog */}
       <Dialog open={responseOpen} onOpenChange={setResponseOpen}>
-        <DialogContent className="flex w-[calc(100vw-1.5rem)] max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+        <DialogContent className="!flex max-h-[min(90dvh,90vh)] w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
           <DialogHeader className="shrink-0 px-6 pt-6 pr-14 text-left">
             <DialogTitle>Bulguya Cevap Ver — Kök Neden Analizi</DialogTitle>
           </DialogHeader>
-          <ScrollArea className="flex-1 min-h-0">
-            <div className="space-y-4 px-6 py-4">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <div className="space-y-4 px-6 py-4 pb-2">
               <div className="rounded-md border bg-muted/30 p-3 text-sm">
                 <p className="font-medium">{finding.findingCode}</p>
                 <p className="text-muted-foreground text-xs mt-0.5">{finding.explanation}</p>
@@ -644,8 +643,8 @@ export function FindingDetailClient({ findingId }: { findingId: number }) {
                 )}
               </div>
             </div>
-          </ScrollArea>
-          <DialogFooter className="shrink-0 border-t px-6 py-4 gap-2">
+          </div>
+          <DialogFooter className="shrink-0 border-t bg-background px-6 py-4 gap-2">
             <Button type="button" variant="outline" onClick={() => setResponseOpen(false)}>
               Vazgeç
             </Button>

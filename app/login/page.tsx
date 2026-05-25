@@ -59,8 +59,8 @@ export default function LoginPage() {
           <div className="mb-8 flex justify-center">
             <div className="rounded-lg border border-border bg-background px-12 py-4">
               <Image
-                src="/logo.png"
-                alt="Bonair Logo"
+                src="/logo-bonjour.png"
+                alt="Bonjour Logo"
                 width={180}
                 height={45}
                 className="h-auto w-auto"

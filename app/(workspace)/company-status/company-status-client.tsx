@@ -18,6 +18,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { useLanguage } from "@/lib/i18n/context"
+import { formatWorkLocationDateLabel } from "@/lib/company-status-dates"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ interface Employee {
   isManager: boolean
   workLocation: string
   workLocationDate: string | null
+  workLocationDateEnd?: string | null
   isOnLeave: boolean
   hasLog?: boolean
 }
@@ -39,6 +41,7 @@ interface Props {
   currentEmployeeId: number | null
   currentWorkLocation: string | null
   currentWorkLocationDate: string | null
+  currentWorkLocationDateEnd?: string | null
 }
 
 // ─── Status config ────────────────────────────────────────────────────────────
@@ -121,22 +124,29 @@ interface UpdateModalProps {
   open: boolean
   onClose: () => void
   initialLocation: string
-  initialDate: string | null
-  onSaved: (location: string, date: string | null) => void
+  initialDateStart: string | null
+  initialDateEnd: string | null
+  onSaved: (
+    location: string,
+    dateStart: string | null,
+    dateEnd: string | null
+  ) => void
 }
 
 function UpdateModal({
   open,
   onClose,
   initialLocation,
-  initialDate,
+  initialDateStart,
+  initialDateEnd,
   onSaved,
 }: UpdateModalProps) {
   const { t } = useLanguage()
   const cs = t.companyStatus
 
   const [location, setLocation] = useState(initialLocation || "Office")
-  const [date, setDate] = useState(initialDate ?? "")
+  const [dateStart, setDateStart] = useState(initialDateStart ?? "")
+  const [dateEnd, setDateEnd] = useState(initialDateEnd ?? "")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -144,10 +154,11 @@ function UpdateModal({
   useEffect(() => {
     if (open) {
       setLocation(initialLocation || "Office")
-      setDate(initialDate ?? "")
+      setDateStart(initialDateStart ?? "")
+      setDateEnd(initialDateEnd ?? "")
       setError(null)
     }
-  }, [open, initialLocation, initialDate])
+  }, [open, initialLocation, initialDateStart, initialDateEnd])
 
   const locationOptions = [
     { value: "Office", label: cs.statusOffice },
@@ -158,6 +169,10 @@ function UpdateModal({
   ]
 
   const handleSave = useCallback(async () => {
+    if (dateStart && dateEnd && dateEnd < dateStart) {
+      setError(cs.dateRangeInvalid)
+      return
+    }
     setSaving(true)
     setError(null)
     try {
@@ -166,7 +181,8 @@ function UpdateModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workLocation: location,
-          workLocationDate: date || null,
+          workLocationDate: dateStart || null,
+          workLocationDateEnd: dateEnd || null,
         }),
       })
       if (!res.ok) {
@@ -174,14 +190,22 @@ function UpdateModal({
         setError((d as { error?: string }).error ?? cs.updateError)
         return
       }
-      onSaved(location, date || null)
+      onSaved(location, dateStart || null, dateEnd || null)
       onClose()
     } catch {
       setError(cs.updateError)
     } finally {
       setSaving(false)
     }
-  }, [location, date, cs.updateError, onSaved, onClose])
+  }, [
+    location,
+    dateStart,
+    dateEnd,
+    cs.updateError,
+    cs.dateRangeInvalid,
+    onSaved,
+    onClose,
+  ])
 
   if (!open) return null
 
@@ -192,7 +216,7 @@ function UpdateModal({
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6">
+      <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <h2 className="font-semibold text-base">{cs.myStatusTitle}</h2>
@@ -248,24 +272,54 @@ function UpdateModal({
           </div>
         </div>
 
-        {/* Date picker */}
+        {/* Date range */}
         <div className="mb-5">
           <label className="block text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
             {cs.selectDate}
           </label>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-          />
-          {date && (
+          <p className="text-[11px] text-muted-foreground mb-3 leading-relaxed">
+            {cs.dateRangeHint}
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] text-muted-foreground mb-1">
+                {cs.dateFrom}
+              </label>
+              <input
+                type="date"
+                value={dateStart}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setDateStart(v)
+                  if (dateEnd && v && dateEnd < v) setDateEnd("")
+                }}
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] text-muted-foreground mb-1">
+                {cs.dateTo}
+              </label>
+              <input
+                type="date"
+                value={dateEnd}
+                min={dateStart || undefined}
+                disabled={!dateStart}
+                onChange={(e) => setDateEnd(e.target.value)}
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+              />
+            </div>
+          </div>
+          {(dateStart || dateEnd) && (
             <button
               type="button"
-              onClick={() => setDate("")}
-              className="mt-1 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                setDateStart("")
+                setDateEnd("")
+              }}
+              className="mt-2 text-xs text-muted-foreground hover:text-foreground"
             >
-              × Tarihi temizle
+              × {cs.clearDate}
             </button>
           )}
         </div>
@@ -307,6 +361,7 @@ export function CompanyStatusClient({
   currentEmployeeId,
   currentWorkLocation,
   currentWorkLocationDate,
+  currentWorkLocationDateEnd = null,
 }: Props) {
   const { t } = useLanguage()
   const cs = t.companyStatus
@@ -377,13 +432,25 @@ export function CompanyStatusClient({
 
   // Called after successful save
   const handleSaved = useCallback(
-    (location: string, date: string | null) => {
+    (
+      location: string,
+      dateStart: string | null,
+      dateEnd: string | null
+    ) => {
       // Only update live data if not in history mode
       if (!isHistoryMode) {
         setData((prev) =>
           prev.map((emp) =>
             emp.id === currentEmployeeId
-              ? { ...emp, workLocation: location, workLocationDate: date }
+              ? {
+                  ...emp,
+                  workLocation: location,
+                  workLocationDate: dateStart,
+                  workLocationDateEnd:
+                    dateEnd && dateStart && dateEnd !== dateStart
+                      ? dateEnd
+                      : null,
+                }
               : emp
           )
         )
@@ -398,7 +465,11 @@ export function CompanyStatusClient({
     [data, currentEmployeeId, isHistoryMode]
   )
   const myLocation = currentEmp?.workLocation ?? currentWorkLocation ?? "Office"
-  const myDate     = currentEmp?.workLocationDate ?? currentWorkLocationDate ?? null
+  const myDateStart =
+    currentEmp?.workLocationDate ?? currentWorkLocationDate ?? null
+  const myDateEnd =
+    currentEmp?.workLocationDateEnd ?? currentWorkLocationDateEnd ?? null
+  const myDateLabel = formatWorkLocationDateLabel(myDateStart, myDateEnd)
 
   // Unique departments
   const departments = useMemo(() => {
@@ -461,9 +532,9 @@ export function CompanyStatusClient({
                 status={!currentEmp?.isOnLeave ? myLocation : "OnLeave"}
                 label={getStatusLabel(!currentEmp?.isOnLeave ? myLocation : "OnLeave")}
               />
-              {myDate && (
+              {myDateLabel && (
                 <span className="text-muted-foreground">
-                  {cs.dateLabel}: {myDate}
+                  {cs.dateLabel}: {myDateLabel}
                 </span>
               )}
             </span>
@@ -665,9 +736,18 @@ export function CompanyStatusClient({
                       <div className="flex flex-col gap-1">
                         <StatusBadge status={status} label={getStatusLabel(status)} />
                         {/* Date label — only in today mode */}
-                        {emp.workLocationDate && !emp.isOnLeave && !isHistoryMode && (
+                        {formatWorkLocationDateLabel(
+                          emp.workLocationDate,
+                          emp.workLocationDateEnd ?? null
+                        ) &&
+                          !emp.isOnLeave &&
+                          !isHistoryMode && (
                           <span className="text-[11px] text-muted-foreground">
-                            {cs.dateLabel}: {emp.workLocationDate}
+                            {cs.dateLabel}:{" "}
+                            {formatWorkLocationDateLabel(
+                              emp.workLocationDate,
+                              emp.workLocationDateEnd ?? null
+                            )}
                           </span>
                         )}
                         {/* In history mode, note if no log record existed */}
@@ -703,7 +783,8 @@ export function CompanyStatusClient({
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         initialLocation={myLocation}
-        initialDate={myDate}
+        initialDateStart={myDateStart}
+        initialDateEnd={myDateEnd}
         onSaved={handleSaved}
       />
     </div>
