@@ -556,6 +556,7 @@ model MeetingTask {
   /// Pending Assessment | Pending Review | Revision Requested | Completed (+ legacy Open, In Progress)
   status     String    @default("Pending Assessment") @db.VarChar(50)
   dueDate    DateTime? @map("due_date") @db.Date
+  /// Dolu ise görev bir toplantıya bağlıdır; toplantı silinince görev de silinir (ON DELETE CASCADE).
   meetingId  Int?      @map("meeting_id")
   assigneeId Int?      @map("assignee_id")
   assignedById Int?    @map("assigned_by_id")
@@ -567,7 +568,7 @@ model MeetingTask {
   updatedAt  DateTime  @updatedAt @map("updated_at")
   messages TaskMessage[]
 
-  meeting  Meeting? @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  meeting  Meeting? @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   assignee Calisan? @relation("MeetingTaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   assignedBy Calisan? @relation("MeetingTaskAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
   attachments TaskAttachment[]

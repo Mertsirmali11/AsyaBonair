@@ -17,7 +17,22 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
-import { CalendarCheck2, ChevronLeft, ChevronRight } from "lucide-react"
+import {
+  CalendarCheck2,
+  ChevronLeft,
+  ChevronRight,
+  MoreVertical,
+  Pencil,
+  Archive,
+  Trash2,
+} from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 interface Calisan { id: number; isim: string | null; soyisim: string | null; departman: string | null }
 interface MeetingType { id: number; name: string; code: string }
@@ -68,6 +83,7 @@ function formatExternalParticipantLabel(item: unknown): string {
 const statusColor = (status: string) => {
   if (status === "Completed") return "bg-green-100 text-green-800 dark:bg-green-950/50 dark:text-green-300"
   if (status === "Cancelled") return "bg-destructive/15 text-destructive"
+  if (status === "Archived") return "bg-muted text-muted-foreground"
   return "bg-secondary text-secondary-foreground"
 }
 
@@ -187,6 +203,22 @@ export function MeetingsClient({
     void fetchMeetings()
   }
 
+  const handleDelete = async (m: Meeting) => {
+    if (!confirm(`Delete meeting "${m.meetingNo}"? This cannot be undone.`)) return
+    const res = await fetch(`/api/meetings/${m.id}`, { method: "DELETE" })
+    if (res.ok) void fetchMeetings()
+  }
+
+  const handleArchive = async (m: Meeting) => {
+    if (!confirm(`Archive meeting "${m.meetingNo}"?`)) return
+    const res = await fetch(`/api/meetings/${m.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "Archived" }),
+    })
+    if (res.ok) void fetchMeetings()
+  }
+
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
       <div className="flex items-center justify-between mt-4">
@@ -227,20 +259,91 @@ export function MeetingsClient({
                 <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">No meetings found.</TableCell>
               </TableRow>
             ) : paginated.map(m => (
-              <TableRow key={m.id} className="cursor-pointer hover:bg-muted/50" onClick={() => router.push(`/meetings/${m.id}`)}>
-                <TableCell><button type="button" className="rounded p-1 hover:bg-muted" aria-label="Satır menüsü">⋮</button></TableCell>
-                <TableCell className="font-mono text-sm">{m.meetingNo}</TableCell>
-                <TableCell className="max-w-xs truncate">{m.title}</TableCell>
-                <TableCell>{formatDateOnlyIstanbul(m.plannedDate)}</TableCell>
-                <TableCell>{m.meetingType?.name ?? "—"}</TableCell>
-                <TableCell>{m.initializedDate ? formatDateOnlyIstanbul(m.initializedDate) : "—"}</TableCell>
-                <TableCell className="max-w-xs truncate">
+              <TableRow key={m.id} className="hover:bg-muted/50">
+                <TableCell>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        aria-label="Meeting actions"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <MoreVertical className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-44">
+                      <DropdownMenuItem
+                        className="gap-2"
+                        onSelect={() => router.push(`/meetings/${m.id}`)}
+                      >
+                        <Pencil className="size-4 shrink-0" />
+                        Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="gap-2"
+                        onSelect={() => { void handleArchive(m) }}
+                      >
+                        <Archive className="size-4 shrink-0" />
+                        Archive
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        variant="destructive"
+                        className="gap-2"
+                        onSelect={() => { void handleDelete(m) }}
+                      >
+                        <Trash2 className="size-4 shrink-0" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+                <TableCell
+                  className="cursor-pointer font-mono text-sm hover:underline"
+                  onClick={() => router.push(`/meetings/${m.id}`)}
+                >
+                  {m.meetingNo}
+                </TableCell>
+                <TableCell
+                  className="max-w-xs cursor-pointer truncate hover:underline"
+                  onClick={() => router.push(`/meetings/${m.id}`)}
+                >
+                  {m.title}
+                </TableCell>
+                <TableCell
+                  className="cursor-pointer"
+                  onClick={() => router.push(`/meetings/${m.id}`)}
+                >
+                  {formatDateOnlyIstanbul(m.plannedDate)}
+                </TableCell>
+                <TableCell
+                  className="cursor-pointer"
+                  onClick={() => router.push(`/meetings/${m.id}`)}
+                >
+                  {m.meetingType?.name ?? "—"}
+                </TableCell>
+                <TableCell
+                  className="cursor-pointer"
+                  onClick={() => router.push(`/meetings/${m.id}`)}
+                >
+                  {m.initializedDate ? formatDateOnlyIstanbul(m.initializedDate) : "—"}
+                </TableCell>
+                <TableCell
+                  className="max-w-xs cursor-pointer truncate"
+                  onClick={() => router.push(`/meetings/${m.id}`)}
+                >
   {[
     ...m.participants.map(p => `${p.calisan.isim} ${p.calisan.soyisim}`),
     ...parseExternalParticipantsJson(m.externalParticipants).map(formatExternalParticipantLabel),
   ].filter(Boolean).join(", ")}
 </TableCell>
-                <TableCell>
+                <TableCell
+                  className="cursor-pointer"
+                  onClick={() => router.push(`/meetings/${m.id}`)}
+                >
                   <span className={`px-2 py-1 rounded text-xs font-semibold ${statusColor(m.status)}`}>{m.status}</span>
                 </TableCell>
               </TableRow>

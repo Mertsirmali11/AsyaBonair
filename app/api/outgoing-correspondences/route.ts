@@ -16,13 +16,13 @@ import { setOutgoingPdfAttachmentsJsonb } from "@/lib/persist-correspondence-pdf
 import { deletePdfFromStorage, uploadPdfToStorage } from "@/lib/supabase-storage"
 import {
   allocateOutgoingPaperNo,
+  ensureOutgoingSingleStreamDept,
+  isOutgoingNumberAllocationRetryable,
+  outgoingCorrespondenceCreateErrorMessage,
   releaseOutgoingPaperSlot,
 } from "@/lib/outgoing-correspondence-numbering-server"
 
 export const dynamic = "force-dynamic"
-
-const OUTGOING_SINGLE_DEPARTMENT_KEY = "bon"
-const OUTGOING_SINGLE_PREFIX = "BON"
 
 export async function GET() {
   try {
@@ -98,25 +98,7 @@ export async function POST(request: Request) {
       )
     }
 
-    // Ensure the single outgoing numbering config exists for the released-slot FK.
-    await prisma.outgoingCorrespondenceDeptConfig.upsert({
-      where: { key: OUTGOING_SINGLE_DEPARTMENT_KEY },
-      update: {
-        label: "Outgoing",
-        paperPrefix: OUTGOING_SINGLE_PREFIX,
-        includeYearInPaperNo: true,
-        sortOrder: 0,
-        isActive: true,
-      },
-      create: {
-        key: OUTGOING_SINGLE_DEPARTMENT_KEY,
-        label: "Outgoing",
-        paperPrefix: OUTGOING_SINGLE_PREFIX,
-        includeYearInPaperNo: true,
-        sortOrder: 0,
-        isActive: true,
-      },
-    })
+    const streamDept = await ensureOutgoingSingleStreamDept(prisma)
 
     const date = new Date(dateStr)
     if (isNaN(date.getTime())) {
@@ -146,46 +128,70 @@ export async function POST(request: Request) {
     // reading the same maxSeq and generating duplicate numbers, because
     // PostgreSQL SSI will abort one if they overlap on the same row range.
     // File uploads happen AFTER the record exists so the creation is safe.
-    let correspondence: Awaited<ReturnType<typeof prisma.outgoingCorrespondence.create>>
-    try {
-      correspondence = await prisma.$transaction(
-        async (tx) => {
-          const paperNo = await allocateOutgoingPaperNo(
-            tx,
-            OUTGOING_SINGLE_DEPARTMENT_KEY,
-            { paperPrefix: OUTGOING_SINGLE_PREFIX, includeYearInPaperNo: true }
-          )
-          return tx.outgoingCorrespondence.create({
-            data: {
-              paperNo,
-              departmentKey: OUTGOING_SINGLE_DEPARTMENT_KEY,
-              to,
-              subject,
-              date,
-              content: content || null,
-              createdBy: createdBy ? parseInt(createdBy) : null,
-            },
-            include: {
-              creator: {
-                select: {
-                  id: true,
-                  isim: true,
-                  soyisim: true,
-                  email: true,
-                  departman: true,
+    let correspondence!: Awaited<ReturnType<typeof prisma.outgoingCorrespondence.create>>
+    const txOptions = {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      maxWait: 10_000,
+      timeout: 15_000,
+    } as const
+
+    const maxAllocAttempts = 4
+    let allocated = false
+    for (let attempt = 0; attempt < maxAllocAttempts; attempt++) {
+      try {
+        correspondence = await prisma.$transaction(
+          async (tx) => {
+            const paperNo = await allocateOutgoingPaperNo(tx, streamDept.departmentKey, {
+              paperPrefix: streamDept.paperPrefix,
+              includeYearInPaperNo: streamDept.includeYearInPaperNo,
+            })
+            return tx.outgoingCorrespondence.create({
+              data: {
+                paperNo,
+                departmentKey: streamDept.departmentKey,
+                to,
+                subject,
+                date,
+                content: content || null,
+                createdBy: createdBy ? parseInt(createdBy) : null,
+              },
+              include: {
+                creator: {
+                  select: {
+                    id: true,
+                    isim: true,
+                    soyisim: true,
+                    email: true,
+                    departman: true,
+                  },
                 },
               },
-            },
-          })
-        },
-        {
-          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-          maxWait: 10_000,
-          timeout: 15_000,
+            })
+          },
+          txOptions
+        )
+        allocated = true
+        break
+      } catch (e) {
+        if (
+          isOutgoingNumberAllocationRetryable(e) &&
+          attempt < maxAllocAttempts - 1
+        ) {
+          continue
         }
-      )
-    } catch (e) {
-      console.error("allocateOutgoingPaperNo:", e)
+        console.error("allocateOutgoingPaperNo:", e)
+        const uniqueMsg = outgoingCorrespondenceCreateErrorMessage(e)
+        if (uniqueMsg) {
+          return NextResponse.json({ error: uniqueMsg }, { status: 409 })
+        }
+        return NextResponse.json(
+          { error: "Could not assign correspondence number" },
+          { status: 500 }
+        )
+      }
+    }
+
+    if (!allocated) {
       return NextResponse.json(
         { error: "Could not assign correspondence number" },
         { status: 500 }
@@ -196,9 +202,9 @@ export async function POST(request: Request) {
 
     const releaseAllocatedNumber = async () => {
       await releaseOutgoingPaperSlot(prisma, {
-        departmentKey: OUTGOING_SINGLE_DEPARTMENT_KEY,
+        departmentKey: streamDept.departmentKey,
         paperNo,
-        paperPrefix: OUTGOING_SINGLE_PREFIX,
+        paperPrefix: streamDept.paperPrefix,
       })
     }
 
@@ -296,11 +302,9 @@ export async function POST(request: Request) {
       )
     }
 
-    if (err.code === "P2002") {
-      return NextResponse.json(
-        { error: "Paper number already exists" },
-        { status: 400 }
-      )
+    const uniqueMsg = outgoingCorrespondenceCreateErrorMessage(error)
+    if (uniqueMsg) {
+      return NextResponse.json({ error: uniqueMsg }, { status: 409 })
     }
 
     let errorMessage =

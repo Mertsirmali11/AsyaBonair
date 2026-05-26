@@ -25,6 +25,7 @@ import {
 } from "lucide-react"
 import { formatDateOnlyIstanbul, formatDateTimeIstanbul } from "@/lib/date-format"
 import { isAdminDepartment } from "@/lib/department-access"
+import { canViewAllMeetingTasks } from "@/lib/meeting-task-access"
 import { useLanguage } from "@/lib/i18n/context"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -172,6 +173,8 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
   const [tasksDueNext30Days, setTasksDueNext30Days] = useState<DashboardTask[]>(
     []
   )
+  const [tasksOverdue, setTasksOverdue] = useState<DashboardTask[]>([])
+  const [tasksNoDueDate, setTasksNoDueDate] = useState<DashboardTask[]>([])
   const [certificatesExpiringSoon, setCertificatesExpiringSoon] = useState<
     CertificateExpiryAlert[]
   >([])
@@ -207,6 +210,8 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
     user.departman === "Human Resources" ||
     isAdminDepartment(user.departman)
 
+  const showAllMeetingTasks = canViewAllMeetingTasks(user.departman)
+
   const fetchAll = useCallback(async (mode: "initial" | "refresh" = "initial") => {
     const silent = mode === "refresh" && hasLoadedOnceRef.current
 
@@ -227,6 +232,8 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
           setBirthdays(data.birthdays ?? [])
           setTasksDueToday(data.tasksDueToday ?? [])
           setTasksDueNext30Days(data.tasksDueNext30Days ?? [])
+          setTasksOverdue(data.tasksOverdue ?? [])
+          setTasksNoDueDate(data.tasksNoDueDate ?? [])
           setCertificatesExpiringSoon(data.certificatesExpiringSoon ?? [])
           setCertificatesExpired(data.certificatesExpired ?? [])
           setSupportTicketsPreview(data.supportTicketsPreview ?? [])
@@ -382,14 +389,16 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
     user.departman === "Quality" || isAdminDepartment(user.departman)
 
   const meetingTasksTableRows = useMemo(() => {
+    const overdue = tasksOverdue.map((t) => ({ ...t, bucket: "overdue" as const }))
     const today = tasksDueToday.map((t) => ({ ...t, bucket: "today" as const }))
     const soon = tasksDueNext30Days.map((t) => ({ ...t, bucket: "soon" as const }))
-    return [...today, ...soon].sort((a, b) => {
-      const ta = a.dueDate ? new Date(a.dueDate).getTime() : 0
-      const tb = b.dueDate ? new Date(b.dueDate).getTime() : 0
+    const noDue = tasksNoDueDate.map((t) => ({ ...t, bucket: "noDue" as const }))
+    return [...overdue, ...today, ...soon, ...noDue].sort((a, b) => {
+      const ta = a.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER
+      const tb = b.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER
       return ta - tb
     })
-  }, [tasksDueToday, tasksDueNext30Days])
+  }, [tasksDueToday, tasksDueNext30Days, tasksOverdue, tasksNoDueDate])
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
@@ -898,9 +907,11 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                 ) : null}
               </div>
               <p className="text-xs text-muted-foreground mb-3">
-                Open action items: due <strong>today</strong> or within the{" "}
-                <strong>next 30 days</strong> (Istanbul calendar). Completed tasks
-                are hidden.
+                Open action items (overdue, today, upcoming, or no due date).
+                Completed tasks are hidden.{" "}
+                {showAllMeetingTasks
+                  ? "As an admin you see tasks for all assignees."
+                  : "You only see tasks assigned to you."}
               </p>
               <div className="border rounded-lg bg-white overflow-hidden max-h-[min(420px,55vh)] overflow-y-auto">
                 {meetingTasksTableRows.length === 0 ? (
@@ -916,9 +927,11 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                         <TableHead className="min-w-[120px] hidden sm:table-cell">
                           Meeting
                         </TableHead>
-                        <TableHead className="hidden md:table-cell">
-                          Assignee
-                        </TableHead>
+                        {showAllMeetingTasks ? (
+                          <TableHead className="hidden md:table-cell">
+                            Assignee
+                          </TableHead>
+                        ) : null}
                         <TableHead>Due (IST)</TableHead>
                         <TableHead className="w-[90px]">Status</TableHead>
                       </TableRow>
@@ -928,13 +941,21 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                         <TableRow key={t.id}>
                           <TableCell className="align-top">
                             <span
-                              className={
-                                t.bucket === "today"
-                                  ? "inline-flex rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-900"
-                                  : "inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-900"
-                              }
+                              className={cn(
+                                "inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                                t.bucket === "today" && "bg-indigo-100 text-indigo-900",
+                                t.bucket === "soon" && "bg-violet-100 text-violet-900",
+                                t.bucket === "overdue" && "bg-red-100 text-red-900",
+                                t.bucket === "noDue" && "bg-slate-100 text-slate-700"
+                              )}
                             >
-                              {t.bucket === "today" ? "Today" : "30 days"}
+                              {t.bucket === "today"
+                                ? "Today"
+                                : t.bucket === "soon"
+                                  ? "Upcoming"
+                                  : t.bucket === "overdue"
+                                    ? "Overdue"
+                                    : "No date"}
                             </span>
                           </TableCell>
                           <TableCell className="align-top max-w-[200px] whitespace-normal">
@@ -960,12 +981,14 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
                               <span className="italic">No meeting</span>
                             )}
                           </TableCell>
-                          <TableCell className="align-top text-xs hidden md:table-cell">
-                            {t.assignee
-                              ? `${t.assignee.isim ?? ""} ${t.assignee.soyisim ?? ""}`.trim() ||
-                                "—"
-                              : "—"}
-                          </TableCell>
+                          {showAllMeetingTasks ? (
+                            <TableCell className="align-top text-xs hidden md:table-cell">
+                              {t.assignee
+                                ? `${t.assignee.isim ?? ""} ${t.assignee.soyisim ?? ""}`.trim() ||
+                                  "—"
+                                : "—"}
+                            </TableCell>
+                          ) : null}
                           <TableCell className="align-top text-xs">
                             {t.dueDate
                               ? formatDateOnlyIstanbul(t.dueDate)

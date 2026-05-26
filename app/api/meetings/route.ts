@@ -21,14 +21,20 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const year = searchParams.get("year")
 
-  const where = year && year !== "All"
-    ? {
-        plannedDate: {
-          gte: new Date(`${year}-01-01`),
-          lte: new Date(`${year}-12-31`),
-        },
-      }
-    : {}
+  const yearFilter =
+    year && year !== "All"
+      ? {
+          plannedDate: {
+            gte: new Date(`${year}-01-01`),
+            lte: new Date(`${year}-12-31`),
+          },
+        }
+      : {}
+
+  const where = {
+    ...yearFilter,
+    status: { not: "Archived" },
+  }
 
   const meetings = await prisma.meeting.findMany({
     where,

@@ -20,8 +20,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Bonair",
-  description: "Bonair",
+  title: "Bonjour",
+  description: "Bonjour",
+  icons: {
+    icon: [{ url: "/logo-bonjour.png", type: "image/png" }],
+    apple: [{ url: "/logo-bonjour.png", type: "image/png" }],
+  },
 };
 
 export default function RootLayout({

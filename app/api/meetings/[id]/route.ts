@@ -3,6 +3,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
 import { prismaJson } from "@/lib/prisma-json"
 import { isAdminDepartment } from "@/lib/department-access"
+import { deleteMeetingWithLinkedTasks } from "@/lib/meeting-delete"
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth()
@@ -13,26 +14,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params
   const meetingId = parseInt(id, 10)
 
-  // Find current user's calisan record
-  const calisan = await prisma.calisan.findUnique({
-    where: { email: session.user.email },
-    select: { id: true },
-  })
-
-  const isAdmin = isAdminDepartment(session.user.departman)
-
-  if (!isAdmin) {
-    // Non-admin: must be a participant
-    const participation = calisan
-      ? await prisma.meetingParticipant.findFirst({
-          where: { meetingId, calisanId: calisan.id },
-          select: { id: true },
-        })
-      : null
-
-    if (!participation) {
-      return NextResponse.json({ error: "Forbidden — only meeting participants can edit." }, { status: 403 })
-    }
+  if (!(await canManageMeeting(session, meetingId))) {
+    return NextResponse.json(
+      { error: "Forbidden — only meeting participants can edit." },
+      { status: 403 }
+    )
   }
 
   const body = await req.json() as Record<string, unknown>
@@ -53,6 +39,58 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     data,
   })
   return NextResponse.json(prismaJson(meeting))
+}
+
+async function canManageMeeting(
+  session: { user: { email?: string | null; departman?: string | null } },
+  meetingId: number
+) {
+  const isAdmin = isAdminDepartment(session.user.departman)
+  if (isAdmin) return true
+
+  const calisan = session.user.email
+    ? await prisma.calisan.findUnique({
+        where: { email: session.user.email },
+        select: { id: true },
+      })
+    : null
+
+  if (!calisan) return false
+
+  const participation = await prisma.meetingParticipant.findFirst({
+    where: { meetingId, calisanId: calisan.id },
+    select: { id: true },
+  })
+  return !!participation
+}
+
+export async function DELETE(
+  _: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await auth()
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const { id } = await params
+  const meetingId = parseInt(id, 10)
+  if (Number.isNaN(meetingId)) {
+    return NextResponse.json({ error: "Invalid meeting id" }, { status: 400 })
+  }
+
+  if (!isAdminDepartment(session.user.departman)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  const existing = await prisma.meeting.findUnique({ where: { id: meetingId } })
+  if (!existing) {
+    return NextResponse.json({ error: "Meeting not found" }, { status: 404 })
+  }
+
+  await deleteMeetingWithLinkedTasks(prisma, meetingId)
+
+  return NextResponse.json({ success: true })
 }
 
 export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {

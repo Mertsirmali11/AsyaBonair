@@ -1,7 +1,7 @@
 "use client"
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { IconPlus, IconDotsVertical, IconArchive, IconArchiveOff } from "@tabler/icons-react"
+import { IconPlus, IconDotsVertical, IconArchive, IconArchiveOff, IconPencil } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -39,8 +39,12 @@ export function AircraftSettingsTable({ variant = "active" }: AircraftSettingsTa
   const [aircraft, setAircraft] = React.useState<Aircraft[]>([])
   const [searchTerm, setSearchTerm] = React.useState("")
   const [dialogOpen, setDialogOpen] = React.useState(false)
+  const [editDialogOpen, setEditDialogOpen] = React.useState(false)
+  const [editingAircraft, setEditingAircraft] = React.useState<Aircraft | null>(null)
   const [register, setRegister] = React.useState("")
   const [msn, setMsn] = React.useState("")
+  const [editRegister, setEditRegister] = React.useState("")
+  const [editMsn, setEditMsn] = React.useState("")
   const [saving, setSaving] = React.useState(false)
   const [currentPage, setCurrentPage] = React.useState(1)
   const [itemsPerPage, setItemsPerPage] = React.useState(10)
@@ -94,6 +98,32 @@ export function AircraftSettingsTable({ variant = "active" }: AircraftSettingsTa
       body: JSON.stringify({ isArchived: next }),
     })
     if (res.ok) fetchAircraft()
+  }
+
+  const openEditDialog = (a: Aircraft) => {
+    setEditingAircraft(a)
+    setEditRegister(a.register)
+    setEditMsn(a.msn)
+    setEditDialogOpen(true)
+  }
+
+  const handleEdit = async () => {
+    if (!editingAircraft || !editRegister.trim() || !editMsn.trim()) return
+    setSaving(true)
+    const res = await fetch(`/api/aircraft/${editingAircraft.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        register: editRegister.trim(),
+        msn: editMsn.trim(),
+      }),
+    })
+    setSaving(false)
+    if (res.ok) {
+      setEditDialogOpen(false)
+      setEditingAircraft(null)
+      fetchAircraft()
+    }
   }
 
   return (
@@ -169,6 +199,56 @@ export function AircraftSettingsTable({ variant = "active" }: AircraftSettingsTa
         )}
       </div>
 
+      <Dialog
+        open={editDialogOpen}
+        onOpenChange={(open) => {
+          setEditDialogOpen(open)
+          if (!open) setEditingAircraft(null)
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Aircraft</DialogTitle>
+          </DialogHeader>
+          <div className="mt-2 flex flex-col gap-4">
+            <div>
+              <Label>Register *</Label>
+              <Input
+                value={editRegister}
+                onChange={(e) => setEditRegister(e.target.value)}
+                placeholder="TC-XXX"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label>MSN *</Label>
+              <Input
+                value={editMsn}
+                onChange={(e) => setEditMsn(e.target.value)}
+                placeholder="MSN"
+                className="mt-1"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setEditDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void handleEdit()}
+                disabled={saving || !editRegister.trim() || !editMsn.trim()}
+              >
+                {saving ? "Saving..." : "Save"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <div className="flex items-center gap-2">
         <Label className="text-sm font-medium whitespace-nowrap">Search:</Label>
         <Input
@@ -200,26 +280,64 @@ export function AircraftSettingsTable({ variant = "active" }: AircraftSettingsTa
                 <TableRow
                   key={a.id}
                   className={cn(
-                    "border-b border-gray-300 cursor-pointer",
+                    "border-b border-gray-300",
                     isArchivedView
-                      ? "bg-muted/40 text-muted-foreground hover:bg-muted/60"
-                      : "hover:bg-slate-50"
+                      ? "bg-muted/40 text-muted-foreground"
+                      : ""
                   )}
-                  onClick={() => router.push(`/documents/aircraft-settings/${a.id}`)}
                 >
-                  <TableCell className="font-medium border-r border-gray-200">{a.register}</TableCell>
-                  <TableCell className="border-r border-gray-200">{a.msn}</TableCell>
+                  <TableCell
+                    className="cursor-pointer font-medium border-r border-gray-200 hover:bg-slate-50"
+                    onClick={() => router.push(`/documents/aircraft-settings/${a.id}`)}
+                  >
+                    {a.register}
+                  </TableCell>
+                  <TableCell
+                    className="cursor-pointer border-r border-gray-200 hover:bg-slate-50"
+                    onClick={() => router.push(`/documents/aircraft-settings/${a.id}`)}
+                  >
+                    {a.msn}
+                  </TableCell>
                   <TableCell className="flex items-center justify-between">
-                    <span className="text-sm text-primary hover:underline">View Documents →</span>
+                    <span
+                      role="link"
+                      tabIndex={0}
+                      className="cursor-pointer text-sm text-primary hover:underline"
+                      onClick={() => router.push(`/documents/aircraft-settings/${a.id}`)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault()
+                          router.push(`/documents/aircraft-settings/${a.id}`)
+                        }
+                      }}
+                    >
+                      View Documents →
+                    </span>
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild onClick={e => e.stopPropagation()}>
-                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <IconDotsVertical className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48">
+                      <DropdownMenuContent
+                        align="end"
+                        className="w-48"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <DropdownMenuItem onSelect={() => router.push(`/documents/aircraft-settings/${a.id}`)}>
                           View Documents
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="gap-2"
+                          onSelect={() => openEditDialog(a)}
+                        >
+                          <IconPencil className="size-4 shrink-0" />
+                          Edit
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="gap-2"

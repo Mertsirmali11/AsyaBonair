@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma-server"
 import { auth } from "@/auth"
 import { isAdminDepartment } from "@/lib/department-access"
+import {
+  meetingTaskAssigneeWhere,
+  meetingTaskListVisibilityWhere,
+} from "@/lib/meeting-task-access"
 
 export async function GET(req: NextRequest) {
   try {
@@ -12,23 +16,23 @@ export async function GET(req: NextRequest) {
 
     const calisan = await prisma.calisan.findUnique({
       where: { email: session.user.email },
-      select: { id: true },
+      select: { id: true, departman: true },
     })
 
-    const isAdmin = isAdminDepartment(session.user.departman)
+    const departman = calisan?.departman ?? session.user.departman
+    const isAdmin = isAdminDepartment(departman)
 
     const meetingIdParam = new URL(req.url).searchParams.get("meetingId")
     const meetingIdNum = meetingIdParam ? Number.parseInt(meetingIdParam, 10) : NaN
-    const meetingFilter =
+    const hasMeetingScope =
       meetingIdParam !== null && !Number.isNaN(meetingIdNum)
-        ? { meetingId: meetingIdNum }
-        : {}
+    const meetingFilter = hasMeetingScope ? { meetingId: meetingIdNum } : {}
 
-    // Non-admin users only see tasks assigned to them
-    const assigneeFilter =
-      !isAdmin && calisan ? { assigneeId: calisan.id } : {}
-
-    const where = { ...meetingFilter, ...assigneeFilter }
+    const where = {
+      ...meetingFilter,
+      ...meetingTaskAssigneeWhere(departman, calisan?.id),
+      ...(hasMeetingScope ? {} : meetingTaskListVisibilityWhere({ includeStandalone: true })),
+    }
 
     const tasks = await prisma.meetingTask.findMany({
       where,

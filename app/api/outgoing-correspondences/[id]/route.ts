@@ -18,11 +18,9 @@ import {
   uploadPdfToStorage,
 } from "@/lib/supabase-storage"
 import {
+  ensureOutgoingSingleStreamDept,
   releaseOutgoingPaperSlot,
 } from "@/lib/outgoing-correspondence-numbering-server"
-
-const OUTGOING_SINGLE_DEPARTMENT_KEY = "bon"
-const OUTGOING_SINGLE_PREFIX = "BON"
 
 async function gate() {
   const session = await auth()
@@ -197,10 +195,11 @@ export async function DELETE(
   try {
     await prisma.outgoingCorrespondence.delete({ where: { id } })
     if (existing.paperNo) {
+      const streamDept = await ensureOutgoingSingleStreamDept(prisma)
       await releaseOutgoingPaperSlot(prisma, {
-        departmentKey: existing.departmentKey || OUTGOING_SINGLE_DEPARTMENT_KEY,
+        departmentKey: existing.departmentKey ?? streamDept.departmentKey,
         paperNo: existing.paperNo,
-        paperPrefix: OUTGOING_SINGLE_PREFIX,
+        paperPrefix: streamDept.paperPrefix,
       })
     }
     return NextResponse.json({ success: true })

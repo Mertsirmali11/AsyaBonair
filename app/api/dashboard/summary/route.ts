@@ -11,6 +11,10 @@ import {
   getUtcRangeForCalendarDate,
 } from "@/lib/day-range"
 import { canAccessConfigurationsArea, isAdminDepartment } from "@/lib/department-access"
+import {
+  meetingTaskAssigneeWhere,
+  meetingTaskListVisibilityWhere,
+} from "@/lib/meeting-task-access"
 import { canManageSupportTicketsAsAdmin } from "@/lib/support-ticket-access"
 import { canViewAllHazardReports } from "@/lib/hazard-access"
 
@@ -55,13 +59,6 @@ export async function GET() {
     const { year, month, day } = getCalendarYmdInTimeZone(APP_TIMEZONE)
     const todayYmd = formatYmd(year, month, day)
     const todayStart = getUtcRangeForCalendarDate(year, month, day).start
-    const windowEnd = addCalendarDays(year, month, day, 31)
-    const windowEndExclusive = getUtcRangeForCalendarDate(
-      windowEnd.year,
-      windowEnd.month,
-      windowEnd.day
-    ).start
-
     const dayStartUtc = new Date(Date.UTC(year, month - 1, day))
     const dayEndUtc = new Date(Date.UTC(year, month - 1, day + 1))
 
@@ -149,16 +146,12 @@ export async function GET() {
       findCalisanlarWithBirthdayOnCalendarDay(prisma, month, day),
       prisma.meetingTask.findMany({
         where: {
-          dueDate: {
-            not: null,
-            gte: todayStart,
-            lt: windowEndExclusive,
-          },
           status: { not: "Completed" },
-          // Non-admin users only see tasks assigned to them
-          ...(viewer && !isAdminDepartment(viewer.departman)
-            ? { assigneeId: viewer.id }
-            : {}),
+          ...meetingTaskAssigneeWhere(
+            viewer?.departman ?? session.user.departman,
+            viewer?.id
+          ),
+          ...meetingTaskListVisibilityWhere(),
         },
         select: {
           id: true,
@@ -173,7 +166,7 @@ export async function GET() {
           },
         },
         orderBy: [{ dueDate: "asc" }, { id: "asc" }],
-        take: 80,
+        take: 120,
       }),
       canAccessConfigurationsArea(viewer?.departman)
         ? prisma.aircraftDocument.findMany({
@@ -307,10 +300,17 @@ export async function GET() {
 
     const tasksDueToday: typeof tasksInWindow = []
     const tasksDueNext30Days: typeof tasksInWindow = []
+    const tasksOverdue: typeof tasksInWindow = []
+    const tasksNoDueDate: typeof tasksInWindow = []
+
     for (const t of tasksInWindow) {
-      if (!t.dueDate) continue
+      if (!t.dueDate) {
+        tasksNoDueDate.push(t)
+        continue
+      }
       const k = ymdKeyIstanbul(t.dueDate)
-      if (k === todayYmd) tasksDueToday.push(t)
+      if (k < todayYmd) tasksOverdue.push(t)
+      else if (k === todayYmd) tasksDueToday.push(t)
       else tasksDueNext30Days.push(t)
     }
 
@@ -362,6 +362,8 @@ export async function GET() {
         birthdays,
         tasksDueToday,
         tasksDueNext30Days,
+        tasksOverdue,
+        tasksNoDueDate,
         certificatesExpiringSoon,
         certificatesExpired,
         supportTicketsPreview,
