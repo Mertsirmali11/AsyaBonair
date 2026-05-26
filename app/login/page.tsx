@@ -117,7 +117,7 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between">
+            <div className="flex items-center">
               <div className="flex items-center gap-2">
                 <Checkbox id="remember" />
                 <Label
@@ -127,18 +127,21 @@ export default function LoginPage() {
                   Remember me
                 </Label>
               </div>
+              {/* Forgot password — henüz aktif değil; ileride eklenebilir
               <a
                 href="#"
                 className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
               >
                 Forgot password
               </a>
+              */}
             </div>
 
             <Button type="submit" className="h-11 w-full font-medium" disabled={isLoading}>
               {isLoading ? "Logging in..." : "Login"}
             </Button>
 
+            {/* Kayıt (Sign up) — ileride etkinleştirilebilir
             <div className="text-center text-sm text-muted-foreground">
               Don&apos;t have an account?{" "}
               <a
@@ -148,6 +151,7 @@ export default function LoginPage() {
                 Sign up
               </a>
             </div>
+            */}
           </form>
         </div>
       </div>

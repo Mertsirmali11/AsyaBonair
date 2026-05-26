@@ -488,6 +488,8 @@ export function RegisterWorkerForm() {
                     official privacy notice (KVKK).
                   </Label>
                   <p className="text-muted-foreground">
+                    You must tick the box above to confirm your consent before registering.
+                    {/* KVKK metni linki — /kvkk oturum gerektirdiği için login’e yönlendiriyordu; ileride public yapılınca açılabilir
                     Open the full text in a new tab:{" "}
                     <Link
                       href="/kvkk"
@@ -497,7 +499,7 @@ export function RegisterWorkerForm() {
                     >
                       Privacy notice (KVKK)
                     </Link>
-                    . You must tick the box above to confirm your consent before registering.
+                    . */}
                   </p>
                 </div>
               </div>

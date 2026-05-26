@@ -116,7 +116,7 @@ export function AppSidebar({
   ]
 
   const configurationsSubItems = [
-    { title: t.nav.newWorker, url: "/configurations/new-worker", approversOnly: true },
+    // { title: t.nav.newWorker, url: "/configurations/new-worker", approversOnly: true }, // ileride
     { title: t.nav.userSettings, url: "/configurations", matchExact: true },
     { title: t.nav.departments, url: "/configurations/departments" },
     { title: t.nav.authorization, url: "/configurations/department-permissions" },
