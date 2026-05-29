@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation"
+import { Prisma } from "@prisma/client"
 import { auth } from "@/auth"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { LeaveRequestsClient } from "./leave-requests-client"
@@ -13,8 +14,7 @@ export default async function LeaveRequestsPage() {
   if (!ctx) redirect("/dashboard")
 
   // Server-side initial data fetch
-  type WhereClause = Parameters<typeof prisma.leaveRequest.findMany>[0]["where"]
-  let where: WhereClause = {}
+  let where: Prisma.LeaveRequestWhereInput = {}
 
   if (ctx.isGlobalAdmin) {
     // Admin tümünü görür

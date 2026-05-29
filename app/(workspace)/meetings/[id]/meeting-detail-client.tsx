@@ -373,7 +373,14 @@ export function MeetingDetailClient({
         new Table({
           width: { size: PAGE_W, type: WidthType.DXA },
           columnWidths: [2000, PAGE_W - 2000],
-          borders: { insideH: border, insideV: border, top: border, bottom: border, left: border, right: border },
+          borders: {
+            insideHorizontal: border,
+            insideVertical: border,
+            top: border,
+            bottom: border,
+            left: border,
+            right: border,
+          },
           rows: rows.map(([label, value]) => new TableRow({ children: [
             new TableCell({
               borders,
@@ -517,7 +524,9 @@ export function MeetingDetailClient({
       })
 
       const buffer = await Packer.toBuffer(doc)
-      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" })
+      const blob = new Blob([new Uint8Array(buffer)], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      })
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url

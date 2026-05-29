@@ -23,7 +23,7 @@ import {
   IconPuzzle,
   IconRobot,
   IconSettings,
-  IconShieldCheck,
+  // IconShieldCheck, // Safety Management — ileride
   IconSpeakerphone,
   IconTicket,
   IconUrgent,
@@ -39,10 +39,8 @@ import {
   canApproveWorkerRegistrations,
 } from "@/lib/department-access"
 import { DEPARTMENT_PERMISSION_KEYS } from "@/lib/department-permission-keys"
-import {
-  canViewComplianceMonitoringNav,
-  canViewSafetyManagementNav,
-} from "@/lib/sidebar-nav-access"
+import { canViewComplianceMonitoringNav } from "@/lib/sidebar-nav-access"
+// import { canViewSafetyManagementNav } from "@/lib/sidebar-nav-access" // Safety Management — ileride
 import {
   Sidebar,
   SidebarContent,
@@ -115,12 +113,20 @@ export function AppSidebar({
     // { title: t.nav.addons, url: "/addons", icon: IconPuzzle }, // sayfa yok → 404
   ]
 
-  const configurationsSubItems = [
+  type ConfigurationNavSubItem = {
+    title: string
+    url: string
+    matchExact?: boolean
+    approversOnly?: boolean
+    qualityOrAdminOnly?: boolean
+  }
+
+  const configurationsSubItems: ConfigurationNavSubItem[] = [
     // { title: t.nav.newWorker, url: "/configurations/new-worker", approversOnly: true }, // ileride
     { title: t.nav.userSettings, url: "/configurations", matchExact: true },
     { title: t.nav.departments, url: "/configurations/departments" },
     { title: t.nav.authorization, url: "/configurations/department-permissions" },
-    { title: t.nav.safetySettings, url: "/configurations/safety-settings", qualityOrAdminOnly: true },
+    // { title: t.nav.safetySettings, url: "/configurations/safety-settings", qualityOrAdminOnly: true }, // ileride
     { title: t.nav.auditSettings, url: "/configurations/audit-settings" },
     { title: t.nav.correspondences, url: "/configurations/correspondences" },
   ]
@@ -130,7 +136,13 @@ export function AppSidebar({
     { title: t.nav.manageAnnouncements, url: "/configurations/announcements", configurationsOnly: true },
   ]
 
-  const controlledDocumentsSubItems = [
+  type DocumentNavSubItem = {
+    title: string
+    url: string
+    configurationsOnly?: boolean
+  }
+
+  const controlledDocumentsSubItems: DocumentNavSubItem[] = [
     { title: t.nav.manuals, url: "/documents" },
     { title: t.nav.forms, url: "/documents/forms" },
     { title: t.nav.documentProcedure, url: "/documents/document-procedure" },
@@ -142,9 +154,10 @@ export function AppSidebar({
     { title: t.nav.outgoingCorrespondences, url: "/correspondences/outgoing" },
   ]
 
-  const safetyManagementSubItems = [
-    // { title: t.nav.riskBoard, url: "/safety/risk-board" },
-  ]
+  // Safety Management — menü şimdilik gizli (ileride)
+  // const safetyManagementSubItems = [
+  //   { title: t.nav.riskBoard, url: "/safety/risk-board" },
+  // ]
 
   const complianceMonitoringSubItems = [
     { title: t.nav.auditPlan, url: "/compliance/audit-plan" },
@@ -376,10 +389,10 @@ export function AppSidebar({
     DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING,
     legacyComplianceMonitoring
   )
-  const showSafetyNav = resolveDeptPermission(
-    DEPARTMENT_PERMISSION_KEYS.SAFETY_MANAGEMENT,
-    canViewSafetyManagementNav(user.departman)
-  )
+  // const showSafetyNav = resolveDeptPermission(
+  //   DEPARTMENT_PERMISSION_KEYS.SAFETY_MANAGEMENT,
+  //   canViewSafetyManagementNav(user.departman)
+  // )
 
   const isControlledDocumentsSubActive = (subUrl: string) => {
     if (subUrl === "/documents") return pathname === "/documents"
@@ -486,6 +499,7 @@ export function AppSidebar({
             </Collapsible>
           ) : null}
 
+          {/* Safety Management — ileride etkinleştir
           {showSafetyNav ? (
             <Collapsible
               open={safetyManagementOpen}
@@ -543,6 +557,7 @@ export function AppSidebar({
               </SidebarMenuItem>
             </Collapsible>
           ) : null}
+          */}
 
           {NAV_MID.map((item) => {
             const isActive =

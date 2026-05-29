@@ -5,7 +5,7 @@ import {
   getLeaveAccessContext,
   findDepartmentApprover,
 } from "@/lib/leave-access"
-import type { LeaveRequestSubcategory } from "@prisma/client"
+import { Prisma, type LeaveRequestSubcategory } from "@prisma/client"
 import { isLeaveSubcategory } from "@/lib/leave-subcategory"
 
 // ─── Shared select ────────────────────────────────────────────────────────────
@@ -64,8 +64,7 @@ export async function GET(req: NextRequest) {
     const limit = isNaN(limitParam) ? 100 : Math.min(limitParam, 500)
 
     // Departman izolasyonu
-    type WhereClause = Parameters<typeof prisma.leaveRequest.findMany>[0]["where"]
-    let where: WhereClause = {}
+    let where: Prisma.LeaveRequestWhereInput = {}
 
     if (ctx.isGlobalAdmin) {
       // Admin: tümünü görür, isteğe bağlı dept filtresi
