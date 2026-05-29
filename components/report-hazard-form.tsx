@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useCallback } from "react"
+import { IconUpload, IconX } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
@@ -35,6 +36,13 @@ const SOURCE_TYPES = [
   "Other",
 ]
 
+const MAX_FILE_BYTES = 50 * 1024 * 1024
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
 export function ReportHazardForm({ userId }: ReportHazardFormProps) {
   const [eventDate, setEventDate] = useState<string>("")
   const [sourceType, setSourceType] = useState<string>("")
@@ -42,10 +50,34 @@ export function ReportHazardForm({ userId }: ReportHazardFormProps) {
   const [title, setTitle] = useState<string>("")
   const [details, setDetails] = useState<string>("")
   const [files, setFiles] = useState<File[]>([])
+  const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+
+  const addFiles = useCallback((incoming: FileList | null) => {
+    if (!incoming?.length) return
+    const list = Array.from(incoming)
+    setFiles((prev) => {
+      const keys = new Set(prev.map((f) => `${f.name}:${f.size}`))
+      const merged = [...prev]
+      for (const f of list) {
+        const key = `${f.name}:${f.size}`
+        if (!keys.has(key)) {
+          keys.add(key)
+          merged.push(f)
+        }
+      }
+      return merged
+    })
+  }, [])
+
+  const removeFileAt = (index: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const pendingBytes = files.reduce((s, f) => s + f.size, 0)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -209,48 +241,145 @@ export function ReportHazardForm({ userId }: ReportHazardFormProps) {
             </div>
 
             <div className="space-y-3 border-t pt-6">
-              <div className="space-y-2">
-                <Label htmlFor="hazard-files" className="text-sm font-medium">
-                  Attachments (optional)
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  Upload photos, videos, or documents (PDF, Word, Excel, PowerPoint).
-                  Maximum 50 MB per file.
-                </p>
-                <input
+              <div className="space-y-3">
+                <div>
+                  <p className="text-sm font-medium">Attachments (optional)</p>
+                  <p className="text-muted-foreground mt-1 text-sm">
+                    Photos, videos, or documents (PDF, Word, Excel, PowerPoint). Up to
+                    50 MB per file.
+                  </p>
+                </div>
+
+                <Input
                   id="hazard-files"
                   ref={fileInputRef}
                   type="file"
                   multiple
                   accept={`image/*,video/*,${DOCUMENT_ACCEPT_HTML}`}
+                  className="hidden"
+                  tabIndex={-1}
+                  aria-hidden
                   onChange={(e) => {
-                    const list = e.target.files
-                    setFiles(list ? Array.from(list) : [])
+                    addFiles(e.target.files)
+                    e.target.value = ""
+                  }}
+                />
+
+                <label
+                  htmlFor="hazard-files"
+                  onDragEnter={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setDragOver(true)
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setDragOver(false)
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setDragOver(false)
+                    addFiles(e.dataTransfer.files)
                   }}
                   className={cn(
-                    "flex h-9 w-full min-w-0 cursor-pointer rounded-md border border-dashed border-input bg-muted/30 px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none file:mr-3 file:rounded file:border-0 file:bg-slate-700 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:bg-muted/50 md:text-sm",
-                    "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                    "flex min-h-[140px] cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors",
+                    dragOver
+                      ? "border-primary bg-primary/5 shadow-sm"
+                      : "border-muted-foreground/25 bg-muted/20 hover:border-primary/40 hover:bg-muted/35"
                   )}
-                />
+                >
+                  <div
+                    className={cn(
+                      "flex size-12 items-center justify-center rounded-full",
+                      dragOver ? "bg-primary/15" : "bg-muted"
+                    )}
+                  >
+                    <IconUpload
+                      className={cn(
+                        "size-6",
+                        dragOver ? "text-primary" : "text-muted-foreground"
+                      )}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-foreground text-sm font-medium">
+                      Drag files here or click anywhere in this area
+                    </p>
+                    <p className="text-muted-foreground text-xs">
+                      Multiple files supported
+                    </p>
+                  </div>
+                  <span className="bg-secondary text-secondary-foreground inline-flex h-8 items-center rounded-md border px-3 text-xs font-medium shadow-sm">
+                    Choose files
+                  </span>
+                </label>
+
                 {files.length > 0 && (
-                  <ul className="mt-2 space-y-1 rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
-                    {files.map((f, i) => (
-                      <li key={`${f.name}-${i}`}>
-                        {f.name}{" "}
-                        <span className="text-xs">
-                          ({(f.size / (1024 * 1024)).toFixed(1)} MB)
-                        </span>
-                      </li>
-                    ))}
+                  <ul className="space-y-2">
+                    {files.map((f, i) => {
+                      const tooLarge = f.size > MAX_FILE_BYTES
+                      return (
+                        <li
+                          key={`${f.name}-${f.size}-${i}`}
+                          className={cn(
+                            "flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm",
+                            tooLarge
+                              ? "border-destructive/40 bg-destructive/5"
+                              : "bg-muted/50"
+                          )}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate font-medium">{f.name}</p>
+                            <p
+                              className={cn(
+                                "text-xs",
+                                tooLarge
+                                  ? "text-destructive"
+                                  : "text-muted-foreground"
+                              )}
+                            >
+                              {formatFileSize(f.size)}
+                              {tooLarge ? " — exceeds 50 MB limit" : ""}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 shrink-0"
+                            onClick={() => removeFileAt(i)}
+                            aria-label={`Remove ${f.name}`}
+                          >
+                            <IconX className="size-4" />
+                          </Button>
+                        </li>
+                      )
+                    })}
                   </ul>
                 )}
+
+                <p className="text-muted-foreground text-xs">
+                  {files.length === 0
+                    ? "No files selected yet."
+                    : `${files.length} file${files.length === 1 ? "" : "s"} · ${formatFileSize(pendingBytes)} total`}
+                </p>
               </div>
             </div>
 
             <div className="flex justify-end gap-2 pt-4">
               <Button
                 type="submit"
-                disabled={submitting || !eventDate}
+                disabled={
+                  submitting ||
+                  !eventDate ||
+                  files.some((f) => f.size > MAX_FILE_BYTES)
+                }
                 className="bg-slate-700 hover:bg-slate-800"
               >
                 {submitting ? "Submitting..." : "Submit"}
