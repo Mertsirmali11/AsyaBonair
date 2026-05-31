@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
-import { AiChatWidgetLazy } from "@/components/ai/ai-chat-widget-lazy";
 import { LanguageProvider } from "@/lib/i18n/context";
 import "./globals.css";
 
@@ -41,7 +40,6 @@ export default function RootLayout({
         <LanguageProvider>
           {children}
           <Toaster richColors position="top-center" />
-          <AiChatWidgetLazy />
         </LanguageProvider>
       </body>
     </html>
