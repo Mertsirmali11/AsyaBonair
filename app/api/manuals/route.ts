@@ -23,6 +23,7 @@ import {
   uploadCompanyManualFile,
 } from "@/lib/company-manuals-storage"
 import { indexManualChunks } from "@/lib/manual-chunk-indexer"
+import { orphanedArchiveSeriesFilter } from "@/lib/orphaned-series-archives"
 
 export const runtime = "nodejs"
 
@@ -124,32 +125,60 @@ export async function GET() {
       previousBySeries.set(row.seriesId, list)
     }
 
+    const activeSeriesIds = manuals.map((m) => m.seriesId)
+    const archivedAccessOr = isAdmin
+      ? undefined
+      : {
+          OR: [
+            { status: "approved" as const },
+            ...(ownCalisan ? [{ createdBy: ownCalisan.id }] : []),
+          ],
+        }
+
+    const archivedManuals = await prisma.companyManual.findMany({
+      where: {
+        ...orphanedArchiveSeriesFilter(activeSeriesIds),
+        ...(archivedAccessOr ?? {}),
+      },
+      orderBy: [{ updatedAt: "desc" }],
+      select: { ...manualSelect, status: true, rejectionReason: true },
+    })
+
     const canManageManuals =
       !!calisan && isAdminDepartment(departman)
     const departmentOptions = await fetchRegisteredDepartmentNames(prisma)
 
+    const mapManualRow = (
+      m: (typeof manuals)[number],
+      prevRows: typeof historicInSeries
+    ) => {
+      const { fileStoragePath, fileName, ...rest } = m
+      return {
+        ...rest,
+        revisionDate: rest.revisionDate
+          ? rest.revisionDate.toISOString().slice(0, 10)
+          : null,
+        documentPreview: documentPreviewKind(fileStoragePath, fileName),
+        previousRevisions: prevRows.map((p) => {
+          const { fileStoragePath: fp, fileName: fn, ...pr } = p
+          return {
+            ...pr,
+            revisionDate: pr.revisionDate
+              ? pr.revisionDate.toISOString().slice(0, 10)
+              : null,
+            documentPreview: documentPreviewKind(fp, fn),
+          }
+        }),
+      }
+    }
+
     return NextResponse.json({
-      manuals: manuals.map((m) => {
-        const { fileStoragePath, fileName, ...rest } = m
-        const prevRows = previousBySeries.get(m.seriesId) ?? []
-        return {
-          ...rest,
-          revisionDate: rest.revisionDate
-            ? rest.revisionDate.toISOString().slice(0, 10)
-            : null,
-          documentPreview: documentPreviewKind(fileStoragePath, fileName),
-          previousRevisions: prevRows.map((p) => {
-            const { fileStoragePath: fp, fileName: fn, ...pr } = p
-            return {
-              ...pr,
-              revisionDate: pr.revisionDate
-                ? pr.revisionDate.toISOString().slice(0, 10)
-                : null,
-              documentPreview: documentPreviewKind(fp, fn),
-            }
-          }),
-        }
-      }),
+      manuals: manuals.map((m) =>
+        mapManualRow(m, previousBySeries.get(m.seriesId) ?? [])
+      ),
+      archivedManuals: archivedManuals.map((m) =>
+        mapManualRow(m, [])
+      ),
       canManageManuals,
       departmentOptions,
     })

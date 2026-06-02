@@ -86,21 +86,13 @@ export function ManualsHeaderHelp() {
             ve numarayı kaydedin — önceki güncel sürüm yine arşive gider.
           </li>
           <li>
-            <strong className="text-foreground">Listeden arşiv:</strong> Klasör simgesi
-            (Move to previous) güncel satırı arşivler.
+            <strong className="text-foreground">Listeden arşiv:</strong> Arşiv simgesi güncel
+            satırı kaldırır; seride başka güncel yoksa kayıt sayfanın altındaki{" "}
+            <strong className="text-foreground">Arşiv</strong> bölümünde kalır.
           </li>
           <li>
-            <strong className="text-foreground">Eski revizyonlar:</strong> Sayfa altındaki
-            arşiv listesini yalnızca departmanı{" "}
-            <strong className="text-foreground">Admin</strong> olan kullanıcılar görür.
-            Atama:{" "}
-            <Link
-              href="/configurations"
-              className="font-medium text-primary underline-offset-4 hover:underline"
-            >
-              Configurations → User settings
-            </Link>
-            .
+            <strong className="text-foreground">Eski revizyonlar:</strong> Güncel satırın
+            altındaki akordeonda; yeni revizyon yüklendiğinde önceki sürümler burada listelenir.
           </li>
           <li>
             <strong className="text-foreground">Kim yükledi / departman:</strong> Satırda

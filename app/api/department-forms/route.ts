@@ -20,6 +20,7 @@ import {
 import { slugifyManualTitle } from "@/lib/company-manual-slug"
 import { extractPlainTextFromUploadedDocument } from "@/lib/extract-uploaded-document-text"
 import { deletePdfFromStorage, uploadPdfToStorage } from "@/lib/supabase-storage"
+import { orphanedArchiveSeriesFilter } from "@/lib/orphaned-series-archives"
 
 export const runtime = "nodejs"
 
@@ -137,19 +138,6 @@ export async function GET() {
       select: formSelect,
     })
 
-    const historicWhere = manageAll
-      ? { isCurrent: false }
-      : {
-          isCurrent: false,
-          department: normalizeDeptLabel(departman) || "__none__",
-        }
-
-    const historicForms = await prisma.departmentForm.findMany({
-      where: historicWhere,
-      orderBy: [{ seriesId: "asc" }, { revision: "desc" }],
-      select: formSelect,
-    })
-
     const mapList = (rows: typeof forms) =>
       rows.map((row) => mapFormRowToClient(row))
 
@@ -194,9 +182,28 @@ export async function GET() {
       updatedAt: m.updatedAt.toISOString(),
     }))
 
+    const activeSeriesIds = mappedForms.map((m) => m.seriesId)
+    const archivedFormsWhere = {
+      ...orphanedArchiveSeriesFilter(activeSeriesIds),
+      ...(manageAll
+        ? {}
+        : {
+            department: normalizeDeptLabel(departman) || "__none__",
+            OR: [
+              { status: "approved" as const },
+              ...(ownCalisan ? [{ createdBy: ownCalisan.id }] : []),
+            ],
+          }),
+    }
+    const archivedFormsRows = await prisma.departmentForm.findMany({
+      where: archivedFormsWhere,
+      orderBy: [{ updatedAt: "desc" }],
+      select: formSelect,
+    })
+
     return NextResponse.json({
       forms: formsWithHistorySerialized,
-      historicForms: mapList(historicForms).map((h) => ({
+      archivedForms: mapList(archivedFormsRows).map((h) => ({
         ...h,
         createdAt: h.createdAt.toISOString(),
         updatedAt: h.updatedAt.toISOString(),

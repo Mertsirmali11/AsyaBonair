@@ -50,6 +50,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import { cn } from "@/lib/utils"
+import { OrphanedArchiveCard } from "@/components/orphaned-archive-card"
 
 type FormRow = {
   id: number
@@ -101,6 +102,7 @@ function matchesSearch(m: FormRow, q: string): boolean {
 
 export function DepartmentFormsClient() {
   const [items, setItems] = React.useState<FormRow[]>([])
+  const [archivedItems, setArchivedItems] = React.useState<FormRow[]>([])
   const [canManageAll, setCanManageAll] = React.useState(false)
   const [viewerDepartman, setViewerDepartman] = React.useState<string | null>(
     null
@@ -215,36 +217,40 @@ export function DepartmentFormsClient() {
       const res = await fetch("/api/department-forms", { cache: "no-store" })
       const data = (await res.json().catch(() => ({}))) as {
         forms?: FormRow[]
+        archivedForms?: FormRow[]
         canManageAllDepartmentForms?: boolean
         viewerDepartman?: string | null
         departmentOptions?: string[]
         error?: string
       }
       if (!res.ok) throw new Error(data.error || "Liste yüklenemedi")
+      const mapForm = (m: FormRow): FormRow => ({
+        ...m,
+        formNumber: m.formNumber ?? "",
+        revision: m.revision ?? 0,
+        isCurrent: m.isCurrent ?? true,
+        createdBy: m.createdBy ?? null,
+        creator: m.creator ?? null,
+        hasOriginalFile: m.hasOriginalFile,
+        documentPreview: m.documentPreview ?? "none",
+        status: (m.status ?? "approved") as FormRow["status"],
+        rejectionReason: m.rejectionReason ?? null,
+        previousRevisions: Array.isArray(m.previousRevisions)
+          ? m.previousRevisions.map((p) => ({
+              ...p,
+              formNumber: p.formNumber ?? "",
+              revision: p.revision ?? 0,
+              creator: p.creator ?? null,
+              documentPreview: p.documentPreview ?? "none",
+            }))
+          : [],
+      })
       const list = Array.isArray(data.forms) ? data.forms : []
-      setItems(
-        list.map((m) => ({
-          ...m,
-          formNumber: m.formNumber ?? "",
-          revision: m.revision ?? 0,
-          isCurrent: m.isCurrent ?? true,
-          createdBy: m.createdBy ?? null,
-          creator: m.creator ?? null,
-          hasOriginalFile: m.hasOriginalFile,
-          documentPreview: m.documentPreview ?? "none",
-          status: (m.status ?? "approved") as FormRow["status"],
-          rejectionReason: m.rejectionReason ?? null,
-          previousRevisions: Array.isArray(m.previousRevisions)
-            ? m.previousRevisions.map((p) => ({
-                ...p,
-                formNumber: p.formNumber ?? "",
-                revision: p.revision ?? 0,
-                creator: p.creator ?? null,
-                documentPreview: p.documentPreview ?? "none",
-              }))
-            : [],
-        }))
-      )
+      const archivedList = Array.isArray(data.archivedForms)
+        ? data.archivedForms
+        : []
+      setItems(list.map(mapForm))
+      setArchivedItems(archivedList.map(mapForm))
       setCanManageAll(!!data.canManageAllDepartmentForms)
       const vd =
         data.viewerDepartman === undefined ? null : data.viewerDepartman
@@ -267,6 +273,7 @@ export function DepartmentFormsClient() {
         text: e instanceof Error ? e.message : "Liste yüklenemedi",
       })
       setItems([])
+      setArchivedItems([])
       setDepartmentOptions([])
     } finally {
       setLoading(false)
@@ -483,7 +490,7 @@ export function DepartmentFormsClient() {
   const archiveCurrent = async (id: number) => {
     if (
       !confirm(
-        "Bu güncel revizyonu arşive taşıyalım mı? Seride tek kayıt varsa liste dışı kalır (eski revizyonlar bölümünde görünür). Birden fazlaysa en yüksek eski revizyon tekrar güncel olur."
+        "Bu güncel revizyonu arşive taşımak istiyor musunuz? Seride tek kayıt varsa aşağıdaki «Arşiv» bölümünde görünür. Birden fazla revizyon varsa bir önceki sürüm güncel kalır."
       )
     ) {
       return
@@ -497,9 +504,7 @@ export function DepartmentFormsClient() {
       if (!res.ok) throw new Error(data.error || "Arşivlenemedi")
       setBanner({
         type: "ok",
-        text: canManageAll
-          ? "Revizyon arşivlendi — ilgili satırın «Eski revizyonlar» akordeonunda görünür."
-          : "Revizyon arşivlendi; eski sürüm aynı form satırının altında listelenir.",
+        text: "Revizyon arşive alındı; «Arşiv» bölümünden veya «Eski revizyonlar» akordeonundan erişebilirsiniz.",
       })
       await load()
     } catch (e) {
@@ -538,9 +543,21 @@ export function DepartmentFormsClient() {
     return items.filter((m) => m.department === d)
   }, [items, canManageAll, departmentFilter])
 
+  const archivedForList = React.useMemo(() => {
+    if (!canManageAll) return archivedItems
+    const d = departmentFilter.trim()
+    if (!d) return archivedItems
+    return archivedItems.filter((m) => m.department === d)
+  }, [archivedItems, canManageAll, departmentFilter])
+
   const filteredCurrent = React.useMemo(
     () => itemsForList.filter((m) => matchesSearch(m, search)),
     [itemsForList, search]
+  )
+
+  const filteredArchived = React.useMemo(
+    () => archivedForList.filter((m) => matchesSearch(m, search)),
+    [archivedForList, search]
   )
 
   const revisionParentOptions = items.filter((m) => m.isCurrent !== false)
@@ -1297,6 +1314,77 @@ export function DepartmentFormsClient() {
           )}
         </CardContent>
       </Card>
+
+      <OrphanedArchiveCard
+        loading={loading}
+        itemCount={archivedItems.length}
+        filteredEmpty={filteredArchived.length === 0}
+        filteredEmptyMessage="Arama veya departman filtresine uyan arşiv formu yok."
+        description="«Arşivle» ile listeden kaldırılan ve seride güncel kalmayan formlar. Yeni revizyon yükleyerek tekrar güncel listeye alabilirsiniz."
+      >
+        <ul className="divide-y rounded-md border bg-muted/10">
+          {filteredArchived.map((m) => (
+            <li
+              key={m.id}
+              className="flex flex-wrap items-stretch justify-between gap-0 text-sm sm:items-center"
+            >
+              <div
+                role="button"
+                tabIndex={0}
+                className="min-w-0 flex-1 cursor-pointer rounded-md px-3 py-3 text-left outline-none ring-offset-background hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => {
+                  setDetailForm(m)
+                  setDetailOpen(true)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault()
+                    setDetailForm(m)
+                    setDetailOpen(true)
+                  }
+                }}
+              >
+                <p className="flex items-center gap-1.5 font-medium">
+                  <IconEye className="text-muted-foreground size-4 shrink-0" aria-hidden />
+                  {(m.formNumber ?? "").trim()
+                    ? `[${(m.formNumber ?? "").trim()}] `
+                    : ""}
+                  {m.title}
+                  <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    Arşiv
+                  </span>
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  Rev. {m.revision} · {m.department}
+                  {" · "}
+                  {formatUploaderLabel(m)}
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  {formatDateTimeIstanbul(m.updatedAt)} (arşiv) · {m.slug}
+                </p>
+              </div>
+              {canWriteAny ? (
+                <div className="flex shrink-0 items-center gap-1 border-t p-2 sm:border-border sm:border-l sm:border-t-0 sm:px-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="text-destructive hover:bg-destructive/10"
+                    disabled={deletingId === m.id}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      void remove(m.id)
+                    }}
+                    aria-label="Sil"
+                  >
+                    <IconTrash className="size-4" />
+                  </Button>
+                </div>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </OrphanedArchiveCard>
     </div>
   )
 }

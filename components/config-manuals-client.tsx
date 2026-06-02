@@ -45,6 +45,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ManualsHeaderHelp } from "@/components/manuals-header-help"
+import { OrphanedArchiveCard } from "@/components/orphaned-archive-card"
 import { SetWorkspacePageTitleAccessory } from "@/components/workspace-page-title"
 
 type ManualRow = {
@@ -99,6 +100,7 @@ const manualsHeaderHelp = <ManualsHeaderHelp />
 
 export function ConfigManualsClient() {
   const [items, setItems] = React.useState<ManualRow[]>([])
+  const [archivedItems, setArchivedItems] = React.useState<ManualRow[]>([])
   const [canManageManuals, setCanManageManuals] = React.useState(false)
   const [departmentOptions, setDepartmentOptions] = React.useState<string[]>(
     []
@@ -165,6 +167,7 @@ export function ConfigManualsClient() {
       const res = await fetch("/api/manuals", { cache: "no-store" })
       const data = (await res.json().catch(() => ({}))) as {
         manuals?: ManualRow[]
+        archivedManuals?: ManualRow[]
         canManageManuals?: boolean
         departmentOptions?: string[]
         error?: string
@@ -177,13 +180,12 @@ export function ConfigManualsClient() {
             `Manuel listesi yüklenemedi (${res.status}). Sayfayı yenileyin veya yöneticiye bildirin.`,
         })
         setItems([])
+        setArchivedItems([])
         setCanManageManuals(false)
         setDepartmentOptions([])
         return
       }
-      const list = Array.isArray(data.manuals) ? data.manuals : []
-      setItems(
-        list.map((m) => ({
+      const mapManual = (m: ManualRow): ManualRow => ({
           ...m,
           revision: m.revision ?? 0,
           isCurrent: m.isCurrent ?? true,
@@ -202,8 +204,13 @@ export function ConfigManualsClient() {
                 revisionDate: p.revisionDate ?? null,
               }))
             : [],
-        }))
-      )
+      })
+      const list = Array.isArray(data.manuals) ? data.manuals : []
+      const archivedList = Array.isArray(data.archivedManuals)
+        ? data.archivedManuals
+        : []
+      setItems(list.map(mapManual))
+      setArchivedItems(archivedList.map(mapManual))
       setCanManageManuals(!!data.canManageManuals)
       setDepartmentOptions(
         Array.isArray(data.departmentOptions) ? data.departmentOptions : []
@@ -217,6 +224,7 @@ export function ConfigManualsClient() {
             : "Manuel listesi yüklenemedi. Bağlantıyı kontrol edin.",
       })
       setItems([])
+      setArchivedItems([])
       setCanManageManuals(false)
       setDepartmentOptions([])
     } finally {
@@ -546,7 +554,7 @@ export function ConfigManualsClient() {
   const archiveCurrent = async (id: number) => {
     if (
       !confirm(
-        "Bu güncel revizyonu önceki sürümlere taşımak istiyor musunuz? Seride tek satır varsa listeden kaybolur; Bonair AI için yeni revizyon yüklemeniz gerekir."
+        "Bu güncel revizyonu arşive taşımak istiyor musunuz? Seride tek kayıt varsa aşağıdaki «Arşiv» bölümünde görünür."
       )
     ) {
       return
@@ -560,7 +568,7 @@ export function ConfigManualsClient() {
       if (!res.ok) throw new Error(data.error || "Arşivlenemedi")
       setBanner({
         type: "ok",
-        text: "Revizyon arşive alındı.",
+        text: "Revizyon arşive alındı; «Arşiv» bölümünden erişebilirsiniz.",
       })
       await load()
     } catch (e) {
@@ -599,6 +607,14 @@ export function ConfigManualsClient() {
     }
     return list
   }, [items, search, departmentFilter])
+
+  const filteredArchived = React.useMemo(() => {
+    let list = archivedItems.filter((m) => matchesManualSearch(m, search))
+    if (departmentFilter.trim()) {
+      list = list.filter((m) => (m.department ?? "") === departmentFilter)
+    }
+    return list
+  }, [archivedItems, search, departmentFilter])
 
   return (
     <>
@@ -1485,6 +1501,74 @@ export function ConfigManualsClient() {
           )}
         </CardContent>
       </Card>
+
+      <OrphanedArchiveCard
+        loading={loading}
+        itemCount={archivedItems.length}
+        filteredEmpty={filteredArchived.length === 0}
+        filteredEmptyMessage="Arama veya departman filtresine uyan arşiv kaydı yok."
+        description="«Arşive al» ile listeden kaldırılan ve seride güncel kalmayan manueller. Yeni revizyon yükleyerek tekrar güncel listeye alabilirsiniz."
+      >
+        <ul className="divide-y rounded-md border bg-muted/10">
+          {filteredArchived.map((m) => (
+            <li key={m.id} className="flex flex-wrap items-stretch justify-between gap-0 text-sm sm:items-center">
+              <div
+                role="button"
+                tabIndex={0}
+                className="min-w-0 flex-1 cursor-pointer rounded-md px-3 py-3 text-left outline-none ring-offset-background hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => {
+                  setDetailManual(m)
+                  setDetailOpen(true)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault()
+                    setDetailManual(m)
+                    setDetailOpen(true)
+                  }
+                }}
+              >
+                <p className="flex items-center gap-1.5 font-medium flex-wrap">
+                  <IconEye className="text-muted-foreground size-4 shrink-0" aria-hidden />
+                  {m.title}
+                  <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    Arşiv
+                  </span>
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  Rev. {m.revision ?? 0}
+                  {m.manualNumber ? ` · No: ${m.manualNumber}` : ""}
+                  {m.revisionDate ? ` · Rev. tarihi: ${m.revisionDate}` : ""}
+                  {m.department ? ` · ${m.department}` : ""}
+                  {" · "}
+                  Yükleyen: {formatUploaderLabel(m)}
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  {formatDateTimeIstanbul(m.updatedAt)} (arşiv) · {m.slug}
+                </p>
+              </div>
+              {canManageManuals ? (
+                <div className="flex shrink-0 items-center gap-1 border-t p-2 sm:border-border sm:border-l sm:border-t-0 sm:px-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="text-destructive hover:bg-destructive/10"
+                    disabled={deletingId === m.id}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      void remove(m.id)
+                    }}
+                    aria-label="Sil"
+                  >
+                    <IconTrash className="size-4" />
+                  </Button>
+                </div>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </OrphanedArchiveCard>
       </div>
     </>
   )
