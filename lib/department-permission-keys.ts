@@ -2,6 +2,7 @@ export const DEPARTMENT_PERMISSION_KEYS = {
   COMPLIANCE_MONITORING: "compliance_monitoring",
   SAFETY_MANAGEMENT: "safety_management",
   CONFIGURATIONS_AREA: "configurations_area",
+  /** Kullanılmıyor — Authorization matrisinde gizli; API/legacy için saklanıyor. */
   WORKER_APPROVAL: "worker_approval",
   MEETINGS: "meetings",
   TASKS_ACTIONS: "tasks_actions",
@@ -18,7 +19,7 @@ const ORDERED_KEYS: DepartmentPermissionKey[] = [
   DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING,
   DEPARTMENT_PERMISSION_KEYS.SAFETY_MANAGEMENT,
   DEPARTMENT_PERMISSION_KEYS.CONFIGURATIONS_AREA,
-  DEPARTMENT_PERMISSION_KEYS.WORKER_APPROVAL,
+  // DEPARTMENT_PERMISSION_KEYS.WORKER_APPROVAL, // kullanılmıyor
   DEPARTMENT_PERMISSION_KEYS.MEETINGS,
   DEPARTMENT_PERMISSION_KEYS.TASKS_ACTIONS,
   DEPARTMENT_PERMISSION_KEYS.CONTROLLED_DOCUMENTS,
@@ -64,12 +65,12 @@ export const DEPARTMENT_PERMISSION_CATALOG: DepartmentPermissionCatalogEntry[] =
     description:
       "Yapılandırma alanı (kullanıcı ayarları, departmanlar, yazışmalar vb. — HR/Quality/Admin kod varsayımı).",
   },
-  {
-    key: DEPARTMENT_PERMISSION_KEYS.WORKER_APPROVAL,
-    label: "Worker registration onayı",
-    description:
-      "Yeni çalışan kaydı inceleme / onay (ortam değişkeni ile genişletilebilir; yoksa yapılandırma ile aynı).",
-  },
+  // {
+  //   key: DEPARTMENT_PERMISSION_KEYS.WORKER_APPROVAL,
+  //   label: "Worker registration onayı",
+  //   description:
+  //     "Yeni çalışan kaydı inceleme / onay (ileride etkinleştirilirse matrise eklenir).",
+  // },
   {
     key: DEPARTMENT_PERMISSION_KEYS.MEETINGS,
     label: "Meetings",
