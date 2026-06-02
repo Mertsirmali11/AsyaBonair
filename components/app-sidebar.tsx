@@ -34,12 +34,8 @@ import { useDmInbox } from "@/components/dm-inbox-provider"
 import { useLanguage } from "@/lib/i18n/context"
 import { LanguageToggle } from "@/components/language-toggle"
 import { cn } from "@/lib/utils"
-import {
-  canAccessConfigurationsArea,
-  canApproveWorkerRegistrations,
-} from "@/lib/department-access"
-import { DEPARTMENT_PERMISSION_KEYS } from "@/lib/department-permission-keys"
-import { canViewComplianceMonitoringNav } from "@/lib/sidebar-nav-access"
+import type { ResolvedDepartmentPermissions } from "@/lib/department-permissions-resolve"
+import { getSidebarNavVisibility } from "@/lib/sidebar-nav-visibility"
 // import { canViewSafetyManagementNav } from "@/lib/sidebar-nav-access" // Safety Management — ileride
 import {
   Sidebar,
@@ -78,11 +74,13 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   user: User
   /** Audit Plan alt menüsü — yalnızca `AUDIT_PLAN_ADMIN_EMAILS` içindeki kullanıcılar */
   showAuditPlanNav?: boolean
+  departmentPermissions?: ResolvedDepartmentPermissions | null
 }
 
 export function AppSidebar({
   user,
   showAuditPlanNav = false,
+  departmentPermissions: departmentPermissionsFromServer = null,
   className,
   ...props
 }: AppSidebarProps) {
@@ -118,17 +116,40 @@ export function AppSidebar({
     url: string
     matchExact?: boolean
     approversOnly?: boolean
-    qualityOrAdminOnly?: boolean
+    /** configurations_area yetkisi gerekir (User Settings, Departmanlar, …) */
+    requiresConfigurations?: boolean
+    /** compliance_monitoring yetkisi gerekir */
+    requiresCompliance?: boolean
   }
 
   const configurationsSubItems: ConfigurationNavSubItem[] = [
     // { title: t.nav.newWorker, url: "/configurations/new-worker", approversOnly: true }, // ileride
-    { title: t.nav.userSettings, url: "/configurations", matchExact: true },
-    { title: t.nav.departments, url: "/configurations/departments" },
-    { title: t.nav.authorization, url: "/configurations/department-permissions" },
-    // { title: t.nav.safetySettings, url: "/configurations/safety-settings", qualityOrAdminOnly: true }, // ileride
-    { title: t.nav.auditSettings, url: "/configurations/audit-settings" },
-    { title: t.nav.correspondences, url: "/configurations/correspondences" },
+    {
+      title: t.nav.userSettings,
+      url: "/configurations",
+      matchExact: true,
+      requiresConfigurations: true,
+    },
+    {
+      title: t.nav.departments,
+      url: "/configurations/departments",
+      requiresConfigurations: true,
+    },
+    {
+      title: t.nav.authorization,
+      url: "/configurations/department-permissions",
+      requiresConfigurations: true,
+    },
+    {
+      title: t.nav.auditSettings,
+      url: "/configurations/audit-settings",
+      requiresConfigurations: true,
+    },
+    {
+      title: t.nav.correspondences,
+      url: "/configurations/correspondences",
+      requiresConfigurations: true,
+    },
   ]
 
   const announcementSystemSubItems = [
@@ -192,10 +213,14 @@ export function AppSidebar({
     pathname?.startsWith("/configurations/announcements") || false
   )
 
-  const [deptPermissions, setDeptPermissions] = React.useState<Record<
-    string,
-    boolean
-  > | null>(null)
+  const [deptPermissions, setDeptPermissions] =
+    React.useState<ResolvedDepartmentPermissions | null>(
+      departmentPermissionsFromServer
+    )
+
+  React.useEffect(() => {
+    setDeptPermissions(departmentPermissionsFromServer)
+  }, [departmentPermissionsFromServer])
 
   React.useEffect(() => {
     let cancelled = false
@@ -206,9 +231,9 @@ export function AppSidebar({
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok || cancelled || !data.permissions) return
-        setDeptPermissions(data.permissions as Record<string, boolean>)
+        setDeptPermissions(data.permissions as ResolvedDepartmentPermissions)
       } catch {
-        /* yalnızca legacy */
+        /* sunucudan gelen izinler yeterli */
       }
     })()
     return () => {
@@ -216,49 +241,57 @@ export function AppSidebar({
     }
   }, [user.departman])
 
-  const resolveDeptPermission = React.useCallback(
-    (key: string, legacyValue: boolean): boolean => {
-      if (!deptPermissions) return legacyValue
-      const v = deptPermissions[key]
-      return typeof v === "boolean" ? v : legacyValue
-    },
-    [deptPermissions]
+  const navVisibility = React.useMemo(
+    () =>
+      getSidebarNavVisibility({
+        departman: user.departman,
+        permissions: deptPermissions,
+        showAuditPlanNav,
+      }),
+    [user.departman, deptPermissions, showAuditPlanNav]
   )
 
-  const legacyComplianceMonitoring = canViewComplianceMonitoringNav(user.departman)
-
-  const hasConfigurationsAccess = resolveDeptPermission(
-    DEPARTMENT_PERMISSION_KEYS.CONFIGURATIONS_AREA,
-    canAccessConfigurationsArea(user.departman)
-  )
-  const canReviewRegistrations = resolveDeptPermission(
-    DEPARTMENT_PERMISSION_KEYS.WORKER_APPROVAL,
-    canApproveWorkerRegistrations(user.departman)
-  )
-  const canSafetyQualityPage = resolveDeptPermission(
-    DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING,
-    legacyComplianceMonitoring
-  )
-  const showConfigurationsNav =
-    hasConfigurationsAccess || canReviewRegistrations || canSafetyQualityPage
   const visibleConfigurationSubItems = configurationsSubItems.filter((item) => {
-    if (item.approversOnly) return canReviewRegistrations
-    if (item.qualityOrAdminOnly) return canSafetyQualityPage
-    return hasConfigurationsAccess
+    if (item.approversOnly) return navVisibility.workerApproval
+    if (item.requiresCompliance) return navVisibility.compliance
+    return navVisibility.configurations
   })
-  const visibleControlledDocumentsSubItems = controlledDocumentsSubItems.filter((item) => {
-    if (item.configurationsOnly) return hasConfigurationsAccess
+
+  const visibleControlledDocumentsSubItems = controlledDocumentsSubItems.filter(
+    (item) => {
+      if (!navVisibility.showControlledDocumentsNav) return false
+      if (item.configurationsOnly) return navVisibility.showAircraftSettingsNav
+      return true
+    }
+  )
+
+  const visibleComplianceMonitoringSubItems = complianceMonitoringSubItems.filter(
+    (item) => {
+      if (item.url === "/compliance/audit-plan") return showAuditPlanNav
+      return navVisibility.compliance
+    }
+  )
+
+  const visibleAnnouncementSystemSubItems = announcementSystemSubItems.filter(
+    (item) => {
+      if (item.configurationsOnly) return navVisibility.showAnnouncementManageNav
+      return true
+    }
+  )
+
+  const navMidVisible = NAV_MID.filter((item) => {
+    if (item.url === "/meetings") return navVisibility.meetings
     return true
   })
 
-  const visibleComplianceMonitoringSubItems = complianceMonitoringSubItems.filter((item) => {
-    // Audit Plan alt menüsü yalnızca belirli admin e-postalarına açık.
-    if (item.url === "/compliance/audit-plan") return showAuditPlanNav
-    return true
-  })
-
-  const visibleAnnouncementSystemSubItems = announcementSystemSubItems.filter((item) => {
-    if (item.configurationsOnly) return hasConfigurationsAccess
+  const navAfterDocsVisible = NAV_AFTER_CONTROLLED_DOCS.filter((item) => {
+    if (item.url === "/tasks") return navVisibility.tasks
+    if (item.url === "/compliance/performance-reports") {
+      return navVisibility.showPerformanceReportsNav
+    }
+    if (item.url === "/ai-reports") return navVisibility.aiReports
+    if (item.url === "/leave-requests") return navVisibility.leaveRequests
+    if (item.url === "/company-status") return navVisibility.companyStatus
     return true
   })
 
@@ -385,10 +418,9 @@ export function AppSidebar({
     return () => el.removeEventListener("scroll", onScroll)
   }, [])
 
-  const showComplianceNav = resolveDeptPermission(
-    DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING,
-    legacyComplianceMonitoring
-  )
+  const showComplianceNav =
+    navVisibility.showComplianceNav &&
+    visibleComplianceMonitoringSubItems.length > 0
   // const showSafetyNav = resolveDeptPermission(
   //   DEPARTMENT_PERMISSION_KEYS.SAFETY_MANAGEMENT,
   //   canViewSafetyManagementNav(user.departman)
@@ -559,7 +591,7 @@ export function AppSidebar({
           ) : null}
           */}
 
-          {NAV_MID.map((item) => {
+          {navMidVisible.map((item) => {
             const isActive =
               pathname === item.url || pathname?.startsWith(`${item.url}/`)
             return (
@@ -581,61 +613,60 @@ export function AppSidebar({
             )
           })}
 
-          <Collapsible
-            open={controlledDocumentsOpen}
-            onOpenChange={setControlledDocumentsOpen}
-            className="group/collapsible"
-          >
-            <SidebarMenuItem>
-              <CollapsibleTrigger asChild>
-                <SidebarMenuButton
-                  className={cn(
-                    "h-10 px-3 rounded-lg transition-colors w-full justify-between",
-                    pathname?.startsWith("/documents") &&
-                      "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    <IconFileDescription className="size-5" />
-                    <span>{t.nav.controlledDocuments}</span>
-                  </div>
-                  <IconChevronDown
+          {visibleControlledDocumentsSubItems.length > 0 ? (
+            <Collapsible
+              open={controlledDocumentsOpen}
+              onOpenChange={setControlledDocumentsOpen}
+              className="group/collapsible"
+            >
+              <SidebarMenuItem>
+                <CollapsibleTrigger asChild>
+                  <SidebarMenuButton
                     className={cn(
-                      "size-4 transition-transform duration-200",
-                      controlledDocumentsOpen && "rotate-180"
+                      "h-10 px-3 rounded-lg transition-colors w-full justify-between",
+                      pathname?.startsWith("/documents") &&
+                        "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
                     )}
-                  />
-                </SidebarMenuButton>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <SidebarMenuSub>
-                  {visibleControlledDocumentsSubItems.map((subItem) => {
-                    const isSubActive = isControlledDocumentsSubActive(subItem.url)
-                    return (
-                      <SidebarMenuSubItem key={subItem.title}>
-                        <SidebarMenuSubButton
-                          asChild
-                          className={cn(
-                            "h-9 pl-9",
-                            isSubActive && "bg-sidebar-accent/50 font-medium"
-                          )}
-                        >
-                          <Link href={subItem.url}>
-                            <span>{subItem.title}</span>
-                          </Link>
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
-                    )
-                  })}
-                </SidebarMenuSub>
-              </CollapsibleContent>
-            </SidebarMenuItem>
-          </Collapsible>
+                  >
+                    <div className="flex items-center gap-2">
+                      <IconFileDescription className="size-5" />
+                      <span>{t.nav.controlledDocuments}</span>
+                    </div>
+                    <IconChevronDown
+                      className={cn(
+                        "size-4 transition-transform duration-200",
+                        controlledDocumentsOpen && "rotate-180"
+                      )}
+                    />
+                  </SidebarMenuButton>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <SidebarMenuSub>
+                    {visibleControlledDocumentsSubItems.map((subItem) => {
+                      const isSubActive = isControlledDocumentsSubActive(subItem.url)
+                      return (
+                        <SidebarMenuSubItem key={subItem.title}>
+                          <SidebarMenuSubButton
+                            asChild
+                            className={cn(
+                              "h-9 pl-9",
+                              isSubActive && "bg-sidebar-accent/50 font-medium"
+                            )}
+                          >
+                            <Link href={subItem.url}>
+                              <span>{subItem.title}</span>
+                            </Link>
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                      )
+                    })}
+                  </SidebarMenuSub>
+                </CollapsibleContent>
+              </SidebarMenuItem>
+            </Collapsible>
+          ) : null}
 
-          {NAV_AFTER_CONTROLLED_DOCS.filter((item) => {
-            if (item.url === "/compliance/performance-reports") return showComplianceNav
-            return true
-          }).map((item) => {
+          {navAfterDocsVisible.map((item) => {
             const isActive =
               pathname === item.url || pathname?.startsWith(`${item.url}/`)
             const announcementSystemNavActive =
@@ -660,7 +691,8 @@ export function AppSidebar({
                   </SidebarMenuButton>
                 </SidebarMenuItem>
 
-                {item.url === "/compliance/performance-reports" ? (
+                {item.url === "/compliance/performance-reports" &&
+                visibleAnnouncementSystemSubItems.length > 0 ? (
                   <Collapsible
                     open={announcementSystemOpen}
                     onOpenChange={setAnnouncementSystemOpen}
@@ -738,7 +770,8 @@ export function AppSidebar({
             </SidebarMenuButton>
           </SidebarMenuItem>
 
-          {showConfigurationsNav && (
+          {navVisibility.showConfigurationsNav &&
+          visibleConfigurationSubItems.length > 0 ? (
             <Collapsible
               open={configurationsOpen}
               onOpenChange={setConfigurationsOpen}
@@ -789,9 +822,9 @@ export function AppSidebar({
                 </CollapsibleContent>
               </SidebarMenuItem>
             </Collapsible>
-          )}
+          ) : null}
 
-          {hasConfigurationsAccess && (
+          {navVisibility.showCorrespondencesNav ? (
             <Collapsible
               open={correspondencesOpen}
               onOpenChange={setCorrespondencesOpen}
@@ -839,7 +872,7 @@ export function AppSidebar({
                 </CollapsibleContent>
               </SidebarMenuItem>
             </Collapsible>
-          )}
+          ) : null}
 
           {/* Account sayfası yok → 404 — aktif edilince aşağıdaki satırları aç
           <SidebarMenuItem>

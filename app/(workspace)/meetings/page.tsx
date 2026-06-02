@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
-import { isAdminDepartment } from "@/lib/department-access"
+import { DEPARTMENT_PERMISSION_KEYS } from "@/lib/department-permission-keys"
+import { getResolvedDepartmentPermissionsForUser } from "@/lib/department-permissions-resolve"
 import { prisma } from "@/lib/prisma-server"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { MeetingsClient } from "./meetings-client"
@@ -9,8 +10,10 @@ export default async function MeetingsPage() {
   const session = await auth()
   if (!session) redirect("/login")
 
-  const userDepartman = session.user?.departman
-  if (userDepartman !== "Quality" && !isAdminDepartment(userDepartman)) {
+  const permissions = await getResolvedDepartmentPermissionsForUser(
+    session.user?.departman
+  )
+  if (!permissions[DEPARTMENT_PERMISSION_KEYS.MEETINGS]) {
     redirect("/dashboard")
   }
 

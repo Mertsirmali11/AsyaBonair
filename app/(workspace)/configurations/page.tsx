@@ -3,10 +3,11 @@ import { redirect } from "next/navigation"
 
 import { auth } from "@/auth"
 import { ConfigurationsPageShell } from "@/components/configurations-page-shell"
+import { isAdminDepartment } from "@/lib/department-access"
 import {
-  canAccessConfigurationsArea,
-  isAdminDepartment,
-} from "@/lib/department-access"
+  DEPARTMENT_PERMISSION_KEYS,
+  hasDepartmentPermission,
+} from "@/lib/require-department-permission"
 
 const UserManagement = dynamic(
   () => import("@/components/user-management").then((m) => ({ default: m.UserManagement })),
@@ -24,7 +25,12 @@ export default async function ConfigurationsPage() {
     redirect("/login")
   }
 
-  if (!canAccessConfigurationsArea(session.user?.departman)) {
+  if (
+    !(await hasDepartmentPermission(
+      session.user?.departman,
+      DEPARTMENT_PERMISSION_KEYS.CONFIGURATIONS_AREA
+    ))
+  ) {
     redirect("/dashboard")
   }
 

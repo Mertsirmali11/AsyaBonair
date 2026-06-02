@@ -5,10 +5,22 @@ import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { LeaveRequestsClient } from "./leave-requests-client"
 import { prisma } from "@/lib/prisma-server"
 import { getLeaveAccessContext } from "@/lib/leave-access"
+import {
+  DEPARTMENT_PERMISSION_KEYS,
+  hasDepartmentPermission,
+} from "@/lib/require-department-permission"
 
 export default async function LeaveRequestsPage() {
   const session = await auth()
   if (!session?.user?.email) redirect("/login")
+  if (
+    !(await hasDepartmentPermission(
+      session.user?.departman,
+      DEPARTMENT_PERMISSION_KEYS.LEAVE_REQUESTS
+    ))
+  ) {
+    redirect("/dashboard")
+  }
 
   const ctx = await getLeaveAccessContext(session.user.email)
   if (!ctx) redirect("/dashboard")

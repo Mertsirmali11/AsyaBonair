@@ -4,10 +4,22 @@ import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { CompanyStatusClient } from "./company-status-client"
 import { prisma } from "@/lib/prisma-server"
 import { prismaJson } from "@/lib/prisma-json"
+import {
+  DEPARTMENT_PERMISSION_KEYS,
+  hasDepartmentPermission,
+} from "@/lib/require-department-permission"
 
 export default async function CompanyStatusPage() {
   const session = await auth()
   if (!session?.user?.email) redirect("/login")
+  if (
+    !(await hasDepartmentPermission(
+      session.user?.departman,
+      DEPARTMENT_PERMISSION_KEYS.COMPANY_STATUS
+    ))
+  ) {
+    redirect("/dashboard")
+  }
 
   const today = new Date()
   const todayUTC = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))

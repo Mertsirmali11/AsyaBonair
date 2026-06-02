@@ -27,6 +27,14 @@ export function legacyDepartmentPermission(
       return canAccessConfigurationsArea(departman)
     case DEPARTMENT_PERMISSION_KEYS.WORKER_APPROVAL:
       return canApproveWorkerRegistrations(departman)
+    case DEPARTMENT_PERMISSION_KEYS.MEETINGS:
+    case DEPARTMENT_PERMISSION_KEYS.TASKS_ACTIONS:
+      return canAccessQualityOrAdminSettings(departman)
+    case DEPARTMENT_PERMISSION_KEYS.CONTROLLED_DOCUMENTS:
+    case DEPARTMENT_PERMISSION_KEYS.LEAVE_REQUESTS:
+    case DEPARTMENT_PERMISSION_KEYS.COMPANY_STATUS:
+    case DEPARTMENT_PERMISSION_KEYS.AI_REPORTS:
+      return true
     default:
       return false
   }

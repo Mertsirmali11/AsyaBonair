@@ -3,7 +3,10 @@ import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { ConfigAuditSettingsClient } from "@/components/config-audit-settings-client"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
-import { canAccessConfigurationsArea } from "@/lib/department-access"
+import {
+  DEPARTMENT_PERMISSION_KEYS,
+  hasDepartmentPermission,
+} from "@/lib/require-department-permission"
 
 export default async function ConfigurationsAuditSettingsPage() {
   const session = await auth()
@@ -12,7 +15,12 @@ export default async function ConfigurationsAuditSettingsPage() {
     redirect("/login")
   }
 
-  if (!canAccessConfigurationsArea(session.user?.departman)) {
+  if (
+    !(await hasDepartmentPermission(
+      session.user?.departman,
+      DEPARTMENT_PERMISSION_KEYS.CONFIGURATIONS_AREA
+    ))
+  ) {
     redirect("/dashboard")
   }
 

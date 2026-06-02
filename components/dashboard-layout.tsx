@@ -10,6 +10,7 @@ import {
   SidebarProvider,
 } from "@/components/ui/sidebar"
 import { WorkspacePageTitleProvider } from "@/components/workspace-page-title"
+import type { ResolvedDepartmentPermissions } from "@/lib/department-permissions-resolve"
 
 interface User {
   name: string
@@ -23,6 +24,8 @@ interface DashboardLayoutProps {
   user: User
   /** Audit Plan menü öğesi — sunucuda `canAccessAuditPlan` ile hesaplanır */
   showAuditPlanNav?: boolean
+  /** Departman yetki matrisi — sidebar menü filtrelemesi */
+  departmentPermissions?: ResolvedDepartmentPermissions | null
   /** Üst başlık (SiteHeader); verilmezse sayfa `SetWorkspacePageTitle` kullanır */
   headerTitle?: string
 }
@@ -54,6 +57,7 @@ export function DashboardLayout({
   children,
   user,
   showAuditPlanNav = false,
+  departmentPermissions = null,
   headerTitle,
 }: DashboardLayoutProps) {
   return (
@@ -67,7 +71,12 @@ export function DashboardLayout({
       }
     >
       <DmInboxProvider>
-        <AppSidebar variant="inset" user={user} showAuditPlanNav={showAuditPlanNav} />
+        <AppSidebar
+          variant="inset"
+          user={user}
+          showAuditPlanNav={showAuditPlanNav}
+          departmentPermissions={departmentPermissions}
+        />
         <SidebarInset className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <WorkspaceInsetWithTitle user={user} headerTitle={headerTitle}>
             {children}
