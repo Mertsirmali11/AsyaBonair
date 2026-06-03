@@ -1112,6 +1112,8 @@ model AuditFindingResponse {
   preventiveAction String? @db.Text @map("preventive_action")
   /// CPA (Corrective & Preventive Action) durumu: Pending | Accepted | Rejected
   cpaStatus      String   @default("Pending") @db.VarChar(50) @map("cpa_status")
+  /// Denetçinin red gerekçesi
+  rejectComment  String?  @db.Text @map("reject_comment")
   submittedAt    DateTime @default(now()) @map("submitted_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 

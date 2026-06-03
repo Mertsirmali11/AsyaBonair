@@ -145,11 +145,11 @@ export function AppSidebar({
       url: "/configurations/audit-settings",
       requiresConfigurations: true,
     },
-    {
-      title: t.nav.correspondences,
-      url: "/configurations/correspondences",
-      requiresConfigurations: true,
-    },
+    // {
+    //   title: t.nav.correspondences,
+    //   url: "/configurations/correspondences",
+    //   requiresConfigurations: true,
+    // },
   ]
 
   const announcementSystemSubItems = [
@@ -268,6 +268,7 @@ export function AppSidebar({
   const visibleComplianceMonitoringSubItems = complianceMonitoringSubItems.filter(
     (item) => {
       if (item.url === "/compliance/audit-plan") return showAuditPlanNav
+      if (item.url === "/compliance/findings-follow-up") return true // Herkese görünür
       return navVisibility.compliance
     }
   )
@@ -418,9 +419,7 @@ export function AppSidebar({
     return () => el.removeEventListener("scroll", onScroll)
   }, [])
 
-  const showComplianceNav =
-    navVisibility.showComplianceNav &&
-    visibleComplianceMonitoringSubItems.length > 0
+  const showComplianceNav = visibleComplianceMonitoringSubItems.length > 0
   // const showSafetyNav = resolveDeptPermission(
   //   DEPARTMENT_PERMISSION_KEYS.SAFETY_MANAGEMENT,
   //   canViewSafetyManagementNav(user.departman)

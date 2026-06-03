@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
       report: `Aşağıdaki bilgileri kullanarak resmi bir havacılık uyum raporu oluştur. SHGM standartlarına uygun, profesyonel Türkçe dil kullan:\n\n${body}`,
       regulation_impact: `Aşağıdaki metinde genelde iki tür içerik bulunur: (1) yeni veya güncellenmiş regülasyon / genelge / talimat özeti, (2) şirketin mevcut manuel veya prosedür metinleri (--- ve "DOKÜMAN:" / "PDF:" satırlarıyla ayrılmış bloklar).
 
-Görev: Bu düzenlemenin Bonair Havacılık operasyonları için etkisini değerlendirmek.
+Görev: Bu düzenlemenin bonJour operasyonları için etkisini değerlendirmek.
 
 Yanıtını Türkçe ve şu başlıklar altında ver:
 
@@ -49,7 +49,7 @@ Metin:
 ${body}`,
     }
 
-    const systemDefault = `Sen Bonair Havacılık'ın uzman AI asistanısın. Türk sivil havacılık mevzuatı (SHGM, SHY, SHT), SMS ve FDM konularında uzmansın. Yanıtlarını Türkçe ver.`
+    const systemDefault = `Sen bonJour'ın uzman AI asistanısın. Türk sivil havacılık mevzuatı (SHGM, SHY, SHT), SMS ve FDM konularında uzmansın. Yanıtlarını Türkçe ver.`
     const systemRegulation = `${systemDefault} Regülasyon etki analizinde kesin hukuki danışmanlık vermezsin; çalışma taslağı ve kontrol listesi niteliğinde yanıt verirsin. Metinde olmayan madde numarası uydurmazsın.`
 
     const userContent = prompts[analysisType] || prompts.summary

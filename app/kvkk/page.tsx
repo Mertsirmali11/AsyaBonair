@@ -5,14 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 
 export const metadata = {
-  title: "Privacy notice (KVKK) | Bonair",
+  title: "Privacy notice (KVKK) | bonJour",
   description:
     "Personal data processing information for employees and registration applicants (Turkish KVKK).",
 }
 
 export default function KvkkPage() {
   const contactEmail =
-    process.env.NEXT_PUBLIC_KVKK_CONTACT_EMAIL?.trim() || "hr@bonair.com"
+    process.env.NEXT_PUBLIC_KVKK_CONTACT_EMAIL?.trim() || "hr@bonjour.com"
 
   return (
     <div className="min-h-svh bg-gradient-to-b from-muted/60 via-background to-background px-4 py-10 md:py-14">
@@ -32,13 +32,13 @@ export default function KvkkPage() {
               Privacy notice — personal data processing (KVKK)
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              Official English text for applicants and employees of AsyaBonair / Bonair. Last
+              Official English text for applicants and employees of bonJour. Last
               updated for worker self-registration.
             </p>
           </CardHeader>
           <CardContent className="space-y-4 pt-8 text-sm leading-relaxed text-foreground/90">
             <p className="font-semibold text-foreground">
-              <strong>Data controller:</strong> Bonair
+              <strong>Data controller:</strong> bonJour
             </p>
 
             <Separator className="my-6" />
@@ -47,7 +47,7 @@ export default function KvkkPage() {
               1. Purposes of processing and categories of personal data
             </h2>
             <p>
-              In connection with your employment or engagement as a worker within AsyaBonair, the
+              In connection with your employment or engagement as a worker within bonJour, the
               personal data below are processed for the purposes stated:
             </p>
             <ul className="list-disc space-y-3 pl-5">

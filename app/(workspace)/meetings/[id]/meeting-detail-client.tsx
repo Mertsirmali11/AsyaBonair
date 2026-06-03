@@ -202,10 +202,24 @@ export function MeetingDetailClient({
       const W = doc.internal.pageSize.getWidth()
       let y = 14
 
-      // Header
-      doc.setFontSize(13).setFont("helvetica", "bold")
-      doc.text("BON AIR HAVACILIK", W / 2, y, { align: "center" })
-      y += 6
+      // Header — logo
+      try {
+        const logoRes = await fetch("/logo-bonjour.png")
+        const logoBlob = await logoRes.blob()
+        const logoB64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader()
+          reader.onloadend = () => resolve(reader.result as string)
+          reader.readAsDataURL(logoBlob)
+        })
+        const logoW = 38
+        const logoH = 12
+        doc.addImage(logoB64, "PNG", (W - logoW) / 2, y, logoW, logoH)
+        y += logoH + 3
+      } catch {
+        doc.setFontSize(13).setFont("helvetica", "bold")
+        doc.text("BON JOUR", W / 2, y + 6, { align: "center" })
+        y += 12
+      }
       doc.setFontSize(10).setFont("helvetica", "normal")
       doc.text("MEETING FORM  –  BON-CMM-FR-010 Rev.02", W / 2, y, { align: "center" })
       y += 8
@@ -475,7 +489,7 @@ export function MeetingDetailClient({
 
       const children = [
         // Title block
-        new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 60 }, children: [new TextRun({ text: "BON AIR HAVACILIK", bold: true, size: 28, font: "Calibri" })] }),
+        new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 60 }, children: [new TextRun({ text: "BON JOUR", bold: true, size: 28, font: "Calibri" })] }),
         new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 200 }, children: [new TextRun({ text: "MEETING FORM  –  BON-CMM-FR-010 Rev.02", size: 20, font: "Calibri", color: "555555" })] }),
 
         sectionHeader("1. MEETING INFORMATION"),
@@ -573,12 +587,11 @@ export function MeetingDetailClient({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {attachedFile && (
-          <a href={attachedFile.path} target="_blank"
-            className="flex items-center gap-2 text-sm text-primary hover:underline">
-            <Paperclip size={14} />
-            {attachedFile.name}
-          </a>
+        {uploadingFile && (
+          <span className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span className="size-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            Uploading...
+          </span>
         )}
 
         {/* Auto-save status */}
@@ -589,6 +602,29 @@ export function MeetingDetailClient({
           </span>
         )}
       </div>
+
+      {/* ── Attachments ──────────────────────────────────────────────────────── */}
+      {attachedFile && (
+        <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+          <div className="bg-muted/50 px-4 py-2.5 border-b">
+            <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+              <Paperclip size={13} />
+              Attached File
+            </h2>
+          </div>
+          <div className="px-4 py-3">
+            <a
+              href={attachedFile.path}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm font-medium text-primary hover:bg-muted/60 transition-colors"
+            >
+              <Paperclip size={14} />
+              {attachedFile.name}
+            </a>
+          </div>
+        </div>
+      )}
 
       {/* ── SECTION 1: Meeting Info ───────────────────────────────────────────── */}
       <div className="rounded-xl border bg-card shadow-sm overflow-hidden">

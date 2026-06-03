@@ -20,6 +20,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
 
   const b = body as Record<string, unknown>
   const cpaStatus = typeof b.cpaStatus === "string" ? b.cpaStatus : undefined
+  const rejectComment = typeof b.rejectComment === "string" ? b.rejectComment.trim() || null : undefined
 
   if (cpaStatus && !["Pending", "Accepted", "Rejected"].includes(cpaStatus))
     return NextResponse.json({ error: "Invalid cpaStatus" }, { status: 400 })
@@ -28,6 +29,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
     where: { id: respId },
     data: {
       ...(cpaStatus ? { cpaStatus } : {}),
+      ...(rejectComment !== undefined ? { rejectComment } : {}),
       ...(typeof b.rootCause === "string" ? { rootCause: b.rootCause.trim() } : {}),
       ...(typeof b.correctiveAction === "string" ? { correctiveAction: b.correctiveAction.trim() } : {}),
       ...(typeof b.preventiveAction === "string" ? { preventiveAction: b.preventiveAction.trim() } : {}),

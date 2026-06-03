@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { DashboardHome } from "@/components/dashboard-home"
+import { getResolvedDepartmentPermissionsForUser } from "@/lib/department-permissions-resolve"
 
 export default async function Page() {
   const session = await auth()
@@ -15,5 +16,9 @@ export default async function Page() {
     departman: session.user?.departman || null,
   }
 
-  return <DashboardHome user={user} />
+  const departmentPermissions = await getResolvedDepartmentPermissionsForUser(
+    session.user?.departman ?? null
+  ).catch(() => ({} as import("@/lib/department-permissions-resolve").ResolvedDepartmentPermissions))
+
+  return <DashboardHome user={user} departmentPermissions={departmentPermissions} />
 }

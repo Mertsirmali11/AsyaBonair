@@ -110,8 +110,6 @@ export async function POST(_req: Request, ctx: Ctx) {
         })
       }
 
-      await tx.auditChecklistItem.deleteMany({ where: { auditChecklistId: id } })
-
       await tx.auditChecklist.update({
         where: { id },
         data: {
@@ -119,19 +117,6 @@ export async function POST(_req: Request, ctx: Ctx) {
           latestRevisionDate: now,
         },
       })
-
-      if (snapshotItems.length > 0) {
-        await tx.auditChecklistItem.createMany({
-          data: snapshotItems.map((it) => ({
-            auditChecklistId: id,
-            label: it.label,
-            sortOrder: it.sortOrder,
-            isRequired: it.isRequired,
-            reference: it.reference,
-            section: it.section,
-          })),
-        })
-      }
 
       await tx.auditChecklistRevision.create({
         data: {

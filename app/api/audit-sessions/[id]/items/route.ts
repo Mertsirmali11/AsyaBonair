@@ -66,6 +66,7 @@ export async function PUT(req: Request, ctx: Ctx) {
         include: {
           auditCategoryType: { select: { name: true } },
           auditSubCategoryType: { select: { name: true } },
+          auditees: { select: { calisanId: true }, take: 1 },
         },
       },
     },
@@ -121,6 +122,9 @@ export async function PUT(req: Request, ctx: Ctx) {
       }
       // Observation: no deadline
 
+      // Denetlenen kişiyi (ilk auditee) otomatik atanan kişi olarak ayarla
+      const auditeeId = auditSession.entry.auditees[0]?.calisanId ?? null
+
       await prisma.auditFinding.create({
         data: {
           findingCode,
@@ -133,6 +137,7 @@ export async function PUT(req: Request, ctx: Ctx) {
           auditNumber,
           dueDate,
           status: "Open",
+          ...(auditeeId ? { assignedToId: auditeeId } : {}),
         },
       })
     } else if (existingFinding.findingLevel !== findingLevel) {

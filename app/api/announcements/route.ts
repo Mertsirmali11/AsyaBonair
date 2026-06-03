@@ -28,7 +28,7 @@ function escapeHtml(s: string): string {
 function getFromAddress(): string {
   const from = process.env.RESEND_FROM?.trim()
   if (from) return from
-  return "Bonair <onboarding@resend.dev>"
+  return "bonJour <onboarding@resend.dev>"
 }
 
 async function sendAnnouncementEmails(
@@ -42,14 +42,14 @@ async function sendAnnouncementEmails(
   const base = getAppPublicUrl()
   const portalLink = base ? `${base}/dashboard` : ""
   const ackBlock = portalLink
-    ? `<p><strong>Okudum, anladım:</strong> Lütfen Bonair portalında <strong>Dashboard</strong> bölümündeki duyuruyu okuyup <strong>«Okudum, anladım»</strong> ile onaylayınız.</p><p><a href="${escapeHtml(portalLink)}">${escapeHtml(portalLink)}</a></p>`
-    : `<p><strong>Okudum, anladım:</strong> Lütfen Bonair portalında <strong>Dashboard</strong> bölümündeki duyuruyu okuyup <strong>«Okudum, anladım»</strong> ile onaylayınız.</p>`
+    ? `<p><strong>Okudum, anladım:</strong> Lütfen bonJour portalında <strong>Dashboard</strong> bölümündeki duyuruyu okuyup <strong>«Okudum, anladım»</strong> ile onaylayınız.</p><p><a href="${escapeHtml(portalLink)}">${escapeHtml(portalLink)}</a></p>`
+    : `<p><strong>Okudum, anladım:</strong> Lütfen bonJour portalında <strong>Dashboard</strong> bölümündeki duyuruyu okuyup <strong>«Okudum, anladım»</strong> ile onaylayınız.</p>`
   const html = `
         <h2>${escapeHtml(title)}</h2>
         <p>${escapeHtml(content).replace(/\n/g, "<br />")}</p>
         ${ackBlock}
         <hr />
-        <small>Sent by the Bonair SMS portal.</small>
+        <small>Sent by the bonJour SMS portal.</small>
       `
   let sent = 0
   let failed = 0

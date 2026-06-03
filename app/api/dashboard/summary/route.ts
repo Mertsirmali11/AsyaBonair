@@ -10,13 +10,13 @@ import {
   getIstanbulLocalDayUtcRange,
   getUtcRangeForCalendarDate,
 } from "@/lib/day-range"
-import { canAccessConfigurationsArea, isAdminDepartment } from "@/lib/department-access"
+import { DEPARTMENT_PERMISSION_KEYS } from "@/lib/department-permission-keys"
+import { getResolvedDepartmentPermissionsForUser } from "@/lib/department-permissions-resolve"
 import {
   meetingTaskAssigneeWhere,
   meetingTaskListVisibilityWhere,
 } from "@/lib/meeting-task-access"
 import { canManageSupportTicketsAsAdmin } from "@/lib/support-ticket-access"
-import { canViewAllHazardReports } from "@/lib/hazard-access"
 
 const ANNOUNCEMENTS_DASHBOARD_LIMIT = 80
 const SUPPORT_TICKETS_DASHBOARD_LIMIT = 10
@@ -55,6 +55,22 @@ export async function GET() {
       where: { email: session.user.email },
       select: { id: true, departman: true },
     })
+
+    // Departman izinlerini çöz — sertifika görünürlüğü için
+    const deptPermissions = await getResolvedDepartmentPermissionsForUser(
+      viewer?.departman ?? session.user.departman
+    )
+    const canViewAircraftCerts =
+      deptPermissions[DEPARTMENT_PERMISSION_KEYS.CONTROLLED_DOCUMENTS] ||
+      deptPermissions[DEPARTMENT_PERMISSION_KEYS.CONFIGURATIONS_AREA]
+
+    const canViewAllHazards =
+      deptPermissions[DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING] ||
+      deptPermissions[DEPARTMENT_PERMISSION_KEYS.SAFETY_MANAGEMENT] ||
+      deptPermissions[DEPARTMENT_PERMISSION_KEYS.CONFIGURATIONS_AREA]
+
+    const canManageDocuments =
+      deptPermissions[DEPARTMENT_PERMISSION_KEYS.CONFIGURATIONS_AREA]
 
     const { year, month, day } = getCalendarYmdInTimeZone(APP_TIMEZONE)
     const todayYmd = formatYmd(year, month, day)
@@ -102,7 +118,7 @@ export async function GET() {
         ? prisma.hazardReport.findMany({
             where: {
               createdAt: { gte: hazardDayStart, lt: hazardDayEnd },
-              ...(canViewAllHazardReports(viewer.departman)
+              ...(canViewAllHazards
                 ? {}
                 : { reportedBy: viewer.id }),
             },
@@ -168,7 +184,7 @@ export async function GET() {
         orderBy: [{ dueDate: "asc" }, { id: "asc" }],
         take: 120,
       }),
-      canAccessConfigurationsArea(viewer?.departman)
+      canViewAircraftCerts
         ? prisma.aircraftDocument.findMany({
             where: {
               category: "certificate",
@@ -201,7 +217,7 @@ export async function GET() {
               aircraft: { id: number; register: string; msn: string }
             }[]
           ),
-      canAccessConfigurationsArea(viewer?.departman)
+      canViewAircraftCerts
         ? prisma.aircraftDocument.findMany({
             where: {
               category: "certificate",
@@ -230,12 +246,12 @@ export async function GET() {
               aircraft: { id: number; register: string; msn: string }
             }[]
           ),
-      viewer && isAdminDepartment(viewer.departman)
+      viewer && canManageDocuments
         ? prisma.companyManual.count({
             where: { status: "pending", isCurrent: true },
           })
         : Promise.resolve(0),
-      viewer && isAdminDepartment(viewer.departman)
+      viewer && canManageDocuments
         ? prisma.departmentForm.count({
             where: { status: "pending", isCurrent: true },
           })

@@ -1,0 +1,201 @@
+Total lines: 713
+500: Eski akış: paperNo = await allocateOutgoingPaperNo(prisma, ...) → dosya yükle → correspondence = await prisma.outgoingCorrespondence.create({ data: { 
+501: Yeni akış: correspondence = await prisma.$transaction(async (tx) => { paperNo = await allocateOutgoingPaperNo(tx, ...) → return tx.outgoingCorresponde
+502: Yeni akışta iki eşzamanlı transaction aynı satır aralığını okuyup aynı numarayı yazmaya kalkıştığında PostgreSQL SSI bu çakışmayı tespit ederek birini
+503: Dosya yükleme sıralamasının yeniden düzenlenmesi de bu çözümün kritik bir parçasıdır. Kayıt önce dosya yolu olmaksızın oluşturulmakta; dosya başarıyla
+504: Çözümün Yan Etkileri
+505: Serializable izolasyon, transaction'ın yürütme süresini hafif ölçüde uzatmaktadır. Yoğun yazışma oluşturma senaryolarında (örneğin toplu gönderim) P20
+506: 3.2.2 Sorun 2 — Arşivleme İşlemlerinde TOCTOU Açığı
+507: Sorun Tanımı
+508: DepartmentForm, DepartmentProcedure ve CompanyManual için arşivleme uç noktaları (POST /api/.../archive-current); is_current bayrağının kontrolü ve gü
+509: Yarış Koşulu Senaryosu
+510: Aşağıdaki adım dizisi beklenmedik bir arşivleme durumuna yol açabilmekteydi:
+511: İstek A ve İstek B, aynı anda seri 100'ün isCurrent=true olan revision=3 kaydını arşivlemeye çalışır.
+512: Her ikisi de isCurrent=true doğrulamasını geçer.
+513: İstek A, serinin kalan kayıtları arasından en yüksek revizyonu (revision=2) halef olarak belirler.
+514: İstek B de aynı anda revision=2'yi halef olarak belirler.
+515: İstek A commit eder: revision=3 → isCurrent=false, revision=2 → isCurrent=true.
+516: İstek B commit eder: önce tüm kayıtları isCurrent=false yapar, ardından revision=2'yi tekrar isCurrent=true yaparak İstek A'nın değişikliğini gereksiz
+517: Daha tehlikeli senaryo: İstek A ve B'nin okuma aşamasından sonra, İstek B'nin yazma aşamasından önce üçüncü bir istek yeni bir revision=4 eklediyse, İ
+518: Uygulanan Çözüm
+519: Her üç arşivleme uç noktasına Serializable izolasyon seviyesi eklenerek transaction çağrısı aşağıdaki biçime getirilmiştir:
+520: await prisma.$transaction(async (tx) => { ... }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+521: PostgreSQL SSI; iki transaction'ın aynı isCurrent bayrağını okuyup farklı successor belirlemesi durumunda birini P2034 hata koduyla iptal etmektedir. 
+522: Bu tek satırlık izolasyon seviyesi değişikliği; arşivleme mantığının tamamen PostgreSQL SSI tarafından korunmasını sağlamıştır. Uygulama kodu tarafınd
+523: 3.2.3 Sorun 3 — Denetim Kontrol Listesi sortOrder Yarış Koşulu
+524: Sorun Tanımı
+525: AuditChecklist oluşturma uç noktasında (POST /api/audit-checklists) sortOrder hesaplama şu şekilde gerçekleştirilmekteydi: önce prisma.$transaction() 
+526: Bu yaklaşım; iki eşzamanlı POST isteğinin aynı maxSort değerini okuyup aynı nextOrder'ı hesaplamasına ve aynı sortOrder değeriyle iki kayıt oluşturmas
+527: Uygulanan Çözüm
+528: maxSort hesaplama yalnızca bir satır kaydırılarak prisma.$transaction() bloğunun içine alınmıştır. Bu minimal değişiklik sonrasında okuma ve yazma işl
+529: Eski kod: const maxSort = await prisma.auditChecklist.aggregate({ _max: { sortOrder: true } }) → const nextOrder = (maxSort._max.sortOrder ?? -1) + 1 
+530: Yeni kod: await prisma.$transaction(async (tx) => { const maxSort = await tx.auditChecklist.aggregate({ _max: { sortOrder: true } }) → const nextOrder
+531: Bu değişiklik ek izolasyon seviyesi gerektirmemiştir. Transaction'ın varsayılan Read Committed seviyesinde bile bu yapı güvenlidir; zira okuma ve yazm
+532: 3.3 Uygulanan Düzeltmeler Özeti
+533: Gerçekleştirilen tüm eşzamanlılık düzeltmeleri, değişiklik kapsamı ve teknik yaklaşım açısından aşağıdaki tabloda özetlenmektedir:
+534: (Tablo 3.1 — Uygulanan Düzeltmeler Özeti burada)
+535: Düzeltmelerin tamamı üç Git commit'inde teslim edilmiştir. 044bdfe numaralı commit; yazışma numarası yarış koşulunu gidermekte ve dosya yükleme akışın
+536: Düzeltmelerin ortak özelliği; veritabanı şeması değişikliği gerektirmemesi, mevcut Prisma API'si üzerinden uygulanması ve PostgreSQL'in SSI mekanizmas
+537: TABLO 3.1
+538: DOSYA
+539: SORUN
+540: ÇÖZÜM
+541: HTTP
+542: outgoing-correspondences/route.ts
+543: Paper no yarış koşulu
+544: create() tx içine alındı
+545: 500
+546: department-forms/.../archive-current/route.ts
+547: TOCTOU – is_current
+548: Serializable eklendi
+549: 409
+550: department-procedures/.../archive-current/route.ts
+551: TOCTOU – is_current
+552: Serializable eklendi
+553: 409
+554: outgoing-correspondences/route.ts
+555: Paper no yarış koşulu
+556: create() tx içine alındı
+557: 500
+558: SONUÇ VE TARTIŞMA
+559: 4.1 Projenin Genel Değerlendirilmesi
+560: Bu çalışma kapsamında, havacılık operasyon şirketi için 15 ana modülden oluşan kapsamlı bir web tabanlı kurumsal yönetim sistemi başarıyla tasarlanmış
+561: Geliştirme sürecinde benimsenen teknoloji ; Next.js 16, React 19, TypeScript, Prisma ORM 7 ve PostgreSQL 15 kombinasyonu, modern web uygulaması gelişt
+562: Serverless dağıtım mimarisinin tercih edilmesi; operasyonel yük, ölçeklendirme ve bakım maliyetleri açısından önemli avantajlar sağlamıştır. Vercel ve
+563: 4.2 Eşzamanlılık Güvenliği Katkısının Değerlendirmesi
+564: Bu projenin en özgün ve önemli teknik katkısı, sistematik eşzamanlılık güvenliği analizidir. Tespit edilen dört sorun; farklı risk seviyelerinde, fark
+565: Yazışma numarası yarış koşulu; kritik düzeyde değerlendirilen ve sessiz veri kaybına yol açan en ciddi sorun olarak öne çıkmaktadır. Bu sorun, transac
+566: Arşivleme işlemlerindeki TOCTOU açığı; düşük frekanslı ancak yüksek etkili bir sorun olarak değerlendirilmiştir. Arşivleme işlemi nadiren gerçekleştir
+567: Denetim kontrol listesi sortOrder sorunu; teknik açıdan daha az karmaşık ancak pratik sonuçları açısından rahatsız edici bir sorun olarak nitelendiril
+568: 4.3 Teknik Katkılar
+569: Bu proje kapsamında gerçekleştirilen özgün teknik katkılar şu şekilde özetlenebilir:
+570: Havacılık sektörüne yönelik entegre web ERP platformu tasarımı ve geliştirmesi: 15 modülü kapsayan, birbiriyle ilişkili iş süreçlerini tek platformda 
+571: Revizyon serisi mimarisi: seriesId + revision + isCurrent modeliyle kontrollü doküman yönetimi uygulanmıştır. Bu mimari; tüm revizyon geçmişinin korun
+572: Serbest bırakılan numara geri kazanımı: OutgoingCorrespondenceReleasedSlot tasarımıyla silinen yazışmaların numaraları geri kazanılmakta; numaralandır
+573: pgvector ve Google Gemini entegrasyonuyla anlamsal doküman arama: 768 boyutlu vektör embeddinglerin PostgreSQL içinde saklanması ve kosinüs benzerliği
+574: PostgreSQL SSI tabanlı yarış koşulu giderim metodolojisi: Dört farklı sorun için tutarlı bir analiz ve çözüm çerçevesi geliştirilmiş; PostgreSQL'in ye
+575: 4.4 Karşılaşılan Teknik Zorluklar
+576: Proje sürecinde aşağıdaki teknik zorluklar öne çıkmıştır.
+577: pgvector Prisma uyumsuzluğu; vektör yazma ve okuma işlemlerinin queryRaw ile yapılmasını zorunlu kılmıştır. Bu durum Prisma'nın sağladığı tip güvenliğ
+578: NextAuth.js v5 beta kararsızlıkları geliştirme sürecinde çeşitli uyumluluk sorunlarına yol açmıştır. Session yapısının değişmesi, middleware davranışı
+579: Supabase bağlantı limitleri özellikle geliştirme ortamında sorunlara neden olmuştur. Port 5432 üzerindeki session pooler'ın kısıtlı bağlantı sayısı; e
+580: Serverless soğuk başlangıç (cold start) gecikmesi; Vercel'deki serverless fonksiyonların ilk çağrıda Prisma Client'ı yeniden başlatmasından kaynaklanm
+581: React 19 eşzamanlı render özellikleri; bazı üçüncü taraf kütüphanelerinin yeni render modeliyle uyumsuzluk göstermesine neden olmuştur. Özellikle eski
+582: 4.5 Gelecek Çalışmalar
+583: Sistemin daha da geliştirilmesi için aşağıdaki alanlar öncelikli fırsatlar sunmaktadır.
+584: Otomatik retry mekanizması: P2034 serialization hatası alındığında uygulama katmanında exponential backoff ile otomatik yeniden deneme mantığı ekleneb
+585: PostgreSQL native sequence kullanımı: Yazışma numaralandırma motoru, Prisma'nın raw SQL desteğiyle doğrudan PostgreSQL dizilerine (CREATE SEQUENCE) ba
+586: Gerçek zamanlı bildirimler: Supabase Realtime'ın kapsamı genişletilerek görev durum değişiklikleri, denetim bulgusu yanıtları ve destek talebi güncell
+587: Mobil uygulama: React Native veya Progressive Web App (PWA) yaklaşımıyla mobil platform desteği hayata geçirilebilir. Saha personeli için tehlike rapo
+588: Çok kiracılı mimari (multi-tenancy): Sistemin diğer havacılık operasyon şirketlerine de hizmet verebileceği çok kiracılı bir yapıya dönüştürülmesi; he
+589: Gelişmiş raporlama ve analitik: Denetim bulgularının kök neden dağılımı, tehlike raporu trendleri ve yazışma hacmi gibi verilerin zaman serisi analizi
+590: MESLEKİ VE PROFESYONEL DEĞERLENDİRMELER
+591: Metedolojik Değerlendirmeler / Mühendislik Standartları
+592: Yazılım geliştirme sürecinde ISO/IEC 25010 yazılım kalite modeli referans alınmıştır. Bu model; fonksiyonel uygunluk, güvenilirlik, kullanılabilirlik,
+593: Fonksiyonel uygunluk açısından; sistem, projenin operasyonel gereksinimlerini kapsamlı biçimde karşılamakta ve EASA ile SHGM mevzuatının gerektirdiği 
+594: Güvenilirlik açısından; eşzamanlılık güvenliği analizinin gerçekleştirilmesi ve tespit edilen dört kritik sorunun giderilmesi, sistemin çok kullanıcıl
+595: Güvenlik açısından; şifre hashleme (bcryptjs, 10 tur salt), SQL enjeksiyon koruması (Prisma parametrize sorgular), MIME tipi doğrulaması, dosya boyutu
+596: Bakım kolaylığı açısından; TypeScript strict mode, merkezi yetkilendirme helper'ları, tutarlı API hata yönetimi ve Prisma migration sistemi; kod taban
+597: Gerçekçi Kısıtlamalar
+598: Ekonomik
+599: Sistem, üçüncü taraf bulut servislerine bağımlı bir maliyet yapısına sahiptir. Vercel Pro planı, Supabase Pro planı, Google Gemini API ve Groq API kul
+600: Lisans maliyetleri açısından bakıldığında; kullanılan teknolojilerin tamamı açık kaynaklı veya ücretsiz katmana sahip olup ticari lisans gerektirmemek
+601: Çevresel
+602: Bulut tabanlı altyapı, veri merkezi enerji tüketimini doğrudan etkilemektedir. Büyük ölçekli bulut sağlayıcılarının paylaşımlı altyapı verimliliği ve 
+603: Sürdürülebilir
+604: Serverless mimari, kullanılmayan dönemlerde sıfır kaynak tüketerek enerji verimliliği sağlamaktadır. Vercel'in Edge Network altyapısı; statik içerikle
+605: Etik
+606: Sistem; çalışanlara ait TC kimlik numarası, banka hesap bilgileri ve acil iletişim bilgileri gibi hassas kişisel verileri işlemektedir. Kişisel Verile
+607: Anonim tehlike raporlama özelliği; çalışanların misilleme korkusu olmaksızın güvenlik sorunlarını bildirebilmesini sağlayan etik bir tasarım kararıdır
+608: Sağlık ve Güvenlik
+609: Havacılık güvenliği açısından değerlendirildiğinde; denetim bulgularının kaydedilmesinde veya tehlike raporlarında oluşabilecek herhangi bir veri bütü
+610: Anonim tehlike raporlama özelliği; çalışanların misilleme korkusu olmaksızın güvenlik sorunlarını bildirebilmesini sağlayan ve ICAO SMS çerçevesiyle ö
+611: Yasal Değerlendirmeler
+612: Sistem; Türk havacılık mevzuatı (SHT serisi yönetmelikleri) ile EASA regülasyonlarının getirdiği doküman kontrolü ve denetim kaydı yükümlülüklerini ka
+613: EASA Part-M kapsamında; hava araçlarına ait belgelerin güncel versiyonlarının her zaman erişilebilir olması gerekmektedir. Sistemdeki isCurrent mekani
+614: Denetim kayıtlarının saklanması zorunluluğu; AuditSession, AuditFinding ve AuditFindingResponse modellerinin tasarımında belirleyici rol oynamıştır. H
+615: YÖNETİM VE PLANLAMA
+616: Görev Aşamalarının Tanımı
+617: Proje, çevik geliştirme prensipleri benimsenerek yaklaşık 7 aylık bir süreçte tamamlanmıştır. Geliştirme süreci; gereksinim analizi ve mimari tasarım,
+618: Gereksinim analizi fazında; Türk sivil havacılık mevzuatı (SHT serisi yönetmelikleri) ve EASA düzenlemeleri (Part-M, Part-OPS, CAMO) kapsamlı biçimde 
+619: Temel altyapı kurulumu fazında; Next.js proje iskeleti, Prisma şema taslağı, NextAuth entegrasyonu, Supabase bağlantısı ve Vercel dağıtım hattı yapıla
+620: Modül geliştirme fazı; personel yönetiminden başlayarak yazışma, doküman, toplantı, güvenlik, denetim, destek ve yapay zeka modüllerini kapsayan itera
+621: Eşzamanlılık güvenliği analizi fazı; kod tabanının sistematik incelenmesi, yarış koşulu risklerinin belirlenmesi, çözüm tasarımı, uygulama ve doğrulam
+622: Takım Üyeleri Arasında Sorumluluk ve Görevlerin Dağılımı
+623: Proje; frontend geliştirme, backend API geliştirme, veritabanı tasarımı ve güvenlik analizi olmak üzere dört ana sorumluluk alanında yapılandırılmıştı
+624: Frontend geliştirme kapsamında; sayfa bileşenleri, form yönetimi, tablo ve liste görünümleri, modal ve dialog yapıları ve dashboard görselleştirmeleri
+625: Backend API geliştirme kapsamında; tüm API uç noktaları, kimlik doğrulama ve yetkilendirme akışları, dosya yükleme ve depolama yönetimi ile e-posta bi
+626: Veritabanı tasarımı kapsamında; Prisma şeması, migration yönetimi, indeks stratejisi ve pgvector entegrasyonu ele alınmıştır.
+627: Güvenlik analizi kapsamında ise bu raporun bulgular bölümünde ayrıntılandırılan dört eşzamanlılık sorununun tespiti, çözüm tasarımı ve uygulaması gerç
+628: Kullanılan Geliştirme Araçları
+629: Git ve GitHub; versiyon kontrolü, dal (branch) yönetimi ve kod inceleme süreçleri için kullanılmıştır. Her özellik ayrı bir feature branch üzerinde ge
+630: Visual Studio Code; TypeScript dil sunucusu, ESLint entegrasyonu ve Prisma şema editörü eklentileriyle birlikte temel geliştirme ortamı olarak kullanı
+631: Postman; API uç noktalarının bağımsız olarak test edilmesinde ve eşzamanlılık senaryolarının simüle edilmesinde kullanılmıştır. Supabase Dashboard; ve
+632: BAŞARI FAKTÖRLERİ VE RİSK YÖNETİMİ
+633: Başarı Faktörleri
+634: Projenin başarıyla tamamlanmasında belirleyici rol oynayan faktörler şu şekilde değerlendirilebilir.
+635: Sektöre özgü tasarım yaklaşımı: Sistem; genel amaçlı bir ERP çözümü olarak değil, doğrudan havacılık operasyon şirketlerinin ihtiyaçları gözetilerek t
+636: Revizyon serisi mimarisinin özgünlüğü: Kontrollü doküman yönetiminde benimsenen seriesId + revision + isCurrent modeli; tüm revizyon geçmişini korurke
+637: Yazışma numaralandırma motorunun güvenilirliği: XX-YYYY-NNN formatında sıralı ve benzersiz numara üretimi; serbest bırakılan numaraların geri kazanılm
+638: Eşzamanlılık güvenliği analizi: Çok kullanıcılı senaryolarda oluşabilecek dört kritik sorunun üretim ortamına alınmadan önce tespit edilip giderilmesi
+639: Yapay zeka entegrasyonunun pratik değeri: pgvector ve Google Gemini embedding modelinin birleşimiyle hayata geçirilen anlamsal arama özelliği; persone
+640: Risk Yönetimi
+641: Proje sürecinde tanımlanan riskler; olasılık, potansiyel etki ve benimsenen yönetim stratejisi açısından sistematik biçimde değerlendirilmiştir.
+642: (Tablo 7.1 — Risk Yönetimi Matrisi)
+643: Yazışma numarası çakışması riski; en kritik veri bütünlüğü riski olarak değerlendirilmiş ve Serializable transaction ile kalıcı biçimde giderilmiştir.
+644: Doküman arşivleme tutarsızlığı riski; isCurrent bayrağının yanlış bir revizyona atanması ihtimalini kapsamaktadır. Serializable izolasyonun eklenmesiy
+645: Üçüncü taraf servis bağımlılığı riski; Vercel, Supabase ve Google Gemini gibi dış servislerin kesintiye uğraması durumunda sistemin etkilenebileceğini
+646: Mevzuat değişikliği riski; EASA veya SHGM düzenlemelerinde yapılacak güncellemelerin sistemi etkileyebileceğini ifade etmektedir. Modüler mimari yapıs
+647: Tablo 7.1 — Risk Yönetimi Matrisi
+648: Risk
+649: Olasılık
+650: Etki
+651: Yönetim Stratejisi
+652: Veri kaybı (race condition)
+653: Orta
+654: Kritik
+655: Serializable TX + analiz
+656: Supabase bağlantı limiti
+657: Düşük
+658: Yüksek
+659: Connection pooling yapılandırması
+660: NextAuth beta hataları
+661: Orta
+662: Orta
+663: Versiyon sabitleme
+664: Vercel cold start gecikmesi
+665: Orta
+666: Düşük
+667: Singleton pattern
+668: Supabase Storage sınırı
+669: Düşük
+670: Orta
+671: Dosya boyutu validasyonu
+672: API anahtar sızıntısı
+673: Düşük
+674: Kritik
+675: Environment variable yönetimi
+676: PROJENİN FAYDALARI VE ETKİLERİ
+677: Metedolojik Değerlendirmeler / Mühendislik Standartları
+678: Bu proje; yalnızca çalışan bir yazılım üretmekle kalmayıp mühendislik disiplininin gerekliliklerini en üst düzeyde karşılamayı hedeflemiştir. Geliştir
+679: Sistemin en dikkat çekici mühendislik özelliği; veri bütünlüğünün sezgisel önlemlerle değil, matematiksel garantilerle sağlanmış olmasıdır. PostgreSQL
+680: TypeScript strict mode, Prisma'nın oto-üretilen tip sistemi ve merkezi yetkilendirme katmanları; yazılımın yalnızca bugün değil, yıllar sonra da bakım
+681: Bilimsel Etki
+682: Bu çalışma; gerçek bir endüstriyel uygulama üzerinden, modern yazılım geliştirme ekosisteminin henüz yeterince belgelenmemiş bir kesişim noktasını keş
+683: Akademik literatürde TOCTOU açıkları ve yarış koşulları teorik düzeyde kapsamlı biçimde ele alınmaktadır. Ancak bu sorunların TypeScript tabanlı bir E
+684: Dört farklı eşzamanlılık sorununun sistematik olarak analiz edilmesi, risk seviyelerine göre sınıflandırılması ve her biri için özgün çözüm yaklaşımla
+685: Yeni Projeler Üzerindeki Potansiyel Etki
+686: Bu projenin en kalıcı etkisi; benzer sistemleri sıfırdan geliştirmek zorunda kalacak mühendisler için kritik bir başlangıç noktası oluşturmasıdır. Hav
+687: Özellikle üç alan öne çıkmaktadır. Birincisi; kontrollü doküman yönetiminde revizyon serisi mimarisi, versiyon geçmişinin kayıpsız saklanması ve aktif
+688: Bu proje; sonraki geliştiricilerin aynı hataları tekrarlamaması ve aynı soruları yeniden sormak zorunda kalmaması için gerçek deneyimden damıtılmış bi
+689: Ulusal Güvenlik Üzerindeki Etki
+690: Sivil havacılık; bir ülkenin ekonomik bağlantısallığından turistik çekiciliğine, ticari rekabet gücünden kriz anındaki lojistik kapasitesine kadar pek
+691: Bu sistem; tehlike raporlarının kayıt altına alınmasını, risk analizlerinin sistematik biçimde yürütülmesini ve denetim bulgularının kapatılmasını tek
+692: Türk sivil havacılık sektöründe benzer ölçekteki operasyon şirketlerinin büyük çoğunluğu hâlâ kâğıt tabanlı veya yarı dijital süreçlerle çalışmaktadır
+693: KAYNAKÇA
+694: [1] T. H. Davenport, "Putting the enterprise into the enterprise system," Harvard Business Review, vol. 76, no. 4, pp. 121–131, 1998.
+695: [2] E. Oztemel and S. Gursev, "Literature review of Industry 4.0 and related technologies," Journal of Intelligent Manufacturing, vol. 31, no. 1, pp. 
+696: [3] EASA, Acceptable Means of Compliance and Guidance Material to Commission Regulation (EU) No 1321/2014 — Part-M, Part-CAMO, Part-145, European Unio
+697: [4] SHGM, SHT-M: Uçuşa Elverişlilik Yönetmeliği, Sivil Havacılık Genel Müdürlüğü, 2022.
+698: [5] E. Hollnagel, D. D. Woods, and N. Leveson, Resilience Engineering: Concepts and Precepts, Ashgate Publishing, 2006.
+699: [6] I. Baldini, P. Castro, K. Chang, P. Cheng, S. Fink, V. Ishakian, N. Mitchell, V. Muthusamy, R. Rabbah, A. Slominski, and P. Suter, "Serverless com

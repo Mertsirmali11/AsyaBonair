@@ -1,12 +1,26 @@
-import { NextResponse } from "next/server"
-import { requireAuditPlanSession } from "@/lib/audit-plan-session"
+import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/auth"
+import { canAccessAuditPlan } from "@/lib/audit-plan-access"
 import { prisma } from "@/lib/prisma-server"
 
-export async function GET() {
-  const session = await requireAuditPlanSession()
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+export async function GET(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.email) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+
+  const isAdmin = canAccessAuditPlan(session.user.email)
+
+  // Admin değilse sadece kendine atanan bulgular
+  const calisan = isAdmin
+    ? null
+    : await prisma.calisan.findFirst({
+        where: { email: { equals: session.user.email, mode: "insensitive" } },
+        select: { id: true },
+      })
+
+  if (!isAdmin && !calisan) return NextResponse.json([], { status: 200 })
 
   const findings = await prisma.auditFinding.findMany({
+    where: isAdmin ? {} : { assignedToId: calisan!.id },
     orderBy: { createdAt: "desc" },
     include: {
       assignedTo: { select: { id: true, isim: true, soyisim: true } },

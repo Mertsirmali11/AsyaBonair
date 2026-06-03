@@ -62,6 +62,7 @@ type Response = {
   correctiveAction: string | null
   preventiveAction: string | null
   cpaStatus: string
+  rejectComment: string | null
   submittedAt: string
   respondedBy: { id: number; isim: string | null; soyisim: string | null } | null
   attachments: Attachment[]
@@ -94,6 +95,7 @@ type FindingDetail = {
     entry: {
       auditCategoryType: { name: string }
       auditSubCategoryType: { name: string } | null
+      auditees: { calisan: { id: number; isim: string | null; soyisim: string | null } }[]
     }
     checklist: { id: number; title: string; checklistNumber: string | null }
   }
@@ -126,7 +128,7 @@ const cpaStatusConfig: Record<string, { label: string; cls: string }> = {
   Rejected: { label: "Reddedildi", cls: "bg-red-100 text-red-700 border-red-300 dark:bg-red-950/40 dark:text-red-400 dark:border-red-700" },
 }
 
-export function FindingDetailClient({ findingId }: { findingId: number }) {
+export function FindingDetailClient({ findingId, currentCalisanId }: { findingId: number; currentCalisanId: number | null }) {
   const [finding, setFinding] = React.useState<FindingDetail | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [calisanlar, setCalisanlar] = React.useState<CalisanLite[]>([])
@@ -149,6 +151,12 @@ export function FindingDetailClient({ findingId }: { findingId: number }) {
   const [assignOpen, setAssignOpen] = React.useState(false)
   const [assignedToId, setAssignedToId] = React.useState<string>("")
   const [assigning, setAssigning] = React.useState(false)
+
+  // Reject dialog state
+  const [rejectOpen, setRejectOpen] = React.useState(false)
+  const [rejectTargetId, setRejectTargetId] = React.useState<number | null>(null)
+  const [rejectComment, setRejectComment] = React.useState("")
+  const [rejecting, setRejecting] = React.useState(false)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -238,12 +246,19 @@ export function FindingDetailClient({ findingId }: { findingId: number }) {
     }
   }
 
+  // Giriş yapan kişi auditee listesinde mi?
+  const isCurrentUserAuditee = React.useMemo(() => {
+    if (!currentCalisanId || !finding) return false
+    return finding.session.entry.auditees.some((a) => a.calisan.id === currentCalisanId)
+  }, [currentCalisanId, finding])
+
   const openResponseDialog = () => {
     setRootCause("")
     setCorrectiveAction("")
     setPreventiveAction("")
     setPendingFiles([])
-    setRespondedById(finding?.assignedTo ? String(finding.assignedTo.id) : "")
+    // Cevaplayan kişi = giriş yapan auditee
+    setRespondedById(currentCalisanId ? String(currentCalisanId) : "")
     setResponseOpen(true)
   }
 
@@ -259,6 +274,32 @@ export function FindingDetailClient({ findingId }: { findingId: number }) {
       await load()
     } catch {
       toast.error("Bağlantı hatası.")
+    }
+  }
+
+  const openRejectDialog = (responseId: number) => {
+    setRejectTargetId(responseId)
+    setRejectComment("")
+    setRejectOpen(true)
+  }
+
+  const submitReject = async () => {
+    if (!rejectTargetId) return
+    setRejecting(true)
+    try {
+      const res = await fetch(`/api/audit-findings/${findingId}/responses/${rejectTargetId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cpaStatus: "Rejected", rejectComment: rejectComment.trim() || null }),
+      })
+      if (!res.ok) { toast.error("Güncellenemedi."); return }
+      toast.success("CPA reddedildi.")
+      setRejectOpen(false)
+      await load()
+    } catch {
+      toast.error("Bağlantı hatası.")
+    } finally {
+      setRejecting(false)
     }
   }
 
@@ -344,7 +385,7 @@ export function FindingDetailClient({ findingId }: { findingId: number }) {
               <User className="mr-1.5 size-3.5" />
               {finding.assignedTo ? calisanName(finding.assignedTo) : "Atama yap"}
             </Button>
-            {isOpen && (
+            {isOpen && isCurrentUserAuditee && (
               <Button
                 type="button"
                 size="sm"
@@ -500,8 +541,16 @@ export function FindingDetailClient({ findingId }: { findingId: number }) {
                         </div>
                       )}
 
-                      {/* CPA Actions */}
-                      {isOpen && resp.cpaStatus === "Pending" && (
+                      {/* Red gerekçesi */}
+                      {resp.cpaStatus === "Rejected" && resp.rejectComment && (
+                        <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">
+                          <p className="font-semibold uppercase tracking-wide mb-0.5">Denetçi Red Gerekçesi</p>
+                          <p className="whitespace-pre-wrap">{resp.rejectComment}</p>
+                        </div>
+                      )}
+
+                      {/* CPA Actions — sadece admin (auditee değil) */}
+                      {isOpen && resp.cpaStatus === "Pending" && !isCurrentUserAuditee && (
                         <div className="flex gap-2 pt-1">
                           <Button
                             type="button"
@@ -518,7 +567,7 @@ export function FindingDetailClient({ findingId }: { findingId: number }) {
                             size="sm"
                             variant="outline"
                             className="border-red-300 text-red-700 hover:bg-red-50 dark:text-red-400"
-                            onClick={() => void updateCpaStatus(resp.id, "Rejected")}
+                            onClick={() => openRejectDialog(resp.id)}
                           >
                             <XCircle className="mr-1.5 size-3.5" />
                             CPA Reddet
@@ -549,21 +598,17 @@ export function FindingDetailClient({ findingId }: { findingId: number }) {
 
               <div className="space-y-2">
                 <Label>Cevaplayan Kişi</Label>
-                <Select
-                  value={respondedById ? respondedById : undefined}
-                  onValueChange={setRespondedById}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Kişi seç…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {calisanlar.map((c) => (
-                      <SelectItem key={c.id} value={String(c.id)}>
-                        {calisanName(c)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex h-10 w-full items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-foreground">
+                  {finding?.session.entry.auditees.find(
+                    (a) => a.calisan.id === currentCalisanId
+                  )
+                    ? calisanName(
+                        finding.session.entry.auditees.find(
+                          (a) => a.calisan.id === currentCalisanId
+                        )!.calisan
+                      )
+                    : "—"}
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -690,6 +735,39 @@ export function FindingDetailClient({ findingId }: { findingId: number }) {
             <Button type="button" variant="outline" onClick={() => setAssignOpen(false)}>Vazgeç</Button>
             <Button type="button" disabled={assigning} onClick={assignFinding}>
               {assigning ? "Kaydediliyor…" : "Kaydet"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── REJECT DIALOG ─────────────────────────────────────────────── */}
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>CPA Red Gerekçesi</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              Denetlenen kişiye neden reddedildiğini açıklayın. Bu gerekçe cevap kartında görünecektir.
+            </p>
+            <Textarea
+              value={rejectComment}
+              onChange={(e) => setRejectComment(e.target.value)}
+              placeholder="Red gerekçenizi yazın…"
+              className="min-h-[100px]"
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectOpen(false)} disabled={rejecting}>
+              Vazgeç
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => void submitReject()}
+              disabled={rejecting}
+            >
+              {rejecting ? <><Loader2 className="mr-1.5 size-3.5 animate-spin" />Gönderiliyor…</> : <><XCircle className="mr-1.5 size-3.5" />Reddet</>}
             </Button>
           </DialogFooter>
         </DialogContent>

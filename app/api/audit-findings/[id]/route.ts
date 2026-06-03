@@ -35,6 +35,11 @@ export async function GET(_req: Request, ctx: Ctx) {
             include: {
               auditCategoryType: { select: { name: true } },
               auditSubCategoryType: { select: { name: true } },
+              auditees: {
+                select: {
+                  calisan: { select: { id: true, isim: true, soyisim: true } },
+                },
+              },
             },
           },
           checklist: { select: { id: true, title: true, checklistNumber: true } },

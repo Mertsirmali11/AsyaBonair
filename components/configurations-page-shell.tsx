@@ -15,6 +15,7 @@ export type ConfigurationsPageShellProps = {
   workspaceTitle: string
   pageTitle: string
   breadcrumbCurrent: string
+  pageTitleAction?: ReactNode
   children: ReactNode
 }
 
@@ -22,6 +23,7 @@ export function ConfigurationsPageShell({
   workspaceTitle,
   pageTitle,
   breadcrumbCurrent,
+  pageTitleAction,
   children,
 }: ConfigurationsPageShellProps) {
   return (
@@ -31,7 +33,10 @@ export function ConfigurationsPageShell({
         <div className="configurations-shell flex min-w-0 flex-col gap-8 px-4 pb-8 pt-6 md:px-6 md:pt-8">
           <header className="flex shrink-0 flex-col gap-5 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
             <div className="min-w-0 flex-1 pt-0.5">
-              <h1 className="ss-page-heading text-2xl md:text-[1.65rem]">{pageTitle}</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="ss-page-heading text-2xl md:text-[1.65rem]">{pageTitle}</h1>
+                {pageTitleAction}
+              </div>
             </div>
             <Breadcrumb className="ss-breadcrumb shrink-0 sm:mt-1">
               <BreadcrumbList>

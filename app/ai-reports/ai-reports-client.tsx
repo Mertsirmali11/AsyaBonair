@@ -63,9 +63,9 @@ interface ChatMessage {
 
 const ANALYSIS_STYLES = [
   { type: "summary"           as AnalysisType, icon: FileText,     border: "border-blue-300 hover:border-blue-500",     active: "border-blue-500 bg-blue-50",     iconColor: "text-blue-600"   },
-  { type: "anomaly"           as AnalysisType, icon: AlertTriangle, border: "border-orange-300 hover:border-orange-500", active: "border-orange-500 bg-orange-50", iconColor: "text-orange-600" },
-  { type: "report"            as AnalysisType, icon: Zap,           border: "border-green-300 hover:border-green-500",   active: "border-green-500 bg-green-50",   iconColor: "text-green-600"  },
-  { type: "regulation_impact" as AnalysisType, icon: Scale,         border: "border-violet-300 hover:border-violet-500", active: "border-violet-600 bg-violet-50", iconColor: "text-violet-600" },
+  // { type: "anomaly"           as AnalysisType, icon: AlertTriangle, border: "border-orange-300 hover:border-orange-500", active: "border-orange-500 bg-orange-50", iconColor: "text-orange-600" },
+  // { type: "report"            as AnalysisType, icon: Zap,           border: "border-green-300 hover:border-green-500",   active: "border-green-500 bg-green-50",   iconColor: "text-green-600"  },
+  // { type: "regulation_impact" as AnalysisType, icon: Scale,         border: "border-violet-300 hover:border-violet-500", active: "border-violet-600 bg-violet-50", iconColor: "text-violet-600" },
 ]
 
 // ─── Chat source chips ────────────────────────────────────────────────────────
@@ -141,9 +141,9 @@ export function AiReportsClient({ manualCount = 0, isAdmin = false }: { manualCo
   // Translated analysis options (rebuilt on locale change)
   const analysisOptions = [
     { ...ANALYSIS_STYLES[0], title: az.types.summary,    description: az.types.summaryDesc    },
-    { ...ANALYSIS_STYLES[1], title: az.types.anomaly,    description: az.types.anomalyDesc    },
-    { ...ANALYSIS_STYLES[2], title: az.types.report,     description: az.types.reportDesc     },
-    { ...ANALYSIS_STYLES[3], title: az.types.regulation, description: az.types.regulationDesc },
+    // { ...ANALYSIS_STYLES[1], title: az.types.anomaly,    description: az.types.anomalyDesc    },
+    // { ...ANALYSIS_STYLES[2], title: az.types.report,     description: az.types.reportDesc     },
+    // { ...ANALYSIS_STYLES[3], title: az.types.regulation, description: az.types.regulationDesc },
   ]
 
   // Translated chat suggestions
@@ -637,11 +637,11 @@ export function AiReportsClient({ manualCount = 0, isAdmin = false }: { manualCo
                   )
                 })}
               </div>
-              {selectedType === "regulation_impact" && (
+              {/* {selectedType === "regulation_impact" && (
                 <p className="text-xs text-violet-900 bg-violet-50 border border-violet-200 rounded-lg px-3 py-2.5 leading-relaxed">
                   {az.types.regulationNote}
                 </p>
-              )}
+              )} */}
             </section>
 
             {/* Step 2: Sources */}

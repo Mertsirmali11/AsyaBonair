@@ -4,6 +4,7 @@ import * as React from "react"
 import {
   IconArchive,
   IconChevronDown,
+  IconInfoCircle,
   IconPencil,
   IconPlus,
   IconSearch,
@@ -12,6 +13,12 @@ import {
   IconVersions,
   IconEye,
 } from "@tabler/icons-react"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { formatDateTimeIstanbul } from "@/lib/date-format"
 import {
   DOCUMENT_ACCEPT_HTML,
@@ -1310,16 +1317,25 @@ export function ConfigManualsClient() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Yüklü manueller</CardTitle>
-          <CardDescription>
-            Güncel sürümler listede; bir manuelin dosyasını ve bilgilerini görmek için
-            satıra tıklayın. Eski revizyonlar satırın altındaki akordeonda. Üst başlıktaki{" "}
-            <span className="font-medium text-foreground">?</span> simgesinden ek bilgi
-            alabilirsiniz.
-            {canManageManuals
-              ? " Yeni sürüm yüklendiğinde önceki otomatik arşive alınır."
-              : null}
-          </CardDescription>
+          <div className="flex items-center gap-2">
+            <CardTitle>Yüklü manueller</CardTitle>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button type="button" className="text-muted-foreground hover:text-foreground transition-colors">
+                    <IconInfoCircle className="size-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-left leading-relaxed" side="right">
+                  <p>Güncel sürümler listede; bir manuelin dosyasını ve bilgilerini görmek için satıra tıklayın.</p>
+                  <p className="mt-1">Eski revizyonlar satırın altındaki akordeonda.</p>
+                  {canManageManuals && (
+                    <p className="mt-1">Yeni sürüm yüklendiğinde önceki otomatik arşive alınır.</p>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
         </CardHeader>
         <CardContent>
           {loading ? (

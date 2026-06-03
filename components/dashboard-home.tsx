@@ -24,8 +24,9 @@ import {
   BookOpen,
 } from "lucide-react"
 import { formatDateOnlyIstanbul, formatDateTimeIstanbul } from "@/lib/date-format"
-import { isAdminDepartment } from "@/lib/department-access"
 import { canViewAllMeetingTasks } from "@/lib/meeting-task-access"
+import { DEPARTMENT_PERMISSION_KEYS } from "@/lib/department-permission-keys"
+import type { ResolvedDepartmentPermissions } from "@/lib/department-permissions-resolve"
 import { useLanguage } from "@/lib/i18n/context"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -54,6 +55,11 @@ type DashboardUser = {
   email: string
   avatar: string
   departman?: string | null
+}
+
+type DashboardHomeProps = {
+  user: DashboardUser
+  departmentPermissions?: ResolvedDepartmentPermissions
 }
 
 interface Announcement {
@@ -148,7 +154,7 @@ const SUMMARY_RETRY_MS = 400
 /** Duyuru gövdesi kaydırmasında “sona gelindi” toleransı (px) */
 const ANNOUNCEMENT_SCROLL_END_PX = 16
 
-export function DashboardHome({ user }: { user: DashboardUser }) {
+export function DashboardHome({ user, departmentPermissions = {} as ResolvedDepartmentPermissions }: DashboardHomeProps) {
   const pathname = usePathname()
   const { t } = useLanguage()
   const d = t.dashboard
@@ -206,9 +212,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
   const [loadError, setLoadError] = useState<string | null>(null)
 
   const canAnnounce =
-    user.departman === "Quality" ||
-    user.departman === "Human Resources" ||
-    isAdminDepartment(user.departman)
+    !!departmentPermissions?.[DEPARTMENT_PERMISSION_KEYS.CONFIGURATIONS_AREA]
 
   const showAllMeetingTasks = canViewAllMeetingTasks(user.departman)
 
@@ -386,7 +390,7 @@ export function DashboardHome({ user }: { user: DashboardUser }) {
   }, [openAnnouncementId, announcements, updateAckReadinessFromEl])
 
   const canOpenMeetingsPage =
-    user.departman === "Quality" || isAdminDepartment(user.departman)
+    !!departmentPermissions?.[DEPARTMENT_PERMISSION_KEYS.MEETINGS]
 
   const meetingTasksTableRows = useMemo(() => {
     const overdue = tasksOverdue.map((t) => ({ ...t, bucket: "overdue" as const }))

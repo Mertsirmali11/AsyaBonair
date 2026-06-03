@@ -101,7 +101,60 @@ export async function PATCH(req: Request, ctx: Ctx) {
 
   try {
     await prisma.$transaction(async (tx) => {
-      await tx.auditChecklistItem.deleteMany({ where: { auditChecklistId: id } })
+      // Oturumda kullanılan item ID'lerini bul
+      const usedItemIds = new Set(
+        (await tx.auditSessionItem.findMany({
+          where: { checklistItem: { auditChecklistId: id } },
+          select: { auditChecklistItemId: true },
+        })).map((r) => r.auditChecklistItemId)
+      )
+
+      // Kullanılmayan item'ları sil
+      await tx.auditChecklistItem.deleteMany({
+        where: {
+          auditChecklistId: id,
+          ...(usedItemIds.size > 0 ? { id: { notIn: [...usedItemIds] } } : {}),
+        },
+      })
+
+      // Kullanılan item'ları mevcut sıralarına göre güncelle
+      if (usedItemIds.size > 0) {
+        const usedItems = await tx.auditChecklistItem.findMany({
+          where: { id: { in: [...usedItemIds] } },
+          orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+        })
+        for (let i = 0; i < usedItems.length; i++) {
+          const newData = items[i]
+          if (!newData) break
+          await tx.auditChecklistItem.update({
+            where: { id: usedItems[i].id },
+            data: {
+              label: newData.label.slice(0, 8000),
+              sortOrder: newData.sortOrder,
+              isRequired: !newData.isHeading,
+              reference: newData.reference,
+              section: newData.section,
+              isHeading: newData.isHeading,
+            },
+          })
+        }
+      }
+
+      // Kullanılan item sayısının ötesindeki yeni item'ları oluştur
+      const itemsToCreate = usedItemIds.size > 0 ? items.slice(usedItemIds.size) : items
+      if (itemsToCreate.length > 0) {
+        await tx.auditChecklistItem.createMany({
+          data: itemsToCreate.map((it) => ({
+            auditChecklistId: id,
+            label: it.label,
+            sortOrder: it.sortOrder,
+            isRequired: !it.isHeading,
+            reference: it.reference,
+            section: it.section,
+            isHeading: it.isHeading,
+          })),
+        })
+      }
 
       let nextLatestRev: number | null = null
       if (bumpRevision) {
@@ -129,19 +182,6 @@ export async function PATCH(req: Request, ctx: Ctx) {
             : {}),
         },
       })
-      if (items.length > 0) {
-        await tx.auditChecklistItem.createMany({
-          data: items.map((it) => ({
-            auditChecklistId: id,
-            label: it.label,
-            sortOrder: it.sortOrder,
-            isRequired: !it.isHeading,
-            reference: it.reference,
-            section: it.section,
-            isHeading: it.isHeading,
-          })),
-        })
-      }
 
       if (bumpRevision && nextLatestRev !== null) {
         await tx.auditChecklistRevision.create({

@@ -950,7 +950,7 @@ function RiskAssessmentPrintDocument({
               </div>
             </td>
             <td style={{ width: "22%", verticalAlign: "top", textAlign: "right", padding: "4px 0 4px 8px" }}>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>BON AIR</div>
+              <img src="/logo-bonjour.png" alt="BON JOUR" style={{ height: 28, maxWidth: 90, objectFit: "contain" }} />
               <div style={{ fontSize: 10, color: "#71717a", marginTop: 6 }}>
                 Revision date
               </div>

@@ -1,13 +1,10 @@
 "use client"
 
 import * as React from "react"
-import { IconDeviceFloppy, IconInfoCircle, IconPlus } from "@tabler/icons-react"
+import { IconDeviceFloppy, IconInfoCircle } from "@tabler/icons-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -33,6 +30,7 @@ import { normalizeDepartmentKey } from "@/lib/department-access"
 import type { DepartmentPermissionCatalogEntry } from "@/lib/department-permission-keys"
 import { legacyDepartmentPermission } from "@/lib/department-permissions-legacy"
 import { isValidCustomManualDepartment } from "@/lib/organization-departments"
+import { useLanguage } from "@/lib/i18n/context"
 
 type Mode = "inherit" | "allow" | "deny"
 
@@ -61,6 +59,8 @@ function cloneMatrix(rows: MatrixRow[]): MatrixRow[] {
 }
 
 export function ConfigDepartmentPermissionsClient() {
+  const { t } = useLanguage()
+  const dp = t.deptPermissions
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
   const [catalog, setCatalog] = React.useState<DepartmentPermissionCatalogEntry[]>([])
@@ -250,72 +250,29 @@ export function ConfigDepartmentPermissionsClient() {
 
   if (loading) {
     return (
-      <p className="text-muted-foreground text-sm">Yetki matrisi yükleniyor…</p>
+      <p className="text-muted-foreground text-sm">{dp.loading}</p>
     )
   }
 
   return (
     <TooltipProvider>
       <div className="flex max-w-[1200px] flex-col gap-6">
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-base font-semibold">
-              Departman bazlı izinler
-            </CardTitle>
-            <CardDescription>
-              <span className="inline-flex items-start gap-2">
-                <IconInfoCircle className="mt-0.5 size-4 shrink-0" />
-                <span>
-                  <strong>Varsayılan (kod)</strong> satır yoksa uygulanan kurallardır (
-                  örn. Quality + Admin için Compliance Monitoring).{" "}
-                  <strong>Açık / Kapalı</strong> seçildiğinde veritabanında kesin kayıt
-                  oluşur.
-                </span>
-              </span>
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-muted-foreground text-sm">
-              Tüm yapılandırma menüsüne erişimi kapatırsanız bu sayfayı da açamazsınız;
-              en az bir departmanda &quot;Configurations&quot; iznini açık tutun veya tüm
-              hücreleri varsayılan bırakın.
-            </p>
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="min-w-[200px] flex-1 space-y-2">
-                <Label htmlFor="new-dept-perm">Tabloya departman ekle</Label>
-                <Input
-                  id="new-dept-perm"
-                  placeholder="Örn. Flight Operations"
-                  value={newDept}
-                  onChange={(e) => setNewDept(e.target.value)}
-                />
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void addDepartmentRow()}
-                disabled={addingDept}
-              >
-                <IconPlus className="size-4" />
-                {addingDept ? "Ekleniyor…" : "Departman oluştur ve ekle"}
-              </Button>
-              <Button type="button" onClick={save} disabled={saving}>
-                <IconDeviceFloppy className="size-4" />
-                {saving ? "Kaydediliyor…" : "Kaydet"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="flex items-center gap-3">
+          <Button type="button" onClick={save} disabled={saving}>
+            <IconDeviceFloppy className="size-4" />
+            {saving ? dp.saving : dp.save}
+          </Button>
+        </div>
 
         {/* Sticky save bar — appears when there are unsaved changes */}
         {isDirty && (
           <div className="sticky bottom-4 z-50 flex items-center justify-between gap-4 rounded-xl border border-amber-300 bg-amber-50 px-5 py-3 shadow-lg dark:border-amber-700 dark:bg-amber-950/40">
             <span className="text-sm font-medium text-amber-800 dark:text-amber-300">
-              ⚠ Kaydedilmemiş değişiklikler var
+              {dp.unsavedChanges}
             </span>
             <Button type="button" onClick={save} disabled={saving} className="bg-emerald-600 hover:bg-emerald-700 text-white px-6">
               <IconDeviceFloppy className="size-4" />
-              {saving ? "Kaydediliyor…" : "Kaydet"}
+              {saving ? dp.saving : dp.save}
             </Button>
           </div>
         )}
@@ -324,7 +281,7 @@ export function ConfigDepartmentPermissionsClient() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="min-w-[160px]">Departman</TableHead>
+                <TableHead className="min-w-[160px]">{dp.colDepartment}</TableHead>
                 {catalog.map((c) => (
                   <TableHead key={c.key} className="min-w-[140px] text-center">
                     <span className="inline-flex items-center justify-center gap-1">
@@ -334,7 +291,7 @@ export function ConfigDepartmentPermissionsClient() {
                           <button
                             type="button"
                             className="text-muted-foreground hover:text-foreground"
-                            aria-label={`${c.label} açıklaması`}
+                            aria-label={c.label}
                           >
                             <IconInfoCircle className="size-3.5" />
                           </button>
@@ -355,11 +312,11 @@ export function ConfigDepartmentPermissionsClient() {
                     colSpan={1 + catalog.length}
                     className="text-muted-foreground text-center text-sm"
                   >
-                    Kayıtlı departman yok. Önce{" "}
+                    {dp.noDepts}{" "}
                     <a href="/configurations/departments" className="underline">
-                      Departmanlar
+                      {dp.noDeptsDepartments}
                     </a>{" "}
-                    sayfasından ekleyin veya yukarıdan manuel satır ekleyin.
+                    {dp.noDeptsSuffix}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -381,9 +338,9 @@ export function ConfigDepartmentPermissionsClient() {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="inherit">Varsayılan (kod)</SelectItem>
-                              <SelectItem value="allow">Açık</SelectItem>
-                              <SelectItem value="deny">Kapalı</SelectItem>
+                              <SelectItem value="inherit">{dp.optDefault}</SelectItem>
+                              <SelectItem value="allow">{dp.optOpen}</SelectItem>
+                              <SelectItem value="deny">{dp.optClosed}</SelectItem>
                             </SelectContent>
                           </Select>
                           <span
@@ -393,7 +350,7 @@ export function ConfigDepartmentPermissionsClient() {
                                 : "text-center text-[11px] text-muted-foreground"
                             }
                           >
-                            Etkili: {cell.effective ? "Evet" : "Hayır"}
+                            {cell.effective ? dp.effectiveYes : dp.effectiveNo}
                           </span>
                         </div>
                       </TableCell>
