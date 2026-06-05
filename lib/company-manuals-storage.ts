@@ -192,21 +192,47 @@ function companyManualsDownloadBuckets(): string[] {
   return [primary, fb]
 }
 
+const COMPANY_MANUALS_PREFIX = "company-manuals/"
+
+/** Eski kayıtlar / bucket fallback sonrası yol öneki farklı olabilir. */
+function companyManualDownloadPathCandidates(storagePath: string): string[] {
+  const normalized = storagePath.trim().replace(/^\/+/, "")
+  if (!normalized) return []
+  const out = new Set<string>([normalized])
+  if (normalized.startsWith(COMPANY_MANUALS_PREFIX)) {
+    out.add(normalized.slice(COMPANY_MANUALS_PREFIX.length))
+  } else {
+    out.add(`${COMPANY_MANUALS_PREFIX}${normalized}`)
+  }
+  return [...out]
+}
+
 export async function downloadCompanyManualFile(
   storagePath: string
 ): Promise<Buffer | null> {
+  const paths = companyManualDownloadPathCandidates(storagePath)
+  if (paths.length === 0) return null
   try {
     const supabase = getSupabaseAdmin()
     for (const bucket of companyManualsDownloadBuckets()) {
-      const { data, error } = await supabase.storage
-        .from(bucket)
-        .download(storagePath)
-      if (!error && data) {
-        return Buffer.from(await data.arrayBuffer())
+      for (const path of paths) {
+        const { data, error } = await supabase.storage.from(bucket).download(path)
+        if (!error && data) {
+          return Buffer.from(await data.arrayBuffer())
+        }
+        if (error) {
+          console.warn(
+            "[company-manuals-storage] download miss:",
+            bucket,
+            path,
+            error.message
+          )
+        }
       }
     }
     return null
-  } catch {
+  } catch (e) {
+    console.error("[company-manuals-storage] download exception:", e)
     return null
   }
 }

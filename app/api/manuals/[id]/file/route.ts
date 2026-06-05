@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
 import { contentTypeFromFileName } from "@/lib/allowed-document-uploads"
@@ -6,8 +6,14 @@ import { downloadCompanyManualFile } from "@/lib/company-manuals-storage"
 
 export const runtime = "nodejs"
 
+function asciiFallbackFileName(name: string): string {
+  const t = name.trim() || "manual.pdf"
+  const ascii = t.replace(/[^\x20-\x7E]/g, "_").replace(/\s+/g, "_")
+  return ascii.slice(0, 180) || "manual.pdf"
+}
+
 export async function GET(
-  _request: Request,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -30,7 +36,7 @@ export async function GET(
       },
     })
 
-    if (!manual?.fileStoragePath) {
+    if (!manual?.fileStoragePath?.trim()) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
 
@@ -42,19 +48,29 @@ export async function GET(
       )
     }
 
-    const safeName = (manual.fileName ?? "manual").replace(/[\r\n"]/g, "_")
+    const displayName = (manual.fileName ?? "manual").trim() || "manual"
+    const ascii = asciiFallbackFileName(displayName)
+    const utf8 = encodeURIComponent(displayName)
+    const download = req.nextUrl.searchParams.get("download") === "1"
+    const disposition = download
+      ? `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`
+      : `inline; filename="${ascii}"; filename*=UTF-8''${utf8}`
 
-    return new NextResponse(new Uint8Array(buffer), {
+    return new Response(new Uint8Array(buffer), {
+      status: 200,
       headers: {
-        "Content-Type": contentTypeFromFileName(safeName),
-        "Content-Disposition": `inline; filename="${safeName}"`,
+        "Content-Type": contentTypeFromFileName(displayName),
+        "Content-Disposition": disposition,
         "Cache-Control": "private, max-age=3600",
-        // Allow same-origin iframes (overrides global X-Frame-Options: DENY)
         "X-Frame-Options": "SAMEORIGIN",
       },
     })
   } catch (e) {
-    console.error("GET /api/manuals/[id]/file:", e)
-    return NextResponse.json({ error: "Dosya sunulamadı." }, { status: 500 })
+    const detail = e instanceof Error ? e.message : String(e)
+    console.error("GET /api/manuals/[id]/file:", detail)
+    return NextResponse.json(
+      { error: `Dosya sunulamadı: ${detail}` },
+      { status: 500 }
+    )
   }
 }
