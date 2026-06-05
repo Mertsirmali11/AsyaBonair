@@ -28,7 +28,8 @@ const nextConfig: NextConfig = {
     return [
       {
         // Tüm rotalar için güvenlik başlıkları (dosya önizleme rotaları hariç)
-        source: "/((?!api/manuals/[^/]+/file)(?!api/department-forms/[^/]+/file).*)",
+        source:
+          "/((?!api/manuals/[^/]+/file)(?!api/department-forms/[^/]+/file)(?!api/aircraft/documents/[^/]+/file).*)",
         headers: SECURITY_HEADERS,
       },
       {
@@ -42,6 +43,13 @@ const nextConfig: NextConfig = {
       {
         // Departman form dosya indirme: iframe önizleme için SAMEORIGIN
         source: "/api/department-forms/:id/file",
+        headers: [
+          ...securityHeadersWithoutFrameOptions,
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+        ],
+      },
+      {
+        source: "/api/aircraft/documents/:docId/file",
         headers: [
           ...securityHeadersWithoutFrameOptions,
           { key: "X-Frame-Options", value: "SAMEORIGIN" },

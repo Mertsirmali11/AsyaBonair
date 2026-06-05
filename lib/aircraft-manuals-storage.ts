@@ -5,13 +5,49 @@ import {
   isAllowedCorrespondenceDocumentFile,
   resolveDocumentMimeForUpload,
 } from "@/lib/allowed-document-uploads"
+import { getStorageBucket } from "@/lib/supabase-storage"
 
-export function getAircraftManualsBucket(): string {
+const FALLBACK_PREFIX = "aircraft-documents/"
+
+function dedicatedAircraftBucketName(): string {
   return (
     process.env.SUPABASE_AIRCRAFT_MANUALS_BUCKET ||
     process.env.NEXT_PUBLIC_SUPABASE_AIRCRAFT_MANUALS_BUCKET ||
-    "Aircraft-Manuals"
+    ""
   )
+    .trim()
+}
+
+export function getAircraftManualsBucket(): string {
+  const dedicated = dedicatedAircraftBucketName()
+  if (dedicated) return dedicated
+  return "Aircraft-Manuals"
+}
+
+function aircraftObjectPrefix(bucket: string): string {
+  const dedicated = dedicatedAircraftBucketName()
+  if (dedicated && bucket === dedicated) return ""
+  if (bucket === getStorageBucket()) return FALLBACK_PREFIX
+  return ""
+}
+
+function aircraftDownloadBuckets(): string[] {
+  const primary = getAircraftManualsBucket()
+  const fb = getStorageBucket()
+  if (fb === primary) return [primary]
+  return [primary, fb]
+}
+
+function aircraftDownloadPathCandidates(storagePath: string): string[] {
+  const normalized = storagePath.trim().replace(/^\/+/, "")
+  if (!normalized) return []
+  const out = new Set<string>([normalized])
+  if (normalized.startsWith(FALLBACK_PREFIX)) {
+    out.add(normalized.slice(FALLBACK_PREFIX.length))
+  } else {
+    out.add(`${FALLBACK_PREFIX}${normalized}`)
+  }
+  return [...out]
 }
 
 let supabaseAdminInstance: SupabaseClient | null = null
@@ -37,6 +73,35 @@ export function sanitizeRegisterSegment(register: string): string {
 
 const MAX_PDF_BYTES = 50 * 1024 * 1024
 
+async function tryUploadToBucket(
+  bucket: string,
+  storagePath: string,
+  buffer: Buffer,
+  file: File
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const supabase = getSupabaseAdmin()
+  const mime = resolveDocumentMimeForUpload(file)
+  const doUpload = (contentType: string) =>
+    supabase.storage.from(bucket).upload(storagePath, buffer, {
+      contentType,
+      upsert: false,
+    })
+  let { error } = await doUpload(mime)
+  if (
+    error &&
+    /mime type .+ is not supported/i.test(error.message || "")
+  ) {
+    const retry = await doUpload("application/octet-stream")
+    if (!retry.error) error = null
+    else error = retry.error
+  }
+  if (error) {
+    console.error("[aircraft-manuals-storage] upload:", bucket, storagePath, error)
+    return { ok: false, message: error.message || "Depoya yüklenemedi." }
+  }
+  return { ok: true }
+}
+
 export async function uploadAircraftManualPdf(
   file: File,
   register: string,
@@ -52,29 +117,50 @@ export async function uploadAircraftManualPdf(
         .replace(/[^a-zA-Z0-9._-]/g, "_")
         .replace(/\.\./g, "_")
         .replace(/\s+/g, "_") || "document.pdf"
-    const storagePath = `${reg}/${category}/${Date.now()}_${safe}`
+    const relPath = `${reg}/${category}/${Date.now()}_${safe}`
 
     const buffer = Buffer.from(await file.arrayBuffer())
-    const supabase = getSupabaseAdmin()
-    const bucket = getAircraftManualsBucket()
-    const mime = resolveDocumentMimeForUpload(file)
-    const doUpload = (contentType: string) =>
-      supabase.storage.from(bucket).upload(storagePath, buffer, {
-        contentType,
-        upsert: false,
-      })
-    let { error } = await doUpload(mime)
-    if (
-      error &&
-      /mime type .+ is not supported/i.test(error.message || "")
-    ) {
-      const retry = await doUpload("application/octet-stream")
-      if (!retry.error) error = null
-      else error = retry.error
+    const primaryBucket = getAircraftManualsBucket()
+    let storagePath = `${aircraftObjectPrefix(primaryBucket)}${relPath}`
+
+    let attempt = await tryUploadToBucket(
+      primaryBucket,
+      storagePath,
+      buffer,
+      file
+    )
+    if (attempt.ok) {
+      return { path: storagePath, fileName: file.name }
     }
-    if (error) throw error
-    return { path: storagePath, fileName: file.name }
-  } catch {
+
+    const looksLikeMissingBucket =
+      /not found|does not exist|No such bucket|Bucket not found/i.test(
+        attempt.message
+      )
+    const dedicated = dedicatedAircraftBucketName()
+    if (looksLikeMissingBucket) {
+      const fallbackBucket = getStorageBucket()
+      if (fallbackBucket !== primaryBucket || dedicated) {
+        const fbBucket = getStorageBucket()
+        storagePath = `${FALLBACK_PREFIX}${relPath}`
+        attempt = await tryUploadToBucket(
+          fbBucket,
+          storagePath,
+          buffer,
+          file
+        )
+        if (attempt.ok) {
+          console.warn(
+            `[aircraft-manuals-storage] Used fallback bucket "${fbBucket}" for aircraft document`
+          )
+          return { path: storagePath, fileName: file.name }
+        }
+      }
+    }
+
+    return null
+  } catch (e) {
+    console.error("[aircraft-manuals-storage] upload exception:", e)
     return null
   }
 }
@@ -82,14 +168,29 @@ export async function uploadAircraftManualPdf(
 export async function downloadAircraftManualFile(
   storagePath: string
 ): Promise<Buffer | null> {
+  const paths = aircraftDownloadPathCandidates(storagePath)
+  if (paths.length === 0) return null
   try {
     const supabase = getSupabaseAdmin()
-    const { data, error } = await supabase.storage
-      .from(getAircraftManualsBucket())
-      .download(storagePath)
-    if (error) return null
-    return Buffer.from(await data.arrayBuffer())
-  } catch {
+    for (const bucket of aircraftDownloadBuckets()) {
+      for (const path of paths) {
+        const { data, error } = await supabase.storage.from(bucket).download(path)
+        if (!error && data) {
+          return Buffer.from(await data.arrayBuffer())
+        }
+        if (error) {
+          console.warn(
+            "[aircraft-manuals-storage] download miss:",
+            bucket,
+            path,
+            error.message
+          )
+        }
+      }
+    }
+    return null
+  } catch (e) {
+    console.error("[aircraft-manuals-storage] download exception:", e)
     return null
   }
 }
@@ -99,10 +200,15 @@ export async function deleteAircraftManualFile(
 ): Promise<boolean> {
   try {
     const supabase = getSupabaseAdmin()
-    const { error } = await supabase.storage
-      .from(getAircraftManualsBucket())
-      .remove([storagePath])
-    return !error
+    const paths = aircraftDownloadPathCandidates(storagePath)
+    let ok = false
+    for (const bucket of aircraftDownloadBuckets()) {
+      for (const path of paths) {
+        const { error } = await supabase.storage.from(bucket).remove([path])
+        if (!error) ok = true
+      }
+    }
+    return ok
   } catch {
     return false
   }
