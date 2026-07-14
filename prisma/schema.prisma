@@ -1284,3 +1284,60 @@ model CompanyStatusLog {
   @@index([statusDate(sort: Desc)])
   @@map("company_status_logs")
 }
+
+/// SHGM (mevzuat.shgm.gov.tr) üzerinden takip edilen mevzuat kaydı — kategori sayfası taranarak bulunur
+model ShgmRegulation {
+  id                 Int       @id @default(autoincrement())
+  title              String    @db.VarChar(500)
+  /// sektorel | kurumsal | uluslararasi | kaldirilan
+  category           String    @db.VarChar(40)
+  /// Mevzuatın listelendiği SHGM kategori sayfası
+  sourceUrl          String    @map("source_url") @db.Text
+  /// category + title slug — taramalar arası eşleştirme anahtarı
+  sourceKey          String    @unique @map("source_key") @db.VarChar(300)
+  /// Configurations → Departmanlar ile aynı serbest metin
+  department         String?   @db.VarChar(100)
+  /// new | reviewed
+  status             String    @default("new") @db.VarChar(20)
+  publishDate        DateTime? @map("publish_date") @db.Date
+  latestRevisionNo   String?   @map("latest_revision_no") @db.VarChar(40)
+  latestRevisionDate DateTime? @map("latest_revision_date") @db.Date
+  /// Başlık dışı tüm hücrelerin ham metni — kolon anlamı yakalanamasa da değişiklik tespiti için yedek
+  latestRawFingerprint String? @map("latest_raw_fingerprint") @db.Text
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  revisions ShgmRegulationRevision[]
+
+  @@index([category])
+  @@index([status])
+  @@map("shgm_regulations")
+}
+
+/// Bir ShgmRegulation için tespit edilen her yeni yayım / revizyon olayının kaydı
+model ShgmRegulationRevision {
+  id             Int       @id @default(autoincrement())
+  regulationId   Int       @map("regulation_id")
+  /// created | revised
+  kind           String    @db.VarChar(20)
+  revisionNo     String?   @map("revision_no") @db.VarChar(40)
+  revisionDate   DateTime? @map("revision_date") @db.Date
+  pdfStoragePath String?   @map("pdf_storage_path") @db.Text
+  pdfFileName    String?   @map("pdf_file_name") @db.VarChar(255)
+  sourceUrl      String    @map("source_url") @db.Text
+  detectedAt     DateTime  @default(now()) @map("detected_at")
+  emailSentAt    DateTime? @map("email_sent_at")
+
+  regulation ShgmRegulation @relation(fields: [regulationId], references: [id], onDelete: Cascade)
+
+  @@index([regulationId])
+  @@map("shgm_regulation_revisions")
+}
+
+/// Kategori için varsayılan sorumlu departman — yeni mevzuat tespit edildiğinde otomatik atanır
+model ShgmCategoryDefaultDepartment {
+  category   String @id @db.VarChar(40)
+  department String @db.VarChar(100)
+
+  @@map("shgm_category_default_departments")
+}

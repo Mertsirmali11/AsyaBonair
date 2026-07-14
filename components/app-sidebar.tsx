@@ -184,6 +184,7 @@ export function AppSidebar({
     { title: t.nav.auditPlan, url: "/compliance/audit-plan" },
     { title: t.nav.checklists, url: "/compliance/checklists" },
     { title: t.nav.findingsFollowUp, url: "/compliance/findings-follow-up" },
+    { title: t.nav.shgmMevzuat, url: "/compliance/shgm-mevzuat" },
   ]
   const flushMessagesGutter =
     pathname === "/messages" || pathname?.startsWith("/messages/")
@@ -893,9 +894,9 @@ export function AppSidebar({
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border p-2 space-y-1">
-        <div className="flex justify-center px-1 py-1">
+        {/* <div className="flex justify-center px-1 py-1">
           <LanguageToggle className="w-full justify-center" />
-        </div>
+        </div> */}
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
