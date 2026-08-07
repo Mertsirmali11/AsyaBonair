@@ -4,16 +4,10 @@ import { prisma } from "@/lib/prisma-server"
 import { auth } from "@/auth"
 import { canAccessConfigurationsArea } from "@/lib/department-access"
 import {
-  ALLOWED_DOCUMENTS_ERROR_EN,
-  isAllowedCorrespondenceDocumentFile,
-} from "@/lib/allowed-document-uploads"
-import {
-  assignUniquePdfStorageNames,
-  OUTGOING_PDF_MAX_TOTAL_BYTES,
   type OutgoingStoredAttachment,
 } from "@/lib/outgoing-correspondence-attachments"
 import { setOutgoingPdfAttachmentsJsonb } from "@/lib/persist-correspondence-pdf-jsonb"
-import { deletePdfFromStorage, uploadPdfToStorage } from "@/lib/supabase-storage"
+import { deletePdfFromStorage, moveInStorage } from "@/lib/supabase-storage"
 import {
   allocateOutgoingPaperNo,
   ensureOutgoingSingleStreamDept,
@@ -80,16 +74,31 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    const formData = await request.formData()
+    const body = (await request.json().catch(() => null)) as {
+      to?: string
+      subject?: string
+      date?: string
+      content?: string
+      createdBy?: string
+      attachments?: { path: string; fileName: string }[]
+    } | null
+    if (!body) {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
+    }
 
-    const to = formData.get("to") as string
-    const subject = formData.get("subject") as string
-    const dateStr = formData.get("date") as string
-    const content = formData.get("content") as string
-    const createdBy = formData.get("createdBy") as string
-    const pdfFiles = formData
-      .getAll("pdf")
-      .filter((f): f is File => f instanceof File && f.size > 0)
+    const to = String(body.to ?? "").trim()
+    const subject = String(body.subject ?? "").trim()
+    const dateStr = String(body.date ?? "").trim()
+    const content = String(body.content ?? "")
+    const createdBy = String(body.createdBy ?? "")
+    // Bu ekler, tarayıcının /api/correspondence-uploads üzerinden doğrudan
+    // Supabase'e önceden yüklediği "pending" dosyalara işaret eder.
+    const pendingAttachments = Array.isArray(body.attachments)
+      ? body.attachments.filter(
+          (a): a is { path: string; fileName: string } =>
+            !!a && typeof a.path === "string" && typeof a.fileName === "string"
+        )
+      : []
 
     if (!to || !subject || !dateStr) {
       return NextResponse.json(
@@ -106,21 +115,6 @@ export async function POST(request: Request) {
         { error: "Invalid date format" },
         { status: 400 }
       )
-    }
-
-    if (pdfFiles.length > 0) {
-      const totalBytes = pdfFiles.reduce((s, f) => s + f.size, 0)
-      if (totalBytes > OUTGOING_PDF_MAX_TOTAL_BYTES) {
-        return NextResponse.json(
-          { error: "Total attachment size must not exceed 50MB" },
-          { status: 400 }
-        )
-      }
-      for (const f of pdfFiles) {
-        if (!isAllowedCorrespondenceDocumentFile(f)) {
-          return NextResponse.json({ error: ALLOWED_DOCUMENTS_ERROR_EN }, { status: 400 })
-        }
-      }
     }
 
     // Allocate the paper number and create the DB record atomically in one
@@ -212,36 +206,34 @@ export async function POST(request: Request) {
       await prisma.outgoingCorrespondence.delete({ where: { id: correspondence.id } })
     }
 
-    if (pdfFiles.length > 0) {
-      const storageNames = assignUniquePdfStorageNames(pdfFiles)
+    if (pendingAttachments.length > 0) {
       const uploaded: OutgoingStoredAttachment[] = []
       const folderPrefix = `outgoing/${paperNo}`
 
       try {
-        for (let i = 0; i < pdfFiles.length; i++) {
-          const uploadResult = await uploadPdfToStorage(pdfFiles[i], folderPrefix, {
-            storageFileName: storageNames[i],
-          })
-          if (!uploadResult.ok) {
+        for (const att of pendingAttachments) {
+          const target = `${folderPrefix}/${att.fileName}`
+          const moveResult = await moveInStorage(att.path, target)
+          if (!moveResult.ok) {
             for (const a of uploaded) {
               await deletePdfFromStorage(a.path)
             }
             await deleteCorrespondence()
             await releaseAllocatedNumber()
             return NextResponse.json(
-              { error: `Dosya yüklenemedi (${pdfFiles[i].name}): ${uploadResult.message}` },
+              { error: `Dosya taşınamadı (${att.fileName}): ${moveResult.message}` },
               { status: 500 }
             )
           }
-          uploaded.push({ path: uploadResult.path, fileName: uploadResult.fileName })
+          uploaded.push({ path: target, fileName: att.fileName })
         }
       } catch (fileError: unknown) {
-        console.error("File upload error:", fileError)
+        console.error("File move error:", fileError)
         await deleteCorrespondence()
         await releaseAllocatedNumber()
         const msg = fileError instanceof Error ? fileError.message : "Unknown error"
         return NextResponse.json(
-          { error: `File upload failed: ${msg}` },
+          { error: `File move failed: ${msg}` },
           { status: 500 }
         )
       }

@@ -91,6 +91,41 @@ export function isAllowedCorrespondenceDocumentFile(file: File): boolean {
   return ext !== null && ALLOWED_EXT.has(ext)
 }
 
+/**
+ * Gelen/Giden Evrak ekleri — yukarıdakine ek olarak taranmış görsel formatları
+ * da kabul eder (PNG, JPG/JPEG). Yalnızca correspondence akışlarında kullanılır;
+ * diğer modüllerin (manuals, aircraft docs, AI parse vb.) doğrulaması etkilenmez.
+ */
+const CORRESPONDENCE_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg"] as const
+const CORRESPONDENCE_IMAGE_MIME_TYPES = ["image/png", "image/jpeg"] as const
+const CORRESPONDENCE_EXT = new Set<string>([...ALLOWED_EXT, ...CORRESPONDENCE_IMAGE_EXTENSIONS])
+const CORRESPONDENCE_MIME = new Set<string>([...ALLOWED_MIME, ...CORRESPONDENCE_IMAGE_MIME_TYPES])
+
+export const CORRESPONDENCE_ACCEPT_HTML = [
+  ...EXTENSIONS,
+  ...CORRESPONDENCE_IMAGE_EXTENSIONS,
+  ...MIME_TYPES,
+  ...CORRESPONDENCE_IMAGE_MIME_TYPES,
+].join(",")
+
+export const CORRESPONDENCE_ALLOWED_TYPES_USER_MESSAGE =
+  "PDF, Word, Excel, PowerPoint veya görsel (.pdf, .doc, .docx, .xls, .xlsx, .ppt, .pptx, .png, .jpg, .jpeg)"
+
+export const CORRESPONDENCE_ALLOWED_ERROR_EN =
+  "Allowed file types: PDF, Word, Excel, PowerPoint, and images (PNG, JPG)."
+
+export function isAllowedCorrespondenceDocumentOrImageFile(file: File): boolean {
+  const mime = (file.type || "").trim().toLowerCase()
+  if (mime && CORRESPONDENCE_MIME.has(mime)) return true
+  const ext = lowerExtension(file.name)
+  return ext !== null && CORRESPONDENCE_EXT.has(ext)
+}
+
+export function isAllowedCorrespondenceDocumentOrImageFileName(fileName: string): boolean {
+  const ext = lowerExtension(fileName)
+  return ext !== null && CORRESPONDENCE_EXT.has(ext)
+}
+
 export function isAllowedDepartmentFormFile(file: File): boolean {
   const mime = (file.type || "").trim().toLowerCase()
   if (mime && DEPARTMENT_FORM_MIME.has(mime)) return true
@@ -118,16 +153,33 @@ export function resolveDocumentMimeForUpload(file: File): string {
   return "application/octet-stream"
 }
 
-export function assignUniqueDocumentStorageNames(files: File[]): string[] {
+const CORRESPONDENCE_EXT_TO_MIME: Record<string, string> = {
+  ...EXT_TO_MIME,
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+}
+
+/** `resolveDocumentMimeForUpload` ile aynı, ama Gelen/Giden Evrak'ın kabul ettiği görselleri de tanır. */
+export function resolveCorrespondenceMimeForUpload(file: File): string {
+  const mime = (file.type || "").trim().toLowerCase()
+  if (mime && CORRESPONDENCE_MIME.has(mime)) return mime
+  const ext = lowerExtension(file.name)
+  if (ext && CORRESPONDENCE_EXT_TO_MIME[ext]) return CORRESPONDENCE_EXT_TO_MIME[ext]
+  return "application/octet-stream"
+}
+
+/** Aynı isim (uzantı hariç) mantığı — hem File[] hem de sunucu tarafında sadece isimlerle çalışır. */
+export function assignUniqueDocumentStorageNamesFromNames(names: string[]): string[] {
   const used = new Set<string>()
   const result: string[] = []
-  for (const file of files) {
-    const ext = lowerExtension(file.name)
+  for (const name of names) {
+    const ext = lowerExtension(name)
     const normalizedExt =
       ext && ALLOWED_EXT.has(ext) ? ext : ".pdf"
-    const base = file.name.includes(".")
-      ? file.name.slice(0, file.name.lastIndexOf("."))
-      : file.name
+    const base = name.includes(".")
+      ? name.slice(0, name.lastIndexOf("."))
+      : name
     const stem =
       base
         .replace(/[^a-zA-Z0-9._-]/g, "_")
@@ -143,4 +195,14 @@ export function assignUniqueDocumentStorageNames(files: File[]): string[] {
     result.push(candidate)
   }
   return result
+}
+
+export function assignUniqueDocumentStorageNames(files: File[]): string[] {
+  return assignUniqueDocumentStorageNamesFromNames(files.map((f) => f.name))
+}
+
+/** Yalnızca dosya adına bakarak izinli türde mi (sunucu tarafı ön-doğrulama; henüz File nesnesi yoksa). */
+export function isAllowedCorrespondenceDocumentFileName(fileName: string): boolean {
+  const ext = lowerExtension(fileName)
+  return ext !== null && ALLOWED_EXT.has(ext)
 }

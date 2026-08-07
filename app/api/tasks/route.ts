@@ -44,6 +44,7 @@ export async function GET(req: NextRequest) {
         createdAt: true,
         meetingId: true,
         assigneeId: true,
+        assignedDepartment: true,
         assignee: { select: { isim: true, soyisim: true } },
         meeting: { select: { id: true, meetingNo: true, title: true } },
       },
@@ -91,8 +92,16 @@ export async function POST(req: NextRequest) {
       if (!Number.isNaN(n) && n > 0) meetingId = n
     }
     const title = String(body.title ?? "").trim()
+    const assignedDepartment =
+      typeof body.assignedDepartment === "string" && body.assignedDepartment.trim()
+        ? body.assignedDepartment.trim()
+        : null
+    // Departmana atanmışsa kişi ataması yapılmaz — ikisi karşılıklı dışlar.
     const assigneeId =
-      body.assigneeId !== undefined && body.assigneeId !== null && body.assigneeId !== ""
+      !assignedDepartment &&
+      body.assigneeId !== undefined &&
+      body.assigneeId !== null &&
+      body.assigneeId !== ""
         ? Number(body.assigneeId)
         : null
     const dueDate = body.dueDate ? new Date(String(body.dueDate)) : null
@@ -116,6 +125,7 @@ export async function POST(req: NextRequest) {
         meetingId,
         title,
         assigneeId,
+        assignedDepartment,
         dueDate,
         status,
         assignedById: calisan.id,

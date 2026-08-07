@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma-server"
 import { isAdminDepartment } from "@/lib/department-access"
+import { isMeetingTaskDepartmentMember } from "@/lib/meeting-task-access"
 
 export async function GET(
   _req: NextRequest,
@@ -62,13 +63,14 @@ export async function GET(
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
 
-    // Access: admin, quality, or involved parties (assignee / assigner)
+    // Access: admin, quality, or involved parties (assignee / assigner / assigned department)
     const viewerId = calisan?.id ?? null
     const isAdminOrQuality =
       session.user.departman === "Quality" || isAdminDepartment(session.user.departman)
     const isAssignee = viewerId != null && task.assigneeId === viewerId
     const isAssigner = viewerId != null && task.assignedById === viewerId
-    if (!isAdminOrQuality && !isAssignee && !isAssigner) {
+    const isDeptMember = isMeetingTaskDepartmentMember(task.assignedDepartment, session.user.departman)
+    if (!isAdminOrQuality && !isAssignee && !isAssigner && !isDeptMember) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -106,7 +108,7 @@ export async function GET(
       session.user.departman === "Quality" || isAdminDepartment(session.user.departman)
     const canReview = task.status === "Pending Review" && (isAssigner || (canEdit && task.assignedById == null))
     const canSubmitProgress =
-      isAssignee &&
+      (isAssignee || isDeptMember) &&
       task.status !== "Completed" &&
       task.status !== "Pending Review" &&
       (task.status === "Pending Assessment" ||
@@ -138,6 +140,7 @@ export async function GET(
       currentCalisanId: viewerId,
       permissions: { canEdit, canReview, canSubmitProgress, canSendMessage },
       assignee: task.assignee,
+      assignedDepartment: task.assignedDepartment,
       filePath: task.filePath,
       fileName: task.fileName,
       messages: task.messages.map((m) => ({
@@ -238,6 +241,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     status?: string
     dueDate?: Date | null
     assigneeId?: number | null
+    assignedDepartment?: string | null
   } = {}
 
   if (typeof body.status === "string") data.status = body.status
@@ -255,7 +259,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (a === null || a === "") data.assigneeId = null
     else {
       const n = Number(a)
-      if (!Number.isNaN(n)) data.assigneeId = n
+      if (!Number.isNaN(n)) {
+        data.assigneeId = n
+        data.assignedDepartment = null // kişiye atama, departman atamasını temizler
+      }
+    }
+  }
+
+  if ("assignedDepartment" in body) {
+    const dep = body.assignedDepartment
+    if (typeof dep === "string" && dep.trim()) {
+      data.assignedDepartment = dep.trim()
+      data.assigneeId = null // departmana atama, kişi atamasını temizler
+    } else if (dep === null || dep === "") {
+      data.assignedDepartment = null
     }
   }
 

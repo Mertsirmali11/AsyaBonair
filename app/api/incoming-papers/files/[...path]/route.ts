@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { canAccessConfigurationsArea } from "@/lib/department-access"
-import { contentTypeFromFileName } from "@/lib/allowed-document-uploads"
-import { downloadPdfFromStorage } from "@/lib/supabase-storage"
+import { createSignedDownloadUrl } from "@/lib/supabase-storage"
 
 export async function GET(
   request: Request,
@@ -28,22 +27,14 @@ export async function GET(
 
     const storagePath = `${paperNo}/${fileName}`
 
-    const fileBuffer = await downloadPdfFromStorage(storagePath)
-
-    if (!fileBuffer) {
-      return NextResponse.json(
-        { error: "File not found" },
-        { status: 404 }
-      )
+    // Vercel fonksiyonu dosyayı buffer'lamaz — tarayıcı doğrudan Supabase'e
+    // yönlendirilir (büyük ekler için de çalışır, ~4.5MB yanıt sınırı yok).
+    const signed = await createSignedDownloadUrl(storagePath)
+    if (!signed.ok) {
+      return NextResponse.json({ error: "File not found" }, { status: 404 })
     }
 
-    return new NextResponse(new Uint8Array(fileBuffer), {
-      headers: {
-        "Content-Type": contentTypeFromFileName(fileName),
-        "Content-Disposition": `inline; filename="${fileName}"`,
-        "Cache-Control": "public, max-age=3600",
-      },
-    })
+    return NextResponse.redirect(signed.url)
   } catch (error) {
     console.error("Error serving file:", error)
     return NextResponse.json(

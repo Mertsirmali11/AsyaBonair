@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
         },
       },
     },
-    orderBy: { plannedDate: "desc" },
+    orderBy: { meetingNo: "desc" },
     ...(!year || year === "All" ? { take: MEETINGS_UNFILTERED_CAP } : {}),
   })
 

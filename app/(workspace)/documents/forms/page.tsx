@@ -1,8 +1,8 @@
-import { redirect } from "next/navigation"
+﻿import { redirect } from "next/navigation"
 
 import { auth } from "@/auth"
 import { DepartmentFormsClient } from "@/components/department-forms-client"
-import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
+import { NavPageTitle } from "@/components/nav-page-title"
 import {
   DEPARTMENT_PERMISSION_KEYS,
   hasDepartmentPermission,
@@ -22,7 +22,7 @@ export default async function DepartmentFormsPage() {
 
   return (
     <>
-      <SetWorkspacePageTitle title="Controlled Documents · Forms" />
+      <NavPageTitle navKeys={["controlledDocuments", "forms"]} />
       <div className="flex flex-1 flex-col gap-4 p-6">
         <DepartmentFormsClient />
       </div>

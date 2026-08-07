@@ -1,7 +1,7 @@
-import { Suspense } from "react"
+﻿import { Suspense } from "react"
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
-import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
+import { NavPageTitle } from "@/components/nav-page-title"
 import { MessagesClient } from "./messages-client"
 
 export default async function MessagesPage() {
@@ -13,7 +13,7 @@ export default async function MessagesPage() {
 
   return (
     <>
-      <SetWorkspacePageTitle title="Messages" />
+      <NavPageTitle navKey="messages" />
       <Suspense
         fallback={
           <div className="text-muted-foreground flex min-h-[min(400px,50dvh)] flex-1 items-center justify-center text-sm">

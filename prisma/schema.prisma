@@ -559,6 +559,8 @@ model MeetingTask {
   /// Dolu ise görev bir toplantıya bağlıdır; toplantı silinince görev de silinir (ON DELETE CASCADE).
   meetingId  Int?      @map("meeting_id")
   assigneeId Int?      @map("assignee_id")
+  /// Dolu ise görev bir kişiye değil doğrudan departmana atanmıştır (assigneeId ile birlikte kullanılmaz).
+  assignedDepartment String? @map("assigned_department") @db.VarChar(100)
   assignedById Int?    @map("assigned_by_id")
   /// Son ret bildiriminde atayanın girdiği metin (yeniden gönderimde temizlenir)
   rejectionReason String? @map("rejection_reason") @db.Text

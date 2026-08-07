@@ -16,6 +16,7 @@ import {
   downloadAnnouncementReportXlsx,
 } from "@/lib/announcement-report-download"
 import { formatDateTimeIstanbul } from "@/lib/date-format"
+import { useLanguage } from "@/lib/i18n/context"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -76,6 +77,9 @@ export function ConfigAnnouncementsClient({
 }: {
   compactHeader?: boolean
 }) {
+  const { t } = useLanguage()
+  const am = t.announcementMgmt
+
   const [items, setItems] = React.useState<ConfigAnnouncement[]>([])
   const [loading, setLoading] = React.useState(true)
   const [query, setQuery] = React.useState("")
@@ -215,8 +219,8 @@ export function ConfigAnnouncementsClient({
       setBanner({
         type: "ok",
         text: next
-          ? "Announcement is active — visible on staff dashboards."
-          : "Announcement is inactive — hidden from staff dashboards.",
+          ? am.activeToast
+          : am.inactiveToast,
       })
     } catch (e) {
       setBanner({
@@ -283,7 +287,7 @@ export function ConfigAnnouncementsClient({
       }
       setBanner({
         type: "ok",
-        text: "Report sent to your email (check inbox / spam).",
+        text: am.emailSent,
       })
     } catch (e) {
       setBanner({
@@ -389,8 +393,8 @@ export function ConfigAnnouncementsClient({
       setBanner({
         type: "ok",
         text: newActive
-          ? "Announcement published. Staff were emailed where configured."
-          : "Announcement saved as inactive. It is not shown on dashboards until you activate it.",
+          ? am.publishedActive
+          : am.publishedInactive,
       })
     } catch (e) {
       setBanner({
@@ -444,7 +448,7 @@ export function ConfigAnnouncementsClient({
         )}
         {compactHeader && (
           <p className="text-muted-foreground min-w-0 max-w-3xl flex-1 text-left text-sm leading-relaxed">
-            Active announcements appear on staff dashboards; inactive ones stay in this list only.
+            {am.pageDesc}
           </p>
         )}
         <Button
@@ -464,7 +468,7 @@ export function ConfigAnnouncementsClient({
           disabled={loading}
         >
           <IconPlus className="size-4 shrink-0" />
-          New announcement
+          {am.newBtn}
         </Button>
       </div>
 
@@ -487,7 +491,7 @@ export function ConfigAnnouncementsClient({
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search title, body, or author…"
+              placeholder={am.searchPlaceholder}
               className="pl-9"
               disabled={loading}
             />
@@ -502,8 +506,8 @@ export function ConfigAnnouncementsClient({
           ) : filtered.length === 0 ? (
             <p className="text-muted-foreground rounded-lg border border-dashed py-12 text-center text-sm">
               {items.length === 0
-                ? "No announcements yet."
-                : "No announcements match your search."}
+                ? am.noItems
+                : am.noMatch}
             </p>
           ) : (
             <ScrollArea className="h-[min(70vh,640px)] pr-3">
@@ -523,7 +527,7 @@ export function ConfigAnnouncementsClient({
                                   : "text-muted-foreground"
                               }
                             >
-                              {a.isActive ? "Active" : "Inactive"}
+                              {a.isActive ? am.active : am.inactive}
                             </Badge>
                           </div>
                           <p className="text-muted-foreground line-clamp-2 text-sm whitespace-pre-wrap">
@@ -532,7 +536,7 @@ export function ConfigAnnouncementsClient({
                           {typeof a.acknowledgedCount === "number" &&
                             typeof a.totalStaff === "number" && (
                               <p className="text-xs font-medium text-sky-800 dark:text-sky-200">
-                                Acknowledged: {a.acknowledgedCount} / {a.totalStaff} staff
+                                {am.acknowledged}: {a.acknowledgedCount} / {a.totalStaff} {am.staff}
                               </p>
                             )}
                           <p className="text-muted-foreground text-xs">
@@ -552,7 +556,7 @@ export function ConfigAnnouncementsClient({
                               htmlFor={`active-${a.id}`}
                               className="text-muted-foreground text-xs whitespace-nowrap"
                             >
-                              Active
+                              {am.activeLabel}
                             </Label>
                             <Switch
                               id={`active-${a.id}`}
@@ -563,7 +567,7 @@ export function ConfigAnnouncementsClient({
                             />
                           </div>
                           <Button type="button" size="sm" onClick={() => openDetail(a)}>
-                            Details
+                            {am.detailsBtn}
                           </Button>
                           <Button
                             type="button"
@@ -574,7 +578,7 @@ export function ConfigAnnouncementsClient({
                             onClick={() => void runExport("pdf", a)}
                           >
                             <IconFileTypePdf className="size-4 shrink-0" />
-                            PDF
+                            {exportingKey === `${a.id}-pdf` ? am.pdfLoading : am.pdfBtn}
                           </Button>
                           <Button
                             type="button"
@@ -585,7 +589,7 @@ export function ConfigAnnouncementsClient({
                             onClick={() => void runExport("xlsx", a)}
                           >
                             <IconDownload className="size-4 shrink-0" />
-                            Excel
+                            {exportingKey === `${a.id}-xlsx` ? am.excelLoading : am.excelBtn}
                           </Button>
                           <Button
                             type="button"
@@ -595,7 +599,7 @@ export function ConfigAnnouncementsClient({
                             onClick={() => setDeleteTarget(a)}
                           >
                             <IconTrash className="mr-1 size-4" />
-                            Delete
+                            {am.deleteBtn}
                           </Button>
                         </div>
                       </CardContent>
@@ -624,7 +628,7 @@ export function ConfigAnnouncementsClient({
         <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>
-              {detailEditing ? "Edit announcement" : "Announcement"}
+              {detailEditing ? am.editTitle : am.viewTitle}
             </DialogTitle>
             <DialogDescription asChild>
               <div className="text-muted-foreground space-y-2 text-left text-xs">
@@ -649,7 +653,7 @@ export function ConfigAnnouncementsClient({
                               : "text-muted-foreground"
                           }
                         >
-                          {readItem.isActive ? "Active" : "Inactive"}
+                          {readItem.isActive ? am.active : am.inactive}
                         </Badge>
                         <div className="flex items-center gap-2">
                           <Label
@@ -724,9 +728,7 @@ export function ConfigAnnouncementsClient({
                           onClick={() => void sendAckReportEmail()}
                         >
                           <IconMailForward className="size-4" />
-                          {emailReportSending
-                            ? "Sending…"
-                            : "Email me the full report"}
+                          {emailReportSending ? am.emailMeLoading : am.emailMeBtn}
                         </Button>
                         <Button
                           type="button"
@@ -737,9 +739,7 @@ export function ConfigAnnouncementsClient({
                           onClick={() => void runExport("pdf", readItem)}
                         >
                           <IconFileTypePdf className="size-4" />
-                          {exportingKey === `${readItem.id}-pdf`
-                            ? "PDF…"
-                            : "Download PDF"}
+                          {exportingKey === `${readItem.id}-pdf` ? am.pdfLoading : am.pdfBtn}
                         </Button>
                         <Button
                           type="button"
@@ -750,9 +750,7 @@ export function ConfigAnnouncementsClient({
                           onClick={() => void runExport("xlsx", readItem)}
                         >
                           <IconDownload className="size-4" />
-                          {exportingKey === `${readItem.id}-xlsx`
-                            ? "Excel…"
-                            : "Download Excel"}
+                          {exportingKey === `${readItem.id}-xlsx` ? am.excelLoading : am.excelBtn}
                         </Button>
                       </div>
                       {(ackStats.acknowledged?.length ?? 0) > 0 && (
@@ -862,7 +860,7 @@ export function ConfigAnnouncementsClient({
                     Cancel
                   </Button>
                   <Button type="button" disabled={savingEdit} onClick={() => void saveEdit()}>
-                    {savingEdit ? "Saving…" : "Save changes"}
+                    {savingEdit ? am.saveLoading : am.saveBtn}
                   </Button>
                 </>
               )}
@@ -884,7 +882,7 @@ export function ConfigAnnouncementsClient({
       >
         <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>New announcement</DialogTitle>
+            <DialogTitle>{am.newBtn}</DialogTitle>
             <DialogDescription>
               Active posts appear on every staff dashboard (including new employees) and are emailed
               to all addresses when Resend is configured. Turn off “Show on dashboard” to save as
@@ -893,24 +891,24 @@ export function ConfigAnnouncementsClient({
           </DialogHeader>
           <div className="flex flex-col gap-4">
             <div className="space-y-2">
-              <Label htmlFor="new-title">Title</Label>
+              <Label htmlFor="new-title">{am.titleLabel}</Label>
               <Input
                 id="new-title"
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
                 disabled={creating}
-                placeholder="Short headline"
+                placeholder={am.titlePlaceholder}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="new-content">Content</Label>
+              <Label htmlFor="new-content">{am.contentLabel}</Label>
               <Textarea
                 id="new-content"
                 value={newContent}
                 onChange={(e) => setNewContent(e.target.value)}
                 className="min-h-40"
                 disabled={creating}
-                placeholder="Full message body"
+                placeholder={am.contentPlaceholder}
               />
             </div>
             <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 px-3 py-2">
@@ -940,7 +938,7 @@ export function ConfigAnnouncementsClient({
               Cancel
             </Button>
             <Button type="button" disabled={creating} onClick={() => void submitCreate()}>
-              {creating ? "Publishing…" : "Publish & email"}
+              {creating ? am.publishLoading : am.publishBtn}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -949,7 +947,7 @@ export function ConfigAnnouncementsClient({
       <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete announcement?</DialogTitle>
+            <DialogTitle>{am.deleteConfirmTitle}</DialogTitle>
             <DialogDescription>
               This cannot be undone. Emails already sent cannot be recalled.
               {deleteTarget && (
@@ -974,7 +972,7 @@ export function ConfigAnnouncementsClient({
               onClick={() => void confirmDelete()}
               disabled={deleting}
             >
-              {deleting ? "Deleting…" : "Delete"}
+              {deleting ? am.deleteLoading : am.deleteBtn}
             </Button>
           </DialogFooter>
         </DialogContent>

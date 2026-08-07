@@ -45,6 +45,79 @@ export type UploadPdfToStorageResult =
   | { ok: true; path: string; fileName: string; publicUrl: string }
   | { ok: false; message: string }
 
+export type SignedUploadUrlResult =
+  | { ok: true; path: string; signedUrl: string; token: string }
+  | { ok: false; message: string }
+
+/**
+ * İmzalı yükleme URL'si üretir — tarayıcı dosyayı bu URL'e doğrudan Supabase'e
+ * PUT eder, Vercel fonksiyonundan (ve onun ~4.5MB gövde sınırından) geçmez.
+ */
+export async function createSignedUploadUrl(
+  storagePath: string
+): Promise<SignedUploadUrlResult> {
+  try {
+    const supabaseAdmin = getSupabaseAdmin()
+    const { data, error } = await supabaseAdmin.storage
+      .from(getStorageBucket())
+      .createSignedUploadUrl(storagePath)
+    if (error || !data) {
+      return {
+        ok: false,
+        message: error?.message || "Could not create signed upload URL",
+      }
+    }
+    return { ok: true, path: data.path, signedUrl: data.signedUrl, token: data.token }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    return { ok: false, message }
+  }
+}
+
+/**
+ * İmzalı indirme URL'si üretir — tarayıcı buradan doğrudan Supabase'den indirir/
+ * önizler, Vercel fonksiyonu dosyayı buffer'lamaz (fonksiyonların de ~4.5MB
+ * yanıt gövdesi sınırı vardır; büyük ekler bu sınırı da aşabilir).
+ */
+export async function createSignedDownloadUrl(
+  storagePath: string,
+  expiresInSeconds = 300
+): Promise<{ ok: true; url: string } | { ok: false; message: string }> {
+  try {
+    const supabaseAdmin = getSupabaseAdmin()
+    const { data, error } = await supabaseAdmin.storage
+      .from(getStorageBucket())
+      .createSignedUrl(storagePath, expiresInSeconds)
+    if (error || !data) {
+      return { ok: false, message: error?.message || "Could not create signed download URL" }
+    }
+    return { ok: true, url: data.signedUrl }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    return { ok: false, message }
+  }
+}
+
+/** Depoda dosya taşır (metadata-only, veri transferi yapmaz) — bekleyen yüklemeyi son klasörüne alır. */
+export async function moveInStorage(
+  fromPath: string,
+  toPath: string
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    const supabaseAdmin = getSupabaseAdmin()
+    const { error } = await supabaseAdmin.storage
+      .from(getStorageBucket())
+      .move(fromPath, toPath)
+    if (error) {
+      return { ok: false, message: error.message || "Move failed" }
+    }
+    return { ok: true }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    return { ok: false, message }
+  }
+}
+
 export async function uploadPdfToStorage(
   file: File,
   folderPrefix: string,

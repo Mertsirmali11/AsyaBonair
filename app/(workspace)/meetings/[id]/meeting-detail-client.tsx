@@ -13,12 +13,13 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { MeetingTasks } from "@/components/meeting-tasks"
 import {
-  Upload, History, Paperclip, Users, ClipboardList, ListChecks,
+  // Upload,
+  History, Paperclip, Users, ClipboardList, ListChecks,
   Download, FileText, FileSpreadsheet, ChevronDown, CheckCircle2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-interface Calisan { id: number; isim: string | null; soyisim: string | null }
+interface Calisan { id: number; isim: string | null; soyisim: string | null; departman?: string | null }
 interface HazardReport {
   id: number
   reportNo: string | null
@@ -44,6 +45,7 @@ interface Meeting {
   meetingType: { name: string } | null
   participants: {
     calisan: {
+      id: number
       isim: string | null
       soyisim: string | null
       departman: string | null
@@ -88,8 +90,8 @@ export function MeetingDetailClient({
   const [agenda, setAgenda] = useState(meeting.agenda ?? "")
   const [minutes, setMinutes] = useState(meeting.meetingMinutes ?? "")
   const [saving, setSaving] = useState(false)
-  const [uploadingFile, setUploadingFile] = useState(false)
-  const [attachedFile, setAttachedFile] = useState<{ path: string; name: string } | null>(
+  // const [uploadingFile, setUploadingFile] = useState(false)
+  const [attachedFile] = useState<{ path: string; name: string } | null>(
     meeting.filePath ? { path: meeting.filePath, name: meeting.fileName ?? "file" } : null
   )
   const [lastSaved, setLastSaved] = useState<Date | null>(null)
@@ -99,6 +101,28 @@ export function MeetingDetailClient({
   const dirtyRef = useRef(false)
   const savingRef = useRef(false)
   const markDirty = useCallback(() => { dirtyRef.current = true }, [])
+
+  // Participants (editable)
+  const [participantIds, setParticipantIds] = useState<number[]>(
+    meeting.participants.map(p => p.calisan.id)
+  )
+  const [participantSearch, setParticipantSearch] = useState("")
+  const [participantDropdownOpen, setParticipantDropdownOpen] = useState(false)
+  const originalParticipantMap = new Map(meeting.participants.map(p => [p.calisan.id, p.calisan]))
+  const displayParticipants = participantIds.map(id => {
+    const orig = originalParticipantMap.get(id)
+    if (orig) return orig
+    const c = calisanlar.find(x => x.id === id)
+    return { id, isim: c?.isim ?? null, soyisim: c?.soyisim ?? null, departman: null as string | null }
+  })
+  const filteredCalisanlar = calisanlar.filter(c =>
+    !participantIds.includes(c.id) &&
+    `${c.isim ?? ""} ${c.soyisim ?? ""}`.toLowerCase().includes(participantSearch.toLowerCase())
+  )
+  const toggleParticipant = (id: number) => {
+    setParticipantIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+    markDirty()
+  }
 
   const compiledBy = meeting.compiledBy ?? currentUserName
 
@@ -120,6 +144,7 @@ export function MeetingDetailClient({
           compiledBy,
           agenda: agenda || null,
           meetingMinutes: minutes || null,
+          participantIds,
           ...extraData,
         }),
       })
@@ -155,18 +180,18 @@ export function MeetingDetailClient({
     router.push("/meetings")
   }
 
-  const handleFileUpload = async (file: File) => {
-    setUploadingFile(true)
-    const formData = new FormData()
-    formData.append("file", file)
-    const res = await fetch(`/api/meetings/${meeting.id}/upload`, {
-      method: "POST",
-      body: formData,
-    })
-    const data = await res.json() as { filePath: string; fileName: string }
-    setAttachedFile({ path: data.filePath, name: data.fileName })
-    setUploadingFile(false)
-  }
+  // const handleFileUpload = async (file: File) => {
+  //   setUploadingFile(true)
+  //   const formData = new FormData()
+  //   formData.append("file", file)
+  //   const res = await fetch(`/api/meetings/${meeting.id}/upload`, {
+  //     method: "POST",
+  //     body: formData,
+  //   })
+  //   const data = await res.json() as { filePath: string; fileName: string }
+  //   setAttachedFile({ path: data.filePath, name: data.fileName })
+  //   setUploadingFile(false)
+  // }
 
   const history = [
     {
@@ -555,6 +580,7 @@ export function MeetingDetailClient({
 
       {/* ── Toolbar: Upload · Export · Auto-save indicator ───────────────────── */}
       <div className="flex items-center gap-3 pt-2 flex-wrap">
+        {/* Upload Files — geçici olarak kapalı
         {canEdit && (
           <label className="cursor-pointer">
             <input type="file" className="hidden"
@@ -565,6 +591,7 @@ export function MeetingDetailClient({
             </div>
           </label>
         )}
+        */}
 
         {/* Export dropdown — always visible */}
         <DropdownMenu>
@@ -587,12 +614,12 @@ export function MeetingDetailClient({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {uploadingFile && (
+        {/* {uploadingFile && (
           <span className="flex items-center gap-2 text-sm text-muted-foreground">
             <span className="size-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             Uploading...
           </span>
-        )}
+        )} */}
 
         {/* Auto-save status */}
         {canEdit && lastSaved && (
@@ -695,7 +722,7 @@ export function MeetingDetailClient({
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Participants</h2>
         </div>
 
-        {meeting.participants.length === 0 ? (
+        {displayParticipants.length === 0 ? (
           <p className="text-sm text-muted-foreground px-4 py-3 italic">No participants assigned.</p>
         ) : (
           <div className="overflow-x-auto">
@@ -706,21 +733,67 @@ export function MeetingDetailClient({
                   <th className="px-4 py-2 text-left font-semibold">Name &amp; Surname</th>
                   <th className="px-4 py-2 text-left font-semibold">Title / Department</th>
                   <th className="px-4 py-2 text-left font-semibold text-muted-foreground/60">Signature</th>
+                  {canEdit && <th className="px-4 py-2 w-8" />}
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {meeting.participants.map((p, i) => (
-                  <tr key={i} className="hover:bg-muted/20">
+                {displayParticipants.map((p, i) => (
+                  <tr key={p.id} className="hover:bg-muted/20">
                     <td className="px-4 py-2.5 text-muted-foreground font-mono text-xs">{i + 1}</td>
                     <td className="px-4 py-2.5 font-medium">
-                      {[p.calisan.isim, p.calisan.soyisim].filter(Boolean).join(" ") || "—"}
+                      {[p.isim, p.soyisim].filter(Boolean).join(" ") || "—"}
                     </td>
-                    <td className="px-4 py-2.5 text-muted-foreground">{p.calisan.departman ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-muted-foreground">{p.departman ?? "—"}</td>
                     <td className="px-4 py-2.5 border-l border-dashed min-w-[120px]"></td>
+                    {canEdit && (
+                      <td className="px-4 py-2.5 text-right">
+                        <button
+                          type="button"
+                          className="text-muted-foreground hover:text-red-600 font-bold"
+                          title="Katılımcıyı çıkar"
+                          onClick={() => toggleParticipant(p.id)}
+                        >
+                          ×
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {canEdit && (
+          <div className="relative px-4 py-3 border-t">
+            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5 block">
+              Add participant
+            </Label>
+            <Input
+              value={participantSearch}
+              onChange={e => { setParticipantSearch(e.target.value); setParticipantDropdownOpen(true) }}
+              onFocus={() => setParticipantDropdownOpen(true)}
+              placeholder="Search employees..."
+              className="h-8 text-sm max-w-sm"
+            />
+            {participantDropdownOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setParticipantDropdownOpen(false)} />
+                <div className="absolute z-20 mt-1 max-h-48 w-full max-w-sm overflow-y-auto rounded-md border bg-popover text-popover-foreground shadow-md">
+                  {filteredCalisanlar.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-muted-foreground">No results found</div>
+                  ) : filteredCalisanlar.map(c => (
+                    <div
+                      key={c.id}
+                      className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground"
+                      onClick={() => { toggleParticipant(c.id); setParticipantSearch(""); setParticipantDropdownOpen(false) }}
+                    >
+                      {c.isim} {c.soyisim}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         )}
 

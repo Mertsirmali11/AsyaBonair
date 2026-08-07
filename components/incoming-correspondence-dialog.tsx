@@ -17,15 +17,16 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { dbDateToDdMmYyyy, todayLocalDdMmYyyy } from "@/lib/correspondence-date"
 import {
-  ALLOWED_DOCUMENTS_ERROR_EN,
-  DOCUMENT_ACCEPT_HTML,
-  isAllowedCorrespondenceDocumentFile,
+  CORRESPONDENCE_ACCEPT_HTML,
+  CORRESPONDENCE_ALLOWED_ERROR_EN,
+  isAllowedCorrespondenceDocumentOrImageFile,
 } from "@/lib/allowed-document-uploads"
 import {
   getIncomingAttachmentsFromRow,
   INCOMING_PDF_MAX_TOTAL_BYTES,
   incomingAttachmentProxyUrl,
 } from "@/lib/incoming-correspondence-attachments"
+import { uploadCorrespondenceFilesDirect } from "@/lib/client-correspondence-upload"
 
 export type IncomingCorrespondenceRow = {
   id: number
@@ -55,8 +56,8 @@ function validateAttachmentFiles(files: File[]): string | null {
     return "Total attachment size must not exceed 50MB"
   }
   for (const f of files) {
-    if (!isAllowedCorrespondenceDocumentFile(f)) {
-      return ALLOWED_DOCUMENTS_ERROR_EN
+    if (!isAllowedCorrespondenceDocumentOrImageFile(f)) {
+      return CORRESPONDENCE_ALLOWED_ERROR_EN
     }
   }
   return null
@@ -140,15 +141,11 @@ export function IncomingCorrespondenceDialog({
       const [day, month, year] = dateParts
       const isoDate = `${year}-${month}-${day}`
 
-      const formData = new FormData()
-      formData.append("from", from)
-      formData.append("subject", subject)
-      formData.append("date", isoDate)
-      formData.append("content", content)
-      formData.append("createdBy", userId)
-      for (const f of pdfFiles) {
-        formData.append("pdf", f)
-      }
+      // Ekler, Vercel fonksiyonundan geçmeden doğrudan Supabase'e yüklenir
+      // (~4.5MB istek gövdesi sınırını by-pass eder). Bu isteğe sadece küçük
+      // metadata + depo yolu gider.
+      const attachments =
+        pdfFiles.length > 0 ? await uploadCorrespondenceFilesDirect(pdfFiles) : []
 
       const url =
         mode === "create"
@@ -156,7 +153,15 @@ export function IncomingCorrespondenceDialog({
           : `/api/incoming-papers/${record!.id}`
       const response = await fetch(url, {
         method: mode === "create" ? "POST" : "PATCH",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from,
+          subject,
+          date: isoDate,
+          content,
+          createdBy: userId,
+          attachments,
+        }),
       })
 
       if (!response.ok) {
@@ -169,7 +174,7 @@ export function IncomingCorrespondenceDialog({
       onOpenChange(false)
     } catch (err) {
       console.error(err)
-      setError("An error occurred while saving")
+      setError(err instanceof Error ? err.message : "An error occurred while saving")
     } finally {
       setSubmitting(false)
     }
@@ -186,7 +191,7 @@ export function IncomingCorrespondenceDialog({
           </DialogTitle>
           <DialogDescription>
             {mode === "create"
-              ? "Add sender, subject, date, and optional documents — PDF, Word, Excel, PowerPoint (total max 50MB)."
+              ? "Add sender, subject, date, and optional documents — PDF, Word, Excel, PowerPoint, or image (total max 50MB)."
               : "Update fields. Choosing new files replaces all current attachments (total max 50MB)."}
           </DialogDescription>
         </DialogHeader>
@@ -240,7 +245,7 @@ export function IncomingCorrespondenceDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor={fileInputId}>Attachments — PDF, Word, Excel, PowerPoint (total max 50MB)</Label>
+            <Label htmlFor={fileInputId}>Attachments — PDF, Word, Excel, PowerPoint, or image (total max 50MB)</Label>
             {mode === "edit" && existingAttachments.length > 0 && pdfFiles.length === 0 && (
               <ul className="text-muted-foreground space-y-1 text-xs">
                 {existingAttachments.map((a) => {
@@ -275,7 +280,7 @@ export function IncomingCorrespondenceDialog({
               <Input
                 id={fileInputId}
                 type="file"
-                accept={DOCUMENT_ACCEPT_HTML}
+                accept={CORRESPONDENCE_ACCEPT_HTML}
                 multiple
                 onChange={handleFileChange}
                 className="hidden"

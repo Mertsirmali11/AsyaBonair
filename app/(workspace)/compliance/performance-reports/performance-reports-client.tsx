@@ -16,6 +16,7 @@ import {
   ResponsiveContainer,
 } from "recharts"
 import type { PerformanceReportsData } from "@/app/api/performance-reports/route"
+import { useLanguage } from "@/lib/i18n/context"
 
 // ─── Palette ──────────────────────────────────────────────────────────────────
 
@@ -40,13 +41,7 @@ const STATUS_COLORS = {
   openOnTrack: "#3b82f6",
 }
 
-const STATUS_LABELS = {
-  timelyClosed: "Zamanında Kapatıldı",
-  closedLate: "Geç Kapatıldı",
-  closedNoDl: "Kapatıldı (Süre Yok)",
-  overdue: "Gecikmiş (Açık)",
-  openOnTrack: "Açık (Süre İçinde)",
-}
+// STATUS_LABELS is now built dynamically inside the component using i18n
 
 // ─── Helper components ────────────────────────────────────────────────────────
 
@@ -119,7 +114,7 @@ function PieTooltip({ active, payload }: {
   return (
     <div className="rounded-lg border bg-card px-3 py-2 shadow-md text-sm">
       <p className="font-medium">{p.name}</p>
-      <p className="text-muted-foreground">{p.value} adet</p>
+      <p className="text-muted-foreground">{p.value}</p>
     </div>
   )
 }
@@ -127,6 +122,17 @@ function PieTooltip({ active, payload }: {
 // ─── Main client ──────────────────────────────────────────────────────────────
 
 export function PerformanceReportsClient({ data }: { data: PerformanceReportsData }) {
+  const { t } = useLanguage()
+  const pr = t.perfReports
+
+  const STATUS_LABELS = {
+    timelyClosed: pr.timelyClosed,
+    closedLate: pr.closedLate,
+    closedNoDl: pr.closedNoDl,
+    overdue: pr.overdue,
+    openOnTrack: pr.openOnTrack,
+  }
+
   const { years, auditStats, findingStats, hazardStats } = data
   const [selectedYear, setSelectedYear] = useState<number>(years[years.length - 1])
 
@@ -296,7 +302,7 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
           onClick={handleExportExcel}
           className="h-9 rounded-md border bg-background px-3 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
         >
-          Export to Excel
+          {pr.exportExcel}
         </button>
       </div>
 
@@ -304,24 +310,24 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
       {/* BÖLÜM 1: DENETİM İSTATİSTİKLERİ                                     */}
       {/* ════════════════════════════════════════════════════════════════════ */}
       <section className="flex flex-col gap-4">
-        <SectionTitle>Denetim İstatistikleri — {selectedYear}</SectionTitle>
+        <SectionTitle>{pr.auditStats} — {selectedYear}</SectionTitle>
 
         {/* Summary cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <StatCard label="Toplam Denetim" value={auditY.total} />
-          <StatCard label="İç Denetim" value={auditY.internal} textColor="text-blue-600" />
-          <StatCard label="Dış Denetim" value={auditY.external} textColor="text-amber-500" />
+          <StatCard label={pr.totalAudit} value={auditY.total} />
+          <StatCard label={pr.internal} value={auditY.internal} textColor="text-blue-600" />
+          <StatCard label={pr.external} value={auditY.external} textColor="text-amber-500" />
           <StatCard label="SACA" value={auditY.saca} textColor="text-purple-600" />
           <StatCard label="SAFA" value={auditY.safa} textColor="text-cyan-600" />
-          <StatCard label="Bize Gelen" value={auditY.incoming} sub="Dış + SACA + SAFA" textColor="text-rose-600" />
+          <StatCard label={pr.incoming} value={auditY.incoming} sub={pr.incomingSub} textColor="text-rose-600" />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Pie: this year by category */}
           <div className="rounded-xl border bg-card p-4 shadow-sm">
-            <p className="text-sm font-medium mb-3">{selectedYear} — Kategori Dağılımı</p>
+            <p className="text-sm font-medium mb-3">{selectedYear} — {pr.categoryDist}</p>
             {auditY.byCategory.length === 0 ? (
-              <EmptyState message={`${selectedYear} yılı için denetim verisi bulunamadı.`} />
+              <EmptyState message={`${selectedYear} ${pr.noAuditData}`} />
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <PieChart>
@@ -350,9 +356,9 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
 
           {/* Stacked bar: 3 years comparison */}
           <div className="rounded-xl border bg-card p-4 shadow-sm">
-            <p className="text-sm font-medium mb-3">3 Yıllık Denetim Karşılaştırması</p>
+            <p className="text-sm font-medium mb-3">{pr.threeYearComparison}</p>
             {auditBarData.every((r) => allCategoryNames.every((n) => r[n] === 0)) ? (
-              <EmptyState message="3 yıllık denetim verisi bulunamadı." />
+              <EmptyState message={pr.noThreeYearData} />
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={auditBarData} barCategoryGap="30%">
@@ -375,23 +381,23 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
       {/* BÖLÜM 2: BULGU ANALİZİ                                              */}
       {/* ════════════════════════════════════════════════════════════════════ */}
       <section className="flex flex-col gap-4">
-        <SectionTitle>Bulgu Analizi — {selectedYear}</SectionTitle>
+        <SectionTitle>{pr.findingAnalysis} — {selectedYear}</SectionTitle>
 
         {/* Summary cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          <StatCard label="Toplam Bulgu" value={findingY.total} />
-          <StatCard label="Zamanında Kapatıldı" value={findingY.timelyClosed} textColor="text-green-600" />
-          <StatCard label="Extension İstendi" value={findingY.withExtension} textColor="text-yellow-600" />
-          <StatCard label="Gecikmiş (Açık)" value={findingY.overdue} textColor="text-red-600" />
-          <StatCard label="Geç Kapatıldı" value={findingY.closedLate} textColor="text-orange-600" />
+          <StatCard label={pr.totalFinding} value={findingY.total} />
+          <StatCard label={pr.timelyClosed} value={findingY.timelyClosed} textColor="text-green-600" />
+          <StatCard label={pr.extensionRequested} value={findingY.withExtension} textColor="text-yellow-600" />
+          <StatCard label={pr.overdue} value={findingY.overdue} textColor="text-red-600" />
+          <StatCard label={pr.closedLate} value={findingY.closedLate} textColor="text-orange-600" />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Pie: closure status */}
           <div className="rounded-xl border bg-card p-4 shadow-sm">
-            <p className="text-sm font-medium mb-3">{selectedYear} — Bulgu Kapanış Durumu</p>
+            <p className="text-sm font-medium mb-3">{selectedYear} — {pr.findingClosureStatus}</p>
             {findingPieData.length === 0 ? (
-              <EmptyState message={`${selectedYear} yılı için bulgu verisi bulunamadı.`} />
+              <EmptyState message={`${selectedYear} ${pr.noFindingData}`} />
             ) : (
               <ResponsiveContainer width="100%" height={240}>
                 <PieChart>
@@ -424,9 +430,9 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
 
           {/* Horizontal bar: findings by department */}
           <div className="rounded-xl border bg-card p-4 shadow-sm">
-            <p className="text-sm font-medium mb-3">{selectedYear} — Departmana Göre Bulgular</p>
+            <p className="text-sm font-medium mb-3">{selectedYear} — {pr.findingsByDept}</p>
             {findingY.byDepartment.length === 0 ? (
-              <EmptyState message={`${selectedYear} yılı için departman verisi bulunamadı.`} />
+              <EmptyState message={`${selectedYear} ${pr.noDeptData}`} />
             ) : (
               <ResponsiveContainer width="100%" height={Math.max(200, findingY.byDepartment.length * 40)}>
                 <BarChart
@@ -445,9 +451,9 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
                   />
                   <Tooltip content={<CustomTooltip />} />
                   <Legend formatter={(v) => <span className="text-xs">{v}</span>} />
-                  <Bar dataKey="total" name="Toplam" fill="#3b82f6" stackId="d" />
-                  <Bar dataKey="timelyClosed" name="Zamanında" fill="#22c55e" stackId="d" />
-                  <Bar dataKey="overdue" name="Gecikmiş" fill="#ef4444" stackId="d" />
+                  <Bar dataKey="total" name={pr.barTotal} fill="#3b82f6" stackId="d" />
+                  <Bar dataKey="timelyClosed" name={pr.barTimely} fill="#22c55e" stackId="d" />
+                  <Bar dataKey="overdue" name={pr.barOverdue} fill="#ef4444" stackId="d" />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -457,14 +463,14 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
         {/* Extension detail table */}
         {findingY.byDepartment.some((d) => d.withExtension > 0) && (
           <div className="rounded-xl border bg-card p-4 shadow-sm">
-            <p className="text-sm font-medium mb-3">{selectedYear} — Extension İstenen Departmanlar</p>
+            <p className="text-sm font-medium mb-3">{selectedYear} — {pr.extensionDepts}</p>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b">
-                    <th className="text-left py-2 pr-4 font-medium text-muted-foreground">Departman</th>
-                    <th className="text-right py-2 pr-4 font-medium text-muted-foreground">Toplam Bulgu</th>
-                    <th className="text-right py-2 font-medium text-muted-foreground">Extension İstenen</th>
+                    <th className="text-left py-2 pr-4 font-medium text-muted-foreground">{pr.colDept}</th>
+                    <th className="text-right py-2 pr-4 font-medium text-muted-foreground">{pr.colTotalFinding}</th>
+                    <th className="text-right py-2 font-medium text-muted-foreground">{pr.colExtension}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -488,15 +494,15 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
       {/* BÖLÜM 3: HAZARD REPORTS                                             */}
       {/* ════════════════════════════════════════════════════════════════════ */}
       <section className="flex flex-col gap-4 pb-6">
-        <SectionTitle>Hazard Reports — {selectedYear}</SectionTitle>
+        <SectionTitle>{pr.hazardSection} — {selectedYear}</SectionTitle>
 
         {/* Summary cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatCard label="Toplam Hazard" value={hazardY.total} />
-          <StatCard label="Kaynak Türü Sayısı" value={hazardY.bySource.length} sub="farklı kaynak" />
-          <StatCard label="Departman Sayısı" value={hazardY.byDepartment.length} sub="raporlayan" />
+          <StatCard label={pr.totalHazard} value={hazardY.total} />
+          <StatCard label={pr.sourceCount} value={hazardY.bySource.length} sub={pr.differentSource} />
+          <StatCard label={pr.deptCount} value={hazardY.byDepartment.length} sub={pr.reporting} />
           <div className="rounded-xl border bg-card p-4 shadow-sm">
-            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">3 Yıl Toplam</p>
+            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{pr.threeYearTotal}</p>
             <p className="text-3xl font-bold mt-1">
               {hazardStats.reduce((s, y) => s + y.total, 0)}
             </p>
@@ -509,7 +515,7 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Bar: 3-year totals */}
           <div className="rounded-xl border bg-card p-4 shadow-sm">
-            <p className="text-sm font-medium mb-3">Yıllara Göre Hazard Sayısı</p>
+            <p className="text-sm font-medium mb-3">{pr.hazardByYear}</p>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={hazardBarData} barCategoryGap="40%">
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -523,9 +529,9 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
 
           {/* Pie: by source type — dilim etiketleri kapalı; özet grid ile okunabilir */}
           <div className="rounded-xl border bg-card p-4 shadow-sm">
-            <p className="text-sm font-medium mb-3">{selectedYear} — Kaynak Türü Dağılımı</p>
+            <p className="text-sm font-medium mb-3">{selectedYear} — {pr.sourceDistribution}</p>
             {hazardY.bySource.length === 0 ? (
-              <EmptyState message={`${selectedYear} yılı için hazard verisi bulunamadı.`} />
+              <EmptyState message={`${selectedYear} ${pr.noHazardData}`} />
             ) : (
               <div className="flex flex-col gap-3">
                 <ResponsiveContainer width="100%" height={220}>
@@ -569,7 +575,7 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
                               {row.source}
                             </span>
                             <span className="text-muted-foreground">
-                              {row.count} adet · %{pct}
+                              {row.count} {pr.count} · %{pct}
                             </span>
                           </span>
                         </li>
@@ -583,9 +589,9 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
 
           {/* Bar: by department (horizontal) */}
           <div className="rounded-xl border bg-card p-4 shadow-sm">
-            <p className="text-sm font-medium mb-3">{selectedYear} — Departmana Göre Hazard</p>
+            <p className="text-sm font-medium mb-3">{selectedYear} — {pr.hazardByDept}</p>
             {hazardY.byDepartment.length === 0 ? (
-              <EmptyState message={`${selectedYear} yılı için departman verisi bulunamadı.`} />
+              <EmptyState message={`${selectedYear} ${pr.noDeptData}`} />
             ) : (
               <ResponsiveContainer width="100%" height={Math.max(200, hazardY.byDepartment.length * 36)}>
                 <BarChart

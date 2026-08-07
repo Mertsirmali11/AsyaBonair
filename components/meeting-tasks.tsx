@@ -19,6 +19,7 @@ interface CalisanLite {
   id: number
   isim: string | null
   soyisim: string | null
+  departman?: string | null
 }
 
 interface MeetingTaskRow {
@@ -27,6 +28,7 @@ interface MeetingTaskRow {
   status: string
   dueDate: string | null
   assignee: { isim: string | null; soyisim: string | null } | null
+  assignedDepartment?: string | null
 }
 
 function parseTasksPayload(text: string, ok: boolean): MeetingTaskRow[] {
@@ -53,8 +55,18 @@ export function MeetingTasks({
   const [flashTaskId, setFlashTaskId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [title, setTitle] = useState("")
+  const [assignMode, setAssignMode] = useState<"person" | "department">("person")
   const [assigneeId, setAssigneeId] = useState<string>("")
+  const [assignedDepartment, setAssignedDepartment] = useState<string>("")
   const [dueDate, setDueDate] = useState("")
+
+  const departmentOptions = Array.from(
+    new Set(
+      calisanlar
+        .map((c) => c.departman?.trim())
+        .filter((d): d is string => !!d)
+    )
+  ).sort((a, b) => a.localeCompare(b))
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -94,7 +106,8 @@ export function MeetingTasks({
         body: JSON.stringify({
           meetingId,
           title: t,
-          assigneeId: assigneeId ? Number(assigneeId) : null,
+          assigneeId: assignMode === "person" && assigneeId ? Number(assigneeId) : null,
+          assignedDepartment: assignMode === "department" && assignedDepartment ? assignedDepartment : null,
           dueDate: dueDate || null,
           status: "Open",
         }),
@@ -102,6 +115,7 @@ export function MeetingTasks({
       if (res.ok) {
         setTitle("")
         setAssigneeId("")
+        setAssignedDepartment("")
         setDueDate("")
         await load()
       }
@@ -155,7 +169,9 @@ export function MeetingTasks({
                 <p className="text-muted-foreground">
                   {task.assignee
                     ? `${task.assignee.isim ?? ""} ${task.assignee.soyisim ?? ""}`.trim() || "—"
-                    : "—"}
+                    : task.assignedDepartment
+                      ? `Dept: ${task.assignedDepartment}`
+                      : "—"}
                   {task.dueDate
                     ? ` · Due ${new Date(task.dueDate).toLocaleDateString("en-US")}`
                     : ""}
@@ -204,20 +220,63 @@ export function MeetingTasks({
             />
           </div>
           <div>
-            <Label className="text-xs">Assignee</Label>
-            <Select value={assigneeId || "__none__"} onValueChange={(v) => setAssigneeId(v === "__none__" ? "" : v)}>
-              <SelectTrigger className="mt-1 h-9 text-sm">
-                <SelectValue placeholder="Optional" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">—</SelectItem>
-                {calisanlar.map((c) => (
-                  <SelectItem key={c.id} value={String(c.id)}>
-                    {(c.isim ?? "") + " " + (c.soyisim ?? "")}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">Assignee</Label>
+              <div className="flex overflow-hidden rounded-md border text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setAssignMode("person")}
+                  className={cn(
+                    "px-2 py-0.5",
+                    assignMode === "person" ? "bg-primary text-primary-foreground" : "text-muted-foreground"
+                  )}
+                >
+                  Person
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAssignMode("department")}
+                  className={cn(
+                    "px-2 py-0.5",
+                    assignMode === "department" ? "bg-primary text-primary-foreground" : "text-muted-foreground"
+                  )}
+                >
+                  Department
+                </button>
+              </div>
+            </div>
+            {assignMode === "person" ? (
+              <Select value={assigneeId || "__none__"} onValueChange={(v) => setAssigneeId(v === "__none__" ? "" : v)}>
+                <SelectTrigger className="mt-1 h-9 text-sm">
+                  <SelectValue placeholder="Optional" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">—</SelectItem>
+                  {calisanlar.map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>
+                      {(c.isim ?? "") + " " + (c.soyisim ?? "")}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Select
+                value={assignedDepartment || "__none__"}
+                onValueChange={(v) => setAssignedDepartment(v === "__none__" ? "" : v)}
+              >
+                <SelectTrigger className="mt-1 h-9 text-sm">
+                  <SelectValue placeholder="Select department" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">—</SelectItem>
+                  {departmentOptions.map((d) => (
+                    <SelectItem key={d} value={d}>
+                      {d}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
           <div>
             <Label htmlFor={`task-due-${meetingId}`} className="text-xs">

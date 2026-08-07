@@ -14,10 +14,11 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import {
-  ALLOWED_DOCUMENTS_ERROR_EN,
-  DOCUMENT_ACCEPT_HTML,
-  isAllowedCorrespondenceDocumentFile,
+  CORRESPONDENCE_ACCEPT_HTML,
+  CORRESPONDENCE_ALLOWED_ERROR_EN,
+  isAllowedCorrespondenceDocumentOrImageFile,
 } from "@/lib/allowed-document-uploads"
+import { uploadCorrespondenceFilesDirect } from "@/lib/client-correspondence-upload"
 
 interface IncomingPaperFormProps {
   userId: string
@@ -43,8 +44,8 @@ export function IncomingPaperForm({ userId }: IncomingPaperFormProps) {
         e.target.value = ""
         return
       }
-      if (!isAllowedCorrespondenceDocumentFile(file)) {
-        setError(ALLOWED_DOCUMENTS_ERROR_EN)
+      if (!isAllowedCorrespondenceDocumentOrImageFile(file)) {
+        setError(CORRESPONDENCE_ALLOWED_ERROR_EN)
         setPdfFile(null)
         e.target.value = ""
         return
@@ -70,19 +71,19 @@ export function IncomingPaperForm({ userId }: IncomingPaperFormProps) {
       const [day, month, year] = dateParts
       const isoDate = `${year}-${month}-${day}`
 
-      const formData = new FormData()
-      formData.append("from", from)
-      formData.append("subject", subject)
-      formData.append("date", isoDate)
-      formData.append("content", content)
-      formData.append("createdBy", userId)
-      if (pdfFile) {
-        formData.append("pdf", pdfFile)
-      }
+      const attachments = pdfFile ? await uploadCorrespondenceFilesDirect([pdfFile]) : []
 
       const response = await fetch("/api/incoming-papers", {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from,
+          subject,
+          date: isoDate,
+          content,
+          createdBy: userId,
+          attachments,
+        }),
       })
 
       if (!response.ok) {
@@ -107,7 +108,9 @@ export function IncomingPaperForm({ userId }: IncomingPaperFormProps) {
       }, 1000)
     } catch (err) {
       console.error("Error submitting incoming correspondence:", err)
-      setError("An error occurred while submitting the correspondence")
+      setError(
+        err instanceof Error ? err.message : "An error occurred while submitting the correspondence"
+      )
     } finally {
       setSubmitting(false)
     }
@@ -185,7 +188,7 @@ export function IncomingPaperForm({ userId }: IncomingPaperFormProps) {
 
             <div className="space-y-2">
               <Label htmlFor="pdf-file" className="text-sm font-medium">
-                Attachment — PDF, Word, Excel, PowerPoint (max 50MB)
+                Attachment — PDF, Word, Excel, PowerPoint, or image (max 50MB)
               </Label>
               <div className="flex items-center gap-2">
                 <label
@@ -197,7 +200,7 @@ export function IncomingPaperForm({ userId }: IncomingPaperFormProps) {
                 <Input
                   id="pdf-file"
                   type="file"
-                  accept={DOCUMENT_ACCEPT_HTML}
+                  accept={CORRESPONDENCE_ACCEPT_HTML}
                   onChange={handleFileChange}
                   className="hidden"
                 />

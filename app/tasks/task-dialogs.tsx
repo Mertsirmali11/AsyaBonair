@@ -17,6 +17,7 @@ export type TaskRow = {
   dueDate: string | null
   createdAt?: string
   assignee: { isim: string | null; soyisim: string | null } | null
+  assignedDepartment?: string | null
   meeting: { id: number; meetingNo: string; title: string } | null
 }
 
@@ -68,7 +69,9 @@ export function TaskQuickViewDialog({
             <p>
               {task.assignee
                 ? `${task.assignee.isim ?? ""} ${task.assignee.soyisim ?? ""}`.trim() || "Unknown"
-                : "—"}
+                : task.assignedDepartment
+                  ? `Dept: ${task.assignedDepartment}`
+                  : "—"}
             </p>
           </div>
           <div>

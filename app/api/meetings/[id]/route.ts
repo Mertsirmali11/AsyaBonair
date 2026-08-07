@@ -34,10 +34,54 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if ("location" in body)           data.location        = body.location
   if ("compiledBy" in body)         data.compiledBy      = body.compiledBy
 
-  const meeting = await prisma.meeting.update({
-    where: { id: meetingId },
-    data,
+  let participantIds: number[] | null = null
+  if ("participantIds" in body && Array.isArray(body.participantIds)) {
+    participantIds = Array.from(
+      new Set(
+        (body.participantIds as unknown[])
+          .map((v) => Number(v))
+          .filter((n) => Number.isInteger(n) && n > 0)
+      )
+    )
+  }
+
+  const meeting = await prisma.$transaction(async (tx) => {
+    if (participantIds !== null) {
+      const current = await tx.meetingParticipant.findMany({
+        where: { meetingId },
+        select: { calisanId: true },
+      })
+      const currentIds = new Set(current.map((c) => c.calisanId))
+      const nextIds = new Set(participantIds)
+
+      const toRemove = [...currentIds].filter((id) => !nextIds.has(id))
+      const toAdd = [...nextIds].filter((id) => !currentIds.has(id))
+
+      if (toRemove.length > 0) {
+        await tx.meetingParticipant.deleteMany({
+          where: { meetingId, calisanId: { in: toRemove } },
+        })
+      }
+      if (toAdd.length > 0) {
+        await tx.meetingParticipant.createMany({
+          data: toAdd.map((calisanId) => ({ meetingId, calisanId })),
+          skipDuplicates: true,
+        })
+      }
+    }
+
+    return tx.meeting.update({
+      where: { id: meetingId },
+      data,
+      include: {
+        meetingType: true,
+        participants: {
+          include: { calisan: { select: { isim: true, soyisim: true, departman: true, email: true } } },
+        },
+      },
+    })
   })
+
   return NextResponse.json(prismaJson(meeting))
 }
 

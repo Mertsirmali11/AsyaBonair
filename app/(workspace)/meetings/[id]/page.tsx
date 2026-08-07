@@ -41,7 +41,7 @@ export default async function MeetingDetailPage({ params, searchParams }: Props)
     include: {
       meetingType: true,
       participants: {
-        include: { calisan: { select: { isim: true, soyisim: true, departman: true } } },
+        include: { calisan: { select: { id: true, isim: true, soyisim: true, departman: true } } },
       },
     },
   })
@@ -57,7 +57,7 @@ export default async function MeetingDetailPage({ params, searchParams }: Props)
   const canEdit = isAdmin || (calisan ? participantIds.some((p) => p.calisanId === calisan.id) : false)
 
   const calisanlar = await prisma.calisan.findMany({
-    select: { id: true, isim: true, soyisim: true },
+    select: { id: true, isim: true, soyisim: true, departman: true },
     orderBy: { isim: "asc" },
   })
 

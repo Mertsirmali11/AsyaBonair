@@ -1,9 +1,9 @@
-import { auth } from "@/auth"
+﻿import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 
 import { DEPARTMENT_PERMISSION_KEYS } from "@/lib/department-permission-keys"
 import { getResolvedDepartmentPermissionsForUser } from "@/lib/department-permissions-resolve"
-import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
+import { NavPageTitle } from "@/components/nav-page-title"
 import { PerformanceReportsClient } from "./performance-reports-client"
 import type { PerformanceReportsData } from "@/app/api/performance-reports/route"
 
@@ -204,7 +204,7 @@ export default async function PerformanceReportsPage() {
 
   return (
     <>
-      <SetWorkspacePageTitle title="Performance Reports" />
+      <NavPageTitle navKey="performanceReports" />
       <PerformanceReportsClient data={prismaJson(data) as PerformanceReportsData} />
     </>
   )

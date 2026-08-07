@@ -1,9 +1,9 @@
-import { redirect } from "next/navigation"
+﻿import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { DEPARTMENT_PERMISSION_KEYS } from "@/lib/department-permission-keys"
 import { getResolvedDepartmentPermissionsForUser } from "@/lib/department-permissions-resolve"
 import { prisma } from "@/lib/prisma-server"
-import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
+import { NavPageTitle } from "@/components/nav-page-title"
 import { MeetingsClient } from "./meetings-client"
 
 export default async function MeetingsPage() {
@@ -38,7 +38,7 @@ export default async function MeetingsPage() {
 
   return (
     <>
-      <SetWorkspacePageTitle title="Meeting Plans" />
+      <NavPageTitle navKey="meetings" />
       <MeetingsClient calisanlar={calisanlar} meetingTypes={meetingTypes} />
     </>
   )

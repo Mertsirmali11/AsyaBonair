@@ -1,8 +1,9 @@
-"use client"
+﻿"use client"
 
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { useLanguage } from "@/lib/i18n/context"
 import {
   ArrowLeft,
   Filter,
@@ -122,6 +123,7 @@ function errMsg(data: unknown, fallback: string): string {
 }
 
 export function AuditChecklistsClient() {
+  const { t } = useLanguage()
   const router = useRouter()
   const uid = React.useId()
   const [rows, setRows] = React.useState<AuditChecklistListRow[]>([])
@@ -392,7 +394,7 @@ export function AuditChecklistsClient() {
 
   return (
     <TooltipProvider>
-      <SetWorkspacePageTitle title="Checklists" />
+      <SetWorkspacePageTitle title={t.nav.checklists} />
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 md:p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 flex-1 flex-col gap-3">

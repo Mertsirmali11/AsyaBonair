@@ -1,10 +1,10 @@
-import { redirect } from "next/navigation"
+﻿import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import {
   DEPARTMENT_PERMISSION_KEYS,
   hasDepartmentPermission,
 } from "@/lib/require-department-permission"
-import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
+import { NavPageTitle } from "@/components/nav-page-title"
 import { OutgoingCorrespondencesTable } from "@/components/outgoing-correspondences-table"
 
 export default async function OutgoingCorrespondencesPage() {
@@ -25,7 +25,7 @@ export default async function OutgoingCorrespondencesPage() {
 
   return (
     <>
-      <SetWorkspacePageTitle title="Outgoing Correspondences" />
+      <NavPageTitle navKey="outgoingCorrespondences" />
       <div className="flex flex-1 flex-col p-4 md:p-6">
         <OutgoingCorrespondencesTable userId={session.user?.id ?? ""} />
       </div>

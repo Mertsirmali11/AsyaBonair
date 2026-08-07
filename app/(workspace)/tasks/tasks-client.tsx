@@ -241,7 +241,7 @@ export function TasksClient() {
                         </div>
                         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[13px]">
                           <span className="text-muted-foreground whitespace-normal break-words">
-                            {formatName(t.assignee)}
+                            {t.assignee ? formatName(t.assignee) : t.assignedDepartment ? `Dept: ${t.assignedDepartment}` : "—"}
                           </span>
                           <span
                             className={cn(

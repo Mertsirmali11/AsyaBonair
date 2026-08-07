@@ -26,6 +26,7 @@ export type TaskRow = {
   dueDate: string | null
   createdAt?: string
   assignee: { isim: string | null; soyisim: string | null } | null
+  assignedDepartment?: string | null
   meeting: { id: number; meetingNo: string; title: string } | null
 }
 
@@ -502,6 +503,12 @@ export function TaskDetailPanel({
                         ))}
                       </SelectContent>
                     </Select>
+                    {detail.assigneeId == null && detail.assignedDepartment && (
+                      <p className="text-muted-foreground text-xs">
+                        Currently assigned to department: <strong>{detail.assignedDepartment}</strong>.
+                        Selecting a person above will reassign it away from the department.
+                      </p>
+                    )}
                   </div>
 
                   <div className="grid gap-1">

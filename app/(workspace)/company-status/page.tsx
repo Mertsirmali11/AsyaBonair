@@ -1,6 +1,6 @@
-import { redirect } from "next/navigation"
+﻿import { redirect } from "next/navigation"
 import { auth } from "@/auth"
-import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
+import { NavPageTitle } from "@/components/nav-page-title"
 import { CompanyStatusClient } from "./company-status-client"
 import { prisma } from "@/lib/prisma-server"
 import { prismaJson } from "@/lib/prisma-json"
@@ -84,7 +84,7 @@ export default async function CompanyStatusPage() {
 
   return (
     <>
-      <SetWorkspacePageTitle title="Company Status Board" />
+      <NavPageTitle navKey="companyStatusBoard" />
       <CompanyStatusClient
         data={prismaJson(statusBoard) as typeof statusBoard}
         currentEmployeeId={currentCalisan?.id ?? null}

@@ -1,8 +1,8 @@
-import { redirect } from "next/navigation"
+﻿import { redirect } from "next/navigation"
 
 import { auth } from "@/auth"
 import { ConfigManualsClient } from "@/components/config-manuals-client"
-import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
+import { NavPageTitle } from "@/components/nav-page-title"
 import {
   DEPARTMENT_PERMISSION_KEYS,
   hasDepartmentPermission,
@@ -22,7 +22,7 @@ export default async function ControlledDocumentsPage() {
 
   return (
     <>
-      <SetWorkspacePageTitle title="Controlled Documents · Manuals" />
+      <NavPageTitle navKeys={["controlledDocuments", "manuals"]} />
       <div className="flex flex-1 flex-col gap-4 p-6">
         <ConfigManualsClient />
       </div>

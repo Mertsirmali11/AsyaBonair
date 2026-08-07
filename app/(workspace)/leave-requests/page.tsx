@@ -1,7 +1,7 @@
-import { redirect } from "next/navigation"
+﻿import { redirect } from "next/navigation"
 import { Prisma } from "@prisma/client"
 import { auth } from "@/auth"
-import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
+import { NavPageTitle } from "@/components/nav-page-title"
 import { LeaveRequestsClient } from "./leave-requests-client"
 import { prisma } from "@/lib/prisma-server"
 import { getLeaveAccessContext } from "@/lib/leave-access"
@@ -95,7 +95,7 @@ export default async function LeaveRequestsPage() {
 
   return (
     <>
-      <SetWorkspacePageTitle title="Leave Requests" />
+      <NavPageTitle navKey="leaveRequests" />
       <LeaveRequestsClient data={serialized} />
     </>
   )

@@ -1,7 +1,8 @@
-"use client"
+﻿"use client"
 
 import * as React from "react"
 import Link from "next/link"
+import { useLanguage } from "@/lib/i18n/context"
 import {
   AlertTriangle,
   ArrowLeft,
@@ -85,6 +86,7 @@ function formatDate(iso: string | null): string {
 }
 
 export function FindingsFollowUpClient() {
+  const { t } = useLanguage()
   const [rows, setRows] = React.useState<FindingRow[]>([])
   const [loading, setLoading] = React.useState(true)
   const [showClosed, setShowClosed] = React.useState(true)
@@ -178,7 +180,7 @@ export function FindingsFollowUpClient() {
 
   return (
     <TooltipProvider>
-      <SetWorkspacePageTitle title="Findings Follow Up" />
+      <SetWorkspacePageTitle title={t.nav.findingsFollowUp} />
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 md:p-6">
         {/* Breadcrumb */}
         <Breadcrumb className="text-xs sm:text-sm">

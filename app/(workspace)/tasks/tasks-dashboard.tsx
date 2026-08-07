@@ -1,12 +1,12 @@
-"use client"
+﻿"use client"
 
-import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
+import { NavPageTitle } from "@/components/nav-page-title"
 import { TasksClient } from "./tasks-client"
 
 export function TasksDashboard() {
   return (
     <>
-      <SetWorkspacePageTitle title="Tasks & Actions" />
+      <NavPageTitle navKey="tasksActions" />
       <TasksClient />
     </>
   )

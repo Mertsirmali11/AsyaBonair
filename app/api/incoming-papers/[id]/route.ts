@@ -4,18 +4,12 @@ import { prisma } from "@/lib/prisma-server"
 import { auth } from "@/auth"
 import { canAccessConfigurationsArea } from "@/lib/department-access"
 import {
-  assignUniquePdfStorageNames,
   getIncomingAttachmentsFromRow,
-  INCOMING_PDF_MAX_TOTAL_BYTES,
   type IncomingStoredAttachment,
 } from "@/lib/incoming-correspondence-attachments"
 import {
-  ALLOWED_DOCUMENTS_ERROR_EN,
-  isAllowedCorrespondenceDocumentFile,
-} from "@/lib/allowed-document-uploads"
-import {
   deletePdfFromStorage,
-  uploadPdfToStorage,
+  moveInStorage,
 } from "@/lib/supabase-storage"
 
 async function gate() {
@@ -50,14 +44,27 @@ export async function PATCH(
     return NextResponse.json({ error: "Record has no paper number" }, { status: 400 })
   }
 
-  const formData = await request.formData()
-  const from = String(formData.get("from") ?? "").trim()
-  const subject = String(formData.get("subject") ?? "").trim()
-  const dateStr = String(formData.get("date") ?? "").trim()
-  const content = String(formData.get("content") ?? "")
-  const pdfFiles = formData
-    .getAll("pdf")
-    .filter((f): f is File => f instanceof File && f.size > 0)
+  const body = (await request.json().catch(() => null)) as {
+    from?: string
+    subject?: string
+    date?: string
+    content?: string
+    attachments?: { path: string; fileName: string }[]
+  } | null
+  if (!body) {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
+  }
+
+  const from = String(body.from ?? "").trim()
+  const subject = String(body.subject ?? "").trim()
+  const dateStr = String(body.date ?? "").trim()
+  const content = String(body.content ?? "")
+  const pendingAttachments = Array.isArray(body.attachments)
+    ? body.attachments.filter(
+        (a): a is { path: string; fileName: string } =>
+          !!a && typeof a.path === "string" && typeof a.fileName === "string"
+      )
+    : []
 
   if (!from || !subject || !dateStr) {
     return NextResponse.json(
@@ -75,47 +82,32 @@ export async function PATCH(
   let pdfFileName: string | null = existing.pdfFileName
   let pdfAttachments: IncomingStoredAttachment[] | undefined = undefined
 
-  if (pdfFiles.length > 0) {
-    const totalBytes = pdfFiles.reduce((s, f) => s + f.size, 0)
-    if (totalBytes > INCOMING_PDF_MAX_TOTAL_BYTES) {
-      return NextResponse.json(
-        { error: "Total attachment size must not exceed 50MB" },
-        { status: 400 }
-      )
-    }
-    for (const f of pdfFiles) {
-      if (!isAllowedCorrespondenceDocumentFile(f)) {
-        return NextResponse.json({ error: ALLOWED_DOCUMENTS_ERROR_EN }, { status: 400 })
-      }
-    }
-
+  if (pendingAttachments.length > 0) {
     const previous = getIncomingAttachmentsFromRow(existing)
     for (const a of previous) {
       await deletePdfFromStorage(a.path)
     }
 
-    const storageNames = assignUniquePdfStorageNames(pdfFiles)
-    const uploaded: IncomingStoredAttachment[] = []
-    for (let i = 0; i < pdfFiles.length; i++) {
-      const uploadResult = await uploadPdfToStorage(pdfFiles[i], existing.paperNo, {
-        storageFileName: storageNames[i],
-      })
-      if (!uploadResult.ok) {
-        for (const a of uploaded) {
-          await deletePdfFromStorage(a.path)
+    const moved: IncomingStoredAttachment[] = []
+    for (const att of pendingAttachments) {
+      const target = `${existing.paperNo}/${att.fileName}`
+      const moveResult = await moveInStorage(att.path, target)
+      if (!moveResult.ok) {
+        for (const m of moved) {
+          await deletePdfFromStorage(m.path)
         }
         return NextResponse.json(
           {
-            error: `Dosya yüklenemedi (${pdfFiles[i].name}): ${uploadResult.message}`,
+            error: `Dosya taşınamadı (${att.fileName}): ${moveResult.message}`,
           },
           { status: 500 }
         )
       }
-      uploaded.push({ path: uploadResult.path, fileName: uploadResult.fileName })
+      moved.push({ path: target, fileName: att.fileName })
     }
-    pdfAttachments = uploaded
-    pdfPath = uploaded[0]?.path ?? null
-    pdfFileName = uploaded[0]?.fileName ?? null
+    pdfAttachments = moved
+    pdfPath = moved[0]?.path ?? null
+    pdfFileName = moved[0]?.fileName ?? null
   }
 
   try {

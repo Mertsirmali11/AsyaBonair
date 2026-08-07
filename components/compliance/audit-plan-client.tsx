@@ -1,7 +1,8 @@
-"use client"
+﻿"use client"
 
 import * as React from "react"
 import Link from "next/link"
+import { useLanguage } from "@/lib/i18n/context"
 import {
   CalendarRange,
   CheckCircle2,
@@ -49,7 +50,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import {
   Sheet,
   SheetContent,
@@ -238,6 +239,7 @@ function EmployeeMultiSelect({
 }
 
 export function AuditPlanClient() {
+  const { t } = useLanguage()
   const uid = React.useId()
   const [keyword, setKeyword] = React.useState("")
   const [rows, setRows] = React.useState<AuditPlanRow[]>([])
@@ -739,7 +741,7 @@ export function AuditPlanClient() {
 
   return (
     <>
-      <SetWorkspacePageTitle title="Audit Plan" />
+      <SetWorkspacePageTitle title={t.nav.auditPlan} />
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 md:p-6">
         <div className="sticky top-0 z-20 -mx-4 border-b border-border bg-background/85 px-4 pb-4 pt-3 backdrop-blur md:-mx-6 md:px-6">
           <div className="flex flex-col gap-3">
@@ -855,10 +857,10 @@ export function AuditPlanClient() {
           </div>
         </div>
 
-        <div className="bg-card min-h-0 flex-1 overflow-hidden rounded-lg border shadow-sm">
-          <div className="overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm">
+          <ScrollArea className="h-[min(70vh,760px)]">
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow className="bg-muted/40 hover:bg-muted/40">
                   <TableHead className="w-10 px-2 text-center" />
                   <TableHead className="whitespace-nowrap">Date (Planned)</TableHead>
@@ -985,7 +987,8 @@ export function AuditPlanClient() {
                 )}
               </TableBody>
             </Table>
-          </div>
+            <ScrollBar orientation="horizontal" />
+          </ScrollArea>
         </div>
       </div>
 

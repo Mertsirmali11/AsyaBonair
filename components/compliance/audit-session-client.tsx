@@ -423,8 +423,12 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
           { method: "POST", body: fd }
         )
         if (!res.ok) { toast.error(`${file.name} yüklenemedi.`); continue }
-        const att = await parseJson(res) as Attachment
-        uploaded.push(att)
+        const parsed = await parseJson(res)
+        if (!parsed || typeof parsed !== "object" || !("id" in parsed)) {
+          toast.error(`${file.name} yüklendi ama sunucu yanıtı okunamadı. Sayfayı yenileyin.`)
+          continue
+        }
+        uploaded.push(parsed as Attachment)
       }
       if (uploaded.length > 0) {
         setItemStates((prev) => ({
