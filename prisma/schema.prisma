@@ -133,10 +133,35 @@ model Calisan {
   leaveRequestsAsEmployee  LeaveRequest[] @relation("LeaveEmployee")
   /// İzin talepleri — onaylayıcı olarak
   leaveRequestsAsApprover  LeaveRequest[] @relation("LeaveApprover")
+  trainingRecords          TrainingRecord[]        @relation("TrainingRecordCalisan")
+  trainingRecordsCreated   TrainingRecord[]        @relation("TrainingRecordCreator")
 
   @@index([createdAt(sort: Desc)])
   @@index([isim, soyisim])
   @@map("calisanlar")
+}
+
+/// Personel zorunlu eğitim takibi — Compliance Monitoring departmanı yönetir.
+model TrainingRecord {
+  id                     Int       @id @default(autoincrement())
+  calisanId              Int       @map("calisan_id")
+  trainingName           String    @map("training_name") @db.VarChar(300)
+  completionDate         DateTime  @map("completion_date") @db.Date
+  /// Boşsa süresiz/yenileme gerektirmeyen eğitim
+  expiryDate             DateTime? @map("expiry_date") @db.Date
+  certificateStoragePath String?   @map("certificate_storage_path") @db.VarChar(1000)
+  certificateFileName    String?   @map("certificate_file_name") @db.VarChar(255)
+  notes                  String?   @db.Text
+  createdBy              Int?      @map("created_by")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  calisan Calisan  @relation("TrainingRecordCalisan", fields: [calisanId], references: [id], onDelete: Cascade)
+  creator Calisan? @relation("TrainingRecordCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([calisanId])
+  @@index([expiryDate])
+  @@map("training_records")
 }
 
 /// User settings → ek departman seçenekleri (sabit liste + kayıtlı ekler)

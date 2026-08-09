@@ -124,6 +124,26 @@ interface CertificateExpiredAlert {
   aircraft: { id: number; register: string; msn: string }
 }
 
+interface TrainingExpiryAlert {
+  id: number
+  calisanId: number
+  calisanName: string
+  department: string | null
+  trainingName: string
+  expiryDate: string
+  daysRemaining: number
+}
+
+interface TrainingExpiredAlert {
+  id: number
+  calisanId: number
+  calisanName: string
+  department: string | null
+  trainingName: string
+  expiryDate: string
+  daysExpired: number
+}
+
 interface SupportTicketPreview {
   id: number
   subject: string | null
@@ -187,6 +207,12 @@ export function DashboardHome({ user, departmentPermissions = {} as ResolvedDepa
   const [certificatesExpired, setCertificatesExpired] = useState<
     CertificateExpiredAlert[]
   >([])
+  const [trainingExpiringSoon, setTrainingExpiringSoon] = useState<
+    TrainingExpiryAlert[]
+  >([])
+  const [trainingExpired, setTrainingExpired] = useState<
+    TrainingExpiredAlert[]
+  >([])
   const [supportTicketsPreview, setSupportTicketsPreview] = useState<
     SupportTicketPreview[]
   >([])
@@ -240,6 +266,8 @@ export function DashboardHome({ user, departmentPermissions = {} as ResolvedDepa
           setTasksNoDueDate(data.tasksNoDueDate ?? [])
           setCertificatesExpiringSoon(data.certificatesExpiringSoon ?? [])
           setCertificatesExpired(data.certificatesExpired ?? [])
+          setTrainingExpiringSoon(data.trainingExpiringSoon ?? [])
+          setTrainingExpired(data.trainingExpired ?? [])
           setSupportTicketsPreview(data.supportTicketsPreview ?? [])
           setSupportTicketsAdminView(!!data.supportTicketsAdminView)
           setPendingManualsCount(data.pendingManualsCount ?? 0)
@@ -428,11 +456,15 @@ export function DashboardHome({ user, departmentPermissions = {} as ResolvedDepa
         )}
         {(certificatesExpiringSoon.length > 0 ||
           certificatesExpired.length > 0 ||
+          trainingExpiringSoon.length > 0 ||
+          trainingExpired.length > 0 ||
           (!loading && !loadError)) && (
           <div
             className={
               (certificatesExpiringSoon.length > 0 ||
-                certificatesExpired.length > 0) &&
+                certificatesExpired.length > 0 ||
+                trainingExpiringSoon.length > 0 ||
+                trainingExpired.length > 0) &&
               !loading &&
               !loadError
                 ? "grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start"
@@ -562,6 +594,142 @@ export function DashboardHome({ user, departmentPermissions = {} as ResolvedDepa
                                 {c.daysRemaining === 0
                                   ? d.lastDayToday
                                   : `${c.daysRemaining} ${d.daysLeft}`}
+                              </span>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+            {(trainingExpired.length > 0 || trainingExpiringSoon.length > 0) &&
+              !loading &&
+              !loadError && (
+                <div className="flex flex-col gap-3">
+                  {trainingExpired.length > 0 && (
+                    <div
+                      role="alert"
+                      className="rounded-lg border border-red-300/90 bg-red-50 px-3 py-2.5 text-sm text-red-950 shadow-sm dark:border-red-800/55 dark:bg-red-950/40 dark:text-red-50"
+                    >
+                      <div className="flex min-w-0 gap-2">
+                        <AlertTriangle
+                          className="mt-0.5 size-4 shrink-0 text-red-700 dark:text-red-400"
+                          aria-hidden
+                        />
+                        <div className="min-w-0">
+                          <p className="font-semibold leading-tight text-red-950 dark:text-red-100">
+                            {d.expiredTrainings}
+                          </p>
+                          <p className="mt-0.5 line-clamp-2 text-xs text-red-900/85 dark:text-red-200/90">
+                            {d.expiredTrainingsDesc}
+                          </p>
+                        </div>
+                      </div>
+                      <ul className="mt-2 max-h-[min(28vh,200px)] space-y-1.5 overflow-y-auto overscroll-contain border-t border-red-200/80 pt-2 pr-0.5 dark:border-red-800/60">
+                        {trainingExpired.map((tr) => (
+                          <li
+                            key={tr.id}
+                            className="flex flex-col gap-0.5 sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-between sm:gap-x-3"
+                          >
+                            <div className="min-w-0">
+                              <Link
+                                href={`/compliance/training/${tr.calisanId}`}
+                                className="font-medium text-red-950 underline-offset-4 hover:underline dark:text-red-100"
+                              >
+                                {tr.calisanName}
+                              </Link>
+                              <span className="text-muted-foreground"> — </span>
+                              <span className="text-red-950/95 dark:text-red-100/95">
+                                {tr.trainingName}
+                              </span>
+                              {tr.department && (
+                                <span className="block truncate text-xs text-red-900/80 dark:text-red-200/85">
+                                  {tr.department}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] tabular-nums">
+                              <span>
+                                {d.validUntil}:{" "}
+                                <span className="font-medium">
+                                  {formatDateOnlyIstanbul(tr.expiryDate)}
+                                </span>
+                              </span>
+                              <span className="font-semibold text-red-800 dark:text-red-300">
+                                {tr.daysExpired === 0
+                                  ? d.certExpired
+                                  : `${tr.daysExpired} ${d.daysOverdue}`}
+                              </span>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {trainingExpiringSoon.length > 0 && (
+                    <div
+                      role="status"
+                      className="rounded-lg border border-amber-300/80 bg-amber-50 px-3 py-2.5 text-sm text-amber-950 shadow-sm dark:border-amber-700/50 dark:bg-amber-950/35 dark:text-amber-50"
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="flex min-w-0 gap-2">
+                          <FileWarning
+                            className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-400"
+                            aria-hidden
+                          />
+                          <div className="min-w-0">
+                            <p className="font-semibold leading-tight text-amber-950 dark:text-amber-100">
+                              {d.expiringSoonTrainings}
+                            </p>
+                            <p className="mt-0.5 line-clamp-2 text-xs text-amber-900/85 dark:text-amber-200/90">
+                              {d.expiringSoonTrainingsDesc}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      <ul className="mt-2 max-h-[min(28vh,200px)] space-y-1.5 overflow-y-auto overscroll-contain border-t border-amber-200/80 pt-2 pr-0.5 dark:border-amber-800/60">
+                        {trainingExpiringSoon.map((tr) => (
+                          <li
+                            key={tr.id}
+                            className="flex flex-col gap-0.5 sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-between sm:gap-x-3"
+                          >
+                            <div className="min-w-0">
+                              <Link
+                                href={`/compliance/training/${tr.calisanId}`}
+                                className="font-medium text-amber-950 underline-offset-4 hover:underline dark:text-amber-100"
+                              >
+                                {tr.calisanName}
+                              </Link>
+                              <span className="text-muted-foreground"> — </span>
+                              <span className="text-amber-950/95 dark:text-amber-100/95">
+                                {tr.trainingName}
+                              </span>
+                              {tr.department && (
+                                <span className="block truncate text-xs text-amber-900/80 dark:text-amber-200/80">
+                                  {tr.department}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] tabular-nums">
+                              <span>
+                                {d.validUntil}:{" "}
+                                <span className="font-medium">
+                                  {formatDateOnlyIstanbul(tr.expiryDate)}
+                                </span>
+                              </span>
+                              <span
+                                className={
+                                  tr.daysRemaining <= 7
+                                    ? "font-semibold text-red-700 dark:text-red-400"
+                                    : "font-medium text-amber-900 dark:text-amber-300"
+                                }
+                              >
+                                {tr.daysRemaining === 0
+                                  ? d.lastDayToday
+                                  : `${tr.daysRemaining} ${d.daysLeft}`}
                               </span>
                             </div>
                           </li>

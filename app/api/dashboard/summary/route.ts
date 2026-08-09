@@ -72,6 +72,9 @@ export async function GET() {
     const canManageDocuments =
       deptPermissions[DEPARTMENT_PERMISSION_KEYS.CONFIGURATIONS_AREA]
 
+    const canViewTraining =
+      deptPermissions[DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING]
+
     const { year, month, day } = getCalendarYmdInTimeZone(APP_TIMEZONE)
     const todayYmd = formatYmd(year, month, day)
     const todayStart = getUtcRangeForCalendarDate(year, month, day).start
@@ -96,6 +99,8 @@ export async function GET() {
       tasksInWindow,
       certificateRows,
       certificateRowsExpired,
+      trainingRowsExpiringSoon,
+      trainingRowsExpired,
       pendingManualsCount,
       pendingFormsCount,
       supportTicketsPreview,
@@ -246,6 +251,52 @@ export async function GET() {
               aircraft: { id: number; register: string; msn: string }
             }[]
           ),
+      canViewTraining
+        ? prisma.trainingRecord.findMany({
+            where: {
+              expiryDate: { not: null, gte: todayStart, lte: certWindowEndDate },
+            },
+            select: {
+              id: true,
+              calisanId: true,
+              trainingName: true,
+              expiryDate: true,
+              calisan: { select: { isim: true, soyisim: true, departman: true } },
+            },
+            orderBy: { expiryDate: "asc" },
+            take: 50,
+          })
+        : Promise.resolve(
+            [] as {
+              id: number
+              calisanId: number
+              trainingName: string
+              expiryDate: Date | null
+              calisan: { isim: string | null; soyisim: string | null; departman: string | null }
+            }[]
+          ),
+      canViewTraining
+        ? prisma.trainingRecord.findMany({
+            where: { expiryDate: { not: null, lt: todayStart } },
+            select: {
+              id: true,
+              calisanId: true,
+              trainingName: true,
+              expiryDate: true,
+              calisan: { select: { isim: true, soyisim: true, departman: true } },
+            },
+            orderBy: { expiryDate: "asc" },
+            take: 50,
+          })
+        : Promise.resolve(
+            [] as {
+              id: number
+              calisanId: number
+              trainingName: string
+              expiryDate: Date | null
+              calisan: { isim: string | null; soyisim: string | null; departman: string | null }
+            }[]
+          ),
       viewer && canManageDocuments
         ? prisma.companyManual.count({
             where: { status: "pending", isCurrent: true },
@@ -370,6 +421,36 @@ export async function GET() {
       }
     })
 
+    const trainingExpiringSoon = trainingRowsExpiringSoon.map((r) => {
+      const v = r.expiryDate!
+      const untilUtc = Date.UTC(v.getUTCFullYear(), v.getUTCMonth(), v.getUTCDate())
+      const daysRemaining = Math.round((untilUtc - todayUtcMs) / 86400000)
+      return {
+        id: r.id,
+        calisanId: r.calisanId,
+        calisanName: `${r.calisan.isim ?? ""} ${r.calisan.soyisim ?? ""}`.trim(),
+        department: r.calisan.departman,
+        trainingName: r.trainingName,
+        expiryDate: v.toISOString(),
+        daysRemaining,
+      }
+    })
+
+    const trainingExpired = trainingRowsExpired.map((r) => {
+      const v = r.expiryDate!
+      const untilUtc = Date.UTC(v.getUTCFullYear(), v.getUTCMonth(), v.getUTCDate())
+      const daysExpired = Math.max(0, Math.round((todayUtcMs - untilUtc) / 86400000))
+      return {
+        id: r.id,
+        calisanId: r.calisanId,
+        calisanName: `${r.calisan.isim ?? ""} ${r.calisan.soyisim ?? ""}`.trim(),
+        department: r.calisan.departman,
+        trainingName: r.trainingName,
+        expiryDate: v.toISOString(),
+        daysExpired,
+      }
+    })
+
     return NextResponse.json(
       prismaJson({
         announcements: announcementsWithAck,
@@ -382,6 +463,8 @@ export async function GET() {
         tasksNoDueDate,
         certificatesExpiringSoon,
         certificatesExpired,
+        trainingExpiringSoon,
+        trainingExpired,
         supportTicketsPreview,
         supportTicketsAdminView: viewer
           ? canManageSupportTicketsAsAdmin(viewer.departman)
