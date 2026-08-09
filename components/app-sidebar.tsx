@@ -186,6 +186,7 @@ export function AppSidebar({
     { title: t.nav.findingsFollowUp, url: "/compliance/findings-follow-up" },
     { title: t.nav.shgmMevzuat, url: "/compliance/shgm-mevzuat" },
     { title: t.nav.trainingTracking, url: "/compliance/training" },
+    { title: t.nav.safaScore, url: "/compliance/safa" },
   ]
   const flushMessagesGutter =
     pathname === "/messages" || pathname?.startsWith("/messages/")

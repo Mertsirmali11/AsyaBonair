@@ -135,10 +135,35 @@ model Calisan {
   leaveRequestsAsApprover  LeaveRequest[] @relation("LeaveApprover")
   trainingRecords          TrainingRecord[]        @relation("TrainingRecordCalisan")
   trainingRecordsCreated   TrainingRecord[]        @relation("TrainingRecordCreator")
+  safaInspectionsCreated   SafaInspection[]        @relation("SafaInspectionCreator")
 
   @@index([createdAt(sort: Desc)])
   @@index([isim, soyisim])
   @@map("calisanlar")
+}
+
+/// SAFA (Safety Assessment of Foreign Aircraft) denetim kayıtları — Compliance Monitoring takip eder.
+model SafaInspection {
+  id                   Int       @id @default(autoincrement())
+  inspectionDate       DateTime  @map("inspection_date") @db.Date
+  /// Havalimanı (ICAO/IATA kodu + ad, serbest metin)
+  location             String    @db.VarChar(150)
+  /// Denetleyen otorite (CAA)
+  authority            String    @db.VarChar(200)
+  aircraftRegistration String    @map("aircraft_registration") @db.VarChar(20)
+  cat1Count            Int       @default(0) @map("cat1_count")
+  cat2Count            Int       @default(0) @map("cat2_count")
+  cat3Count            Int       @default(0) @map("cat3_count")
+  notes                String?   @db.Text
+  createdBy            Int?      @map("created_by")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  creator Calisan? @relation("SafaInspectionCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([inspectionDate])
+  @@index([aircraftRegistration])
+  @@map("safa_inspections")
 }
 
 /// Personel zorunlu eğitim takibi — Compliance Monitoring departmanı yönetir.
