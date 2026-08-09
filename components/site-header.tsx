@@ -9,6 +9,7 @@ import {
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { DmHeaderInbox } from "@/components/dm-header-inbox"
+import { ShgmHeaderNotifications } from "@/components/shgm-header-notifications"
 import { IstanbulClock } from "@/components/istanbul-clock"
 
 interface SiteHeaderProps {
@@ -89,6 +90,7 @@ export function SiteHeader({ user, title: titleProp }: SiteHeaderProps) {
         <PageTitleWithAccessory title={title} accessory={titleAccessory} />
         <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
           <DmHeaderInbox />
+          <ShgmHeaderNotifications />
           <IstanbulClock />
           {user && (
             <div className="flex items-center gap-3">

@@ -5,12 +5,14 @@ import { uploadBinaryToStorage } from "@/lib/supabase-storage"
 import { slugifyManualTitle } from "@/lib/company-manual-slug"
 import { getAppPublicUrl } from "@/lib/app-public-url"
 import { escapeHtml, getResend, sendHtmlEmail } from "@/lib/mail"
+import { extractTextFromPdfBuffer } from "@/lib/extract-pdf-text"
 import {
   SHGM_CATEGORY_LABELS,
   SHGM_SUB_PAGES,
   type ShgmCategoryKey,
 } from "@/lib/shgm/categories"
 import { scrapeShgmSubPage, type ShgmScrapedRow } from "@/lib/shgm/scrape"
+import { summarizeShgmRegulation } from "@/lib/shgm/summarize"
 
 const PDF_MAX_BYTES = 30 * 1024 * 1024
 const PDF_FETCH_TIMEOUT_MS = 6_000
@@ -71,6 +73,43 @@ export type ShgmSyncSummary = {
     | { skipped: true; reason: string }
     | { sent: number; failed: number; errors: string[] }
     | null
+}
+
+/**
+ * Kısa AI özeti üretip kaydeder — best-effort: PDF metni çıkarılamazsa veya
+ * Groq çağrısı başarısız olursa sadece loglar, senkronizasyonu bloklamaz.
+ */
+async function generateAndStoreSummary(
+  regulationId: number,
+  title: string,
+  category: ShgmCategoryKey,
+  pdf: { buffer: Buffer; contentType: string } | null
+): Promise<void> {
+  try {
+    let pdfText: string | null = null
+    if (pdf) {
+      try {
+        const extracted = await extractTextFromPdfBuffer(pdf.buffer)
+        pdfText = extracted.text
+      } catch (e) {
+        console.error(`[shgm-sync] PDF text extraction failed for regulation ${regulationId}:`, e)
+      }
+    }
+
+    const summary = await summarizeShgmRegulation({
+      title,
+      categoryLabel: SHGM_CATEGORY_LABELS[category] ?? category,
+      pdfText,
+    })
+    if (!summary) return
+
+    await prisma.shgmRegulation.update({
+      where: { id: regulationId },
+      data: { aiSummary: summary, aiSummaryUpdatedAt: new Date() },
+    })
+  } catch (e) {
+    console.error(`[shgm-sync] summary generation failed for regulation ${regulationId}:`, e)
+  }
 }
 
 /** Aynı sourceKey birden çok alt sayfada görülürse en son taranan kazanır. */
@@ -162,6 +201,8 @@ export async function runShgmMevzuatSync(): Promise<ShgmSyncSummary> {
         },
       })
 
+      await generateAndStoreSummary(created.id, row.title, row.category, pdf)
+
       detected.push({
         kind: "created",
         regulationId: created.id,
@@ -221,6 +262,9 @@ export async function runShgmMevzuatSync(): Promise<ShgmSyncSummary> {
         publishDate: row.publishDate ?? existingRow.publishDate,
       },
     })
+
+    // Revizyon geldi — özeti de güncel içerikle yenile (varsa yeni PDF ile).
+    await generateAndStoreSummary(existingRow.id, row.title, row.category, pdf)
 
     detected.push({
       kind: "revised",

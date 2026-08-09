@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { ArrowLeft, FileText, ExternalLink } from "lucide-react"
+import { ArrowLeft, FileText, ExternalLink, Sparkles, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -18,6 +18,8 @@ export type ShgmRegulationDetail = {
   status: string
   sourceUrl: string
   publishDate: string | null
+  aiSummary: string | null
+  aiSummaryUpdatedAt: string | null
   revisions: {
     id: number
     kind: string
@@ -49,6 +51,29 @@ export function ShgmMevzuatDetailClient({
   const [department, setDepartment] = React.useState(detail.department ?? "")
   const [saving, setSaving] = React.useState(false)
   const [status, setStatus] = React.useState(detail.status)
+  const [aiSummary, setAiSummary] = React.useState(detail.aiSummary)
+  const [aiSummaryUpdatedAt, setAiSummaryUpdatedAt] = React.useState(detail.aiSummaryUpdatedAt)
+  const [summarizing, setSummarizing] = React.useState(false)
+
+  async function regenerateSummary() {
+    setSummarizing(true)
+    try {
+      const res = await fetch(`/api/shgm-mevzuat/${detail.id}/summarize`, { method: "POST" })
+      const data = (await res.json().catch(() => ({}))) as {
+        aiSummary?: string
+        aiSummaryUpdatedAt?: string
+        error?: string
+      }
+      if (!res.ok) throw new Error(data.error || "Özet oluşturulamadı.")
+      setAiSummary(data.aiSummary ?? null)
+      setAiSummaryUpdatedAt(data.aiSummaryUpdatedAt ?? null)
+      toast.success("Özet oluşturuldu.")
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Özet oluşturulamadı.")
+    } finally {
+      setSummarizing(false)
+    }
+  }
 
   async function saveDepartment() {
     setSaving(true)
@@ -110,6 +135,40 @@ export function ShgmMevzuatDetailClient({
         >
           SHGM kaynağı <ExternalLink className="size-3" />
         </a>
+      </div>
+
+      <div className="rounded-lg border p-4 flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-sm font-semibold">
+            <Sparkles className="size-4 text-primary" />
+            AI Özet
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={regenerateSummary}
+            disabled={summarizing}
+            className="gap-1.5"
+          >
+            <RefreshCw className={`size-3.5 ${summarizing ? "animate-spin" : ""}`} />
+            {summarizing ? "Oluşturuluyor…" : aiSummary ? "Yeniden oluştur" : "Özet oluştur"}
+          </Button>
+        </div>
+        {aiSummary ? (
+          <>
+            <p className="text-sm whitespace-pre-wrap">{aiSummary}</p>
+            {aiSummaryUpdatedAt && (
+              <p className="text-xs text-muted-foreground">
+                Son güncelleme: {formatDate(aiSummaryUpdatedAt)}
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground italic">
+            Henüz özet oluşturulmadı. Yukarıdaki butonla oluşturabilirsiniz.
+          </p>
+        )}
       </div>
 
       <div className="flex flex-wrap items-end gap-3 rounded-lg border p-4">

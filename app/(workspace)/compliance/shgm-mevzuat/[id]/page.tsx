@@ -44,6 +44,10 @@ export default async function ShgmMevzuatDetailPage({
     status: regulation.status,
     sourceUrl: regulation.sourceUrl,
     publishDate: regulation.publishDate ? regulation.publishDate.toISOString() : null,
+    aiSummary: regulation.aiSummary,
+    aiSummaryUpdatedAt: regulation.aiSummaryUpdatedAt
+      ? regulation.aiSummaryUpdatedAt.toISOString()
+      : null,
     revisions: regulation.revisions.map((rev) => ({
       id: rev.id,
       kind: rev.kind,

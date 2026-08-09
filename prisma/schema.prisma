@@ -1306,6 +1306,9 @@ model ShgmRegulation {
   latestRevisionDate DateTime? @map("latest_revision_date") @db.Date
   /// Başlık dışı tüm hücrelerin ham metni — kolon anlamı yakalanamasa da değişiklik tespiti için yedek
   latestRawFingerprint String? @map("latest_raw_fingerprint") @db.Text
+  /// Kısa AI özeti — işletmeyle ilgisi ve yapılacaklar (best-effort; PDF metni yoksa başlıktan üretilir)
+  aiSummary          String?   @map("ai_summary") @db.Text
+  aiSummaryUpdatedAt DateTime? @map("ai_summary_updated_at")
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
