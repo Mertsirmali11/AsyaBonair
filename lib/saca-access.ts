@@ -7,8 +7,8 @@ import { prisma } from "@/lib/prisma-server"
 import { DEPARTMENT_PERMISSION_KEYS } from "@/lib/department-permission-keys"
 import { getResolvedDepartmentPermissionsForUser } from "@/lib/department-permissions-resolve"
 
-/** SAFA Score erişimi/yönetimi — Compliance Monitoring departmanı ile aynı kapıyı kullanır. */
-export async function assertCanManageSafa(): Promise<
+/** SACA Score erişimi — Compliance Monitoring departmanı ile aynı kapıyı kullanır. */
+export async function assertCanViewSaca(): Promise<
   { ok: true } | { ok: false; response: NextResponse }
 > {
   const session = await auth()
@@ -37,7 +37,7 @@ export async function assertCanManageSafa(): Promise<
 }
 
 /** Sayfa (server component) tarafı için: true/false döner, yönlendirme çağıran tarafta yapılır. */
-export async function canManageSafaForSession(
+export async function canViewSacaForSession(
   departman: string | null | undefined
 ): Promise<boolean> {
   const permissions = await getResolvedDepartmentPermissionsForUser(departman)
