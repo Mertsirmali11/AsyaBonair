@@ -4,6 +4,9 @@ import * as React from "react"
 import Link from "next/link"
 import { useLanguage } from "@/lib/i18n/context"
 import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   CalendarRange,
   CheckCircle2,
   ChevronDown,
@@ -77,7 +80,7 @@ import {
 import { AuditCategoryCombobox } from "@/components/compliance/audit-category-combobox"
 import type { AuditChecklistListRow } from "@/components/compliance/audit-checklists-client"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
-import { todayLocalDdMmYyyy } from "@/lib/correspondence-date"
+import { parseDdMmYyyyToUtcDate, todayLocalDdMmYyyy } from "@/lib/correspondence-date"
 import { cn } from "@/lib/utils"
 
 type CalisanLite = { id: number; isim: string | null; soyisim: string | null }
@@ -244,6 +247,11 @@ export function AuditPlanClient() {
   const [keyword, setKeyword] = React.useState("")
   const [rows, setRows] = React.useState<AuditPlanRow[]>([])
   const [listLoading, setListLoading] = React.useState(true)
+  const [dateSort, setDateSort] = React.useState<"asc" | "desc" | null>(null)
+
+  const toggleDateSort = () => {
+    setDateSort((prev) => (prev === "asc" ? "desc" : "asc"))
+  }
 
   const [detailEntryId, setDetailEntryId] = React.useState<string | null>(null)
   const [detail, setDetail] = React.useState<AuditPlanDetail | null>(null)
@@ -658,12 +666,30 @@ export function AuditPlanClient() {
 
   const filtered = React.useMemo(() => {
     const q = keyword.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter((r) =>
-      [r.auditNumber, r.field, r.auditors, r.status, r.datePlanned, r.ct]
-        .join(" ").toLowerCase().includes(q)
-    )
-  }, [rows, keyword])
+    const base = !q
+      ? rows
+      : rows.filter((r) =>
+          [r.auditNumber, r.field, r.auditors, r.status, r.datePlanned, r.ct]
+            .join(" ").toLowerCase().includes(q)
+        )
+
+    if (!dateSort) return base
+
+    // DD.MM.YYYY metnini gerçek tarih değerine çevirip kronolojik sıralar
+    // (string sıralaması "31.01.2026" ile "01.02.2026" gibi durumlarda yanlış sonuç verir).
+    const withParsed = base.map((r) => ({
+      row: r,
+      time: parseDdMmYyyyToUtcDate(r.datePlanned)?.getTime() ?? null,
+    }))
+    withParsed.sort((a, b) => {
+      // Ayrıştırılamayan tarihler sona (hangi sıralama yönünde olursa olsun) atılır.
+      if (a.time === null && b.time === null) return 0
+      if (a.time === null) return 1
+      if (b.time === null) return -1
+      return dateSort === "asc" ? a.time - b.time : b.time - a.time
+    })
+    return withParsed.map((x) => x.row)
+  }, [rows, keyword, dateSort])
 
   // ─── Export ───────────────────────────────────────────────────────────────
 
@@ -863,7 +889,23 @@ export function AuditPlanClient() {
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow className="bg-muted/40 hover:bg-muted/40">
                   <TableHead className="w-10 px-2 text-center" />
-                  <TableHead className="whitespace-nowrap">Date (Planned)</TableHead>
+                  <TableHead className="whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={toggleDateSort}
+                      className="hover:text-foreground inline-flex items-center gap-1"
+                      title="Tarihe göre sırala"
+                    >
+                      Date (Planned)
+                      {dateSort === "asc" ? (
+                        <ArrowUp className="size-3.5" />
+                      ) : dateSort === "desc" ? (
+                        <ArrowDown className="size-3.5" />
+                      ) : (
+                        <ArrowUpDown className="size-3.5 opacity-50" />
+                      )}
+                    </button>
+                  </TableHead>
                   <TableHead className="whitespace-nowrap">Date (Postponed)</TableHead>
                   <TableHead className="whitespace-nowrap">Initialized Date</TableHead>
                   <TableHead className="whitespace-nowrap">Audit Number</TableHead>
