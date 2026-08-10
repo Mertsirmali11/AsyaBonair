@@ -94,6 +94,16 @@ const statusStyles: Record<string, string> = {
   Cancelled:   "bg-slate-500 text-white",
 }
 
+type SortColumn =
+  | "datePlanned"
+  | "datePostponed"
+  | "initializedDate"
+  | "auditNumber"
+  | "field"
+  | "auditors"
+  | "status"
+const DATE_SORT_COLUMNS: SortColumn[] = ["datePlanned", "datePostponed", "initializedDate"]
+
 export type AuditPlanRow = {
   id: string
   datePlanned: string
@@ -247,10 +257,23 @@ export function AuditPlanClient() {
   const [keyword, setKeyword] = React.useState("")
   const [rows, setRows] = React.useState<AuditPlanRow[]>([])
   const [listLoading, setListLoading] = React.useState(true)
-  const [dateSort, setDateSort] = React.useState<"asc" | "desc" | null>(null)
+  const [sortColumn, setSortColumn] = React.useState<SortColumn | null>(null)
+  const [sortDir, setSortDir] = React.useState<"asc" | "desc">("asc")
 
-  const toggleDateSort = () => {
-    setDateSort((prev) => (prev === "asc" ? "desc" : "asc"))
+  const toggleSort = (column: SortColumn) => {
+    setSortColumn((prevCol) => {
+      if (prevCol === column) {
+        setSortDir((prevDir) => (prevDir === "asc" ? "desc" : "asc"))
+        return prevCol
+      }
+      setSortDir("asc")
+      return column
+    })
+  }
+
+  const renderSortIcon = (column: SortColumn) => {
+    if (sortColumn !== column) return <ArrowUpDown className="size-3.5 opacity-50" />
+    return sortDir === "asc" ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />
   }
 
   // ─── Gelişmiş filtreler: Yıl / Departman (Field) / Status ──────────────────
@@ -718,23 +741,33 @@ export function AuditPlanClient() {
       base = base.filter((r) => r.status === statusFilter)
     }
 
-    if (!dateSort) return base
+    if (!sortColumn) return base
 
-    // DD.MM.YYYY metnini gerçek tarih değerine çevirip kronolojik sıralar
-    // (string sıralaması "31.01.2026" ile "01.02.2026" gibi durumlarda yanlış sonuç verir).
-    const withParsed = base.map((r) => ({
-      row: r,
-      time: parseDdMmYyyyToUtcDate(r.datePlanned)?.getTime() ?? null,
-    }))
-    withParsed.sort((a, b) => {
-      // Ayrıştırılamayan tarihler sona (hangi sıralama yönünde olursa olsun) atılır.
-      if (a.time === null && b.time === null) return 0
-      if (a.time === null) return 1
-      if (b.time === null) return -1
-      return dateSort === "asc" ? a.time - b.time : b.time - a.time
+    const isDateColumn = DATE_SORT_COLUMNS.includes(sortColumn)
+    // Tarih sütunları: DD.MM.YYYY metnini gerçek tarih değerine çevirip kronolojik
+    // sıralar (string sıralaması "31.01.2026" ile "01.02.2026" gibi durumlarda
+    // yanlış sonuç verir). Diğer sütunlar: sayı-duyarlı alfabetik sıralama (ör.
+    // "AP-2" "AP-10"'dan önce gelir).
+    const withKey = base.map((r) => {
+      const raw = r[sortColumn] as string | null
+      const key = isDateColumn
+        ? (raw ? parseDdMmYyyyToUtcDate(raw)?.getTime() ?? null : null)
+        : (raw?.trim() || null)
+      return { row: r, key }
     })
-    return withParsed.map((x) => x.row)
-  }, [rows, keyword, dateSort, yearFilter, fieldFilter, statusFilter])
+    withKey.sort((a, b) => {
+      // Boş/ayrıştırılamayan değerler sona (hangi sıralama yönünde olursa olsun) atılır.
+      if (a.key === null && b.key === null) return 0
+      if (a.key === null) return 1
+      if (b.key === null) return -1
+      const cmp =
+        typeof a.key === "number" && typeof b.key === "number"
+          ? a.key - b.key
+          : String(a.key).localeCompare(String(b.key), undefined, { numeric: true, sensitivity: "base" })
+      return sortDir === "asc" ? cmp : -cmp
+    })
+    return withKey.map((x) => x.row)
+  }, [rows, keyword, sortColumn, sortDir, yearFilter, fieldFilter, statusFilter])
 
   // ─── Export ───────────────────────────────────────────────────────────────
 
@@ -1012,27 +1045,81 @@ export function AuditPlanClient() {
                   <TableHead className="whitespace-nowrap">
                     <button
                       type="button"
-                      onClick={toggleDateSort}
+                      onClick={() => toggleSort("datePlanned")}
                       className="hover:text-foreground inline-flex items-center gap-1"
                       title="Tarihe göre sırala"
                     >
                       Date (Planned)
-                      {dateSort === "asc" ? (
-                        <ArrowUp className="size-3.5" />
-                      ) : dateSort === "desc" ? (
-                        <ArrowDown className="size-3.5" />
-                      ) : (
-                        <ArrowUpDown className="size-3.5 opacity-50" />
-                      )}
+                      {renderSortIcon("datePlanned")}
                     </button>
                   </TableHead>
-                  <TableHead className="whitespace-nowrap">Date (Postponed)</TableHead>
-                  <TableHead className="whitespace-nowrap">Initialized Date</TableHead>
-                  <TableHead className="whitespace-nowrap">Audit Number</TableHead>
-                  <TableHead>Field</TableHead>
+                  <TableHead className="whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("datePostponed")}
+                      className="hover:text-foreground inline-flex items-center gap-1"
+                      title="Tarihe göre sırala"
+                    >
+                      Date (Postponed)
+                      {renderSortIcon("datePostponed")}
+                    </button>
+                  </TableHead>
+                  <TableHead className="whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("initializedDate")}
+                      className="hover:text-foreground inline-flex items-center gap-1"
+                      title="Tarihe göre sırala"
+                    >
+                      Initialized Date
+                      {renderSortIcon("initializedDate")}
+                    </button>
+                  </TableHead>
+                  <TableHead className="whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("auditNumber")}
+                      className="hover:text-foreground inline-flex items-center gap-1"
+                      title="Sırala"
+                    >
+                      Audit Number
+                      {renderSortIcon("auditNumber")}
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("field")}
+                      className="hover:text-foreground inline-flex items-center gap-1"
+                      title="Sırala"
+                    >
+                      Field
+                      {renderSortIcon("field")}
+                    </button>
+                  </TableHead>
                   <TableHead className="whitespace-nowrap text-center">C / T</TableHead>
-                  <TableHead>Auditors</TableHead>
-                  <TableHead className="text-right whitespace-nowrap">Status</TableHead>
+                  <TableHead>
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("auditors")}
+                      className="hover:text-foreground inline-flex items-center gap-1"
+                      title="Sırala"
+                    >
+                      Auditors
+                      {renderSortIcon("auditors")}
+                    </button>
+                  </TableHead>
+                  <TableHead className="text-right whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("status")}
+                      className="hover:text-foreground ml-auto inline-flex items-center gap-1"
+                      title="Sırala"
+                    >
+                      Status
+                      {renderSortIcon("status")}
+                    </button>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
