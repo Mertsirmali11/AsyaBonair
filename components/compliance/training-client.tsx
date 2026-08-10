@@ -45,6 +45,7 @@ import {
   type TrainingStatus,
 } from "@/lib/training-status"
 import { uploadTrainingCertificateDirect } from "@/lib/client-training-upload"
+import { EmployeeCombobox } from "@/components/employee-combobox"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { cn } from "@/lib/utils"
 
@@ -416,22 +417,19 @@ export function TrainingClient({
             {!fixedCalisanId && (
               <div className="space-y-2">
                 <Label htmlFor={`tr-calisan-${uid}`}>Personel</Label>
-                <Select
-                  value={calisanId}
-                  onValueChange={setCalisanId}
+                <EmployeeCombobox
+                  id={`tr-calisan-${uid}`}
+                  options={calisanlar.map((c) => ({
+                    id: c.id,
+                    label: personelLabel(c),
+                    sublabel: c.departman ?? "",
+                  }))}
+                  value={calisanId ? Number(calisanId) : undefined}
+                  onChange={(id) => setCalisanId(String(id))}
+                  placeholder="Personel seçin…"
+                  searchPlaceholder="İsim veya departman ara…"
                   disabled={editingId !== null}
-                >
-                  <SelectTrigger id={`tr-calisan-${uid}`}>
-                    <SelectValue placeholder="Personel seçin…" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-64">
-                    {calisanlar.map((c) => (
-                      <SelectItem key={c.id} value={String(c.id)}>
-                        {personelLabel(c)} {c.departman ? `— ${c.departman}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                />
               </div>
             )}
             <div className="space-y-2">
