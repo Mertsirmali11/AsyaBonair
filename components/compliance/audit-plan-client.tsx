@@ -253,6 +253,38 @@ export function AuditPlanClient() {
     setDateSort((prev) => (prev === "asc" ? "desc" : "asc"))
   }
 
+  // ─── Gelişmiş filtreler: Yıl / Departman (Field) / Status ──────────────────
+  const ALL = "__all__"
+  const [filterPanelOpen, setFilterPanelOpen] = React.useState(false)
+  const [yearFilter, setYearFilter] = React.useState<string>(ALL)
+  const [fieldFilter, setFieldFilter] = React.useState<string>(ALL)
+  const [statusFilter, setStatusFilter] = React.useState<string>(ALL)
+
+  const yearOptions = React.useMemo(() => {
+    const set = new Set<string>()
+    for (const r of rows) {
+      const d = parseDdMmYyyyToUtcDate(r.datePlanned)
+      if (d) set.add(String(d.getUTCFullYear()))
+    }
+    return Array.from(set).sort((a, b) => Number(b) - Number(a))
+  }, [rows])
+
+  const fieldOptions = React.useMemo(() => {
+    const set = new Set<string>()
+    for (const r of rows) if (r.field?.trim()) set.add(r.field.trim())
+    return Array.from(set).sort((a, b) => a.localeCompare(b))
+  }, [rows])
+
+  const statusOptions = React.useMemo(() => Object.keys(statusStyles), [])
+
+  const activeFilterCount = [yearFilter, fieldFilter, statusFilter].filter((v) => v !== ALL).length
+
+  const clearFilters = () => {
+    setYearFilter(ALL)
+    setFieldFilter(ALL)
+    setStatusFilter(ALL)
+  }
+
   const [detailEntryId, setDetailEntryId] = React.useState<string | null>(null)
   const [detail, setDetail] = React.useState<AuditPlanDetail | null>(null)
   const [detailLoading, setDetailLoading] = React.useState(false)
@@ -666,12 +698,25 @@ export function AuditPlanClient() {
 
   const filtered = React.useMemo(() => {
     const q = keyword.trim().toLowerCase()
-    const base = !q
+    let base = !q
       ? rows
       : rows.filter((r) =>
           [r.auditNumber, r.field, r.auditors, r.status, r.datePlanned, r.ct]
             .join(" ").toLowerCase().includes(q)
         )
+
+    if (yearFilter !== ALL) {
+      base = base.filter((r) => {
+        const d = parseDdMmYyyyToUtcDate(r.datePlanned)
+        return d ? String(d.getUTCFullYear()) === yearFilter : false
+      })
+    }
+    if (fieldFilter !== ALL) {
+      base = base.filter((r) => r.field === fieldFilter)
+    }
+    if (statusFilter !== ALL) {
+      base = base.filter((r) => r.status === statusFilter)
+    }
 
     if (!dateSort) return base
 
@@ -689,7 +734,7 @@ export function AuditPlanClient() {
       return dateSort === "asc" ? a.time - b.time : b.time - a.time
     })
     return withParsed.map((x) => x.row)
-  }, [rows, keyword, dateSort])
+  }, [rows, keyword, dateSort, yearFilter, fieldFilter, statusFilter])
 
   // ─── Export ───────────────────────────────────────────────────────────────
 
@@ -792,16 +837,91 @@ export function AuditPlanClient() {
 
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="h-9 w-9"
-                  title="Gelişmiş filtre (yakında)"
-                  disabled
-                >
-                  <Filter className="size-4" />
-                </Button>
+                <Popover open={filterPanelOpen} onOpenChange={setFilterPanelOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="relative h-9 w-9"
+                      title="Gelişmiş filtre"
+                    >
+                      <Filter className="size-4" />
+                      {activeFilterCount > 0 && (
+                        <span className="bg-primary text-primary-foreground absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full text-[10px] font-bold leading-none">
+                          {activeFilterCount}
+                        </span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-72 space-y-3 p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold">Gelişmiş Filtreler</p>
+                      {activeFilterCount > 0 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={clearFilters}
+                        >
+                          Filtreleri Temizle
+                        </Button>
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-muted-foreground text-xs">Yıl</Label>
+                      <Select value={yearFilter} onValueChange={setYearFilter}>
+                        <SelectTrigger className="h-9 w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={ALL}>Tüm yıllar</SelectItem>
+                          {yearOptions.map((y) => (
+                            <SelectItem key={y} value={y}>
+                              {y}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-muted-foreground text-xs">Departman / Field</Label>
+                      <Select value={fieldFilter} onValueChange={setFieldFilter}>
+                        <SelectTrigger className="h-9 w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-64">
+                          <SelectItem value={ALL}>Tüm departmanlar</SelectItem>
+                          {fieldOptions.map((f) => (
+                            <SelectItem key={f} value={f}>
+                              {f}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-muted-foreground text-xs">Status</Label>
+                      <Select value={statusFilter} onValueChange={setStatusFilter}>
+                        <SelectTrigger className="h-9 w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={ALL}>Tüm statüler</SelectItem>
+                          {statusOptions.map((s) => (
+                            <SelectItem key={s} value={s}>
+                              {s}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </PopoverContent>
+                </Popover>
                 <div className="relative min-w-[220px] max-w-lg flex-1">
                   <Search className="text-muted-foreground pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2" />
                   <Input
