@@ -31,5 +31,23 @@ export async function DELETE(_req: Request, ctx: Ctx) {
   await deletePdfFromStorage(doc.storagePath)
   await prisma.auditPlanDocument.delete({ where: { id: documentId } })
 
+  try {
+    const actor = await prisma.calisan.findFirst({
+      where: { email: { equals: session.user.email, mode: "insensitive" } },
+      select: { id: true, isim: true, soyisim: true },
+    })
+    const actorName = actor ? [actor.isim, actor.soyisim].filter(Boolean).join(" ").trim() || "Bilinmeyen kullanıcı" : "Bilinmeyen kullanıcı"
+    await prisma.auditPlanEntryHistory.create({
+      data: {
+        auditPlanEntryId: entryId,
+        actorId: actor?.id ?? null,
+        eventType: "FILE_DELETED",
+        note: `Dosya "${doc.fileName}" ${actorName} tarafından silindi.`,
+      },
+    })
+  } catch {
+    // Geçmiş kaydı başarısız olsa bile silme işlemi geçerli kalır
+  }
+
   return NextResponse.json({ success: true })
 }

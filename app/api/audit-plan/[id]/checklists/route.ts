@@ -121,6 +121,27 @@ export async function POST(req: Request, ctx: Ctx) {
       },
     })
 
+    try {
+      const actorEmail = session.user?.email
+      const actor = actorEmail
+        ? await prisma.calisan.findFirst({
+            where: { email: { equals: actorEmail, mode: "insensitive" } },
+            select: { id: true, isim: true, soyisim: true },
+          })
+        : null
+      const actorName = actor ? [actor.isim, actor.soyisim].filter(Boolean).join(" ").trim() || "Bilinmeyen kullanıcı" : "Bilinmeyen kullanıcı"
+      await prisma.auditPlanEntryHistory.create({
+        data: {
+          auditPlanEntryId,
+          actorId: actor?.id ?? null,
+          eventType: "CHECKLIST_ASSIGNED",
+          note: `Checklist "${created.checklist.title}" ${actorName} tarafından denetime atandı.`,
+        },
+      })
+    } catch {
+      // Geçmiş kaydı başarısız olsa bile atama geçerli kalır
+    }
+
     return NextResponse.json(
       {
         assignmentId: created.id,

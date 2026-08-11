@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { useLanguage } from "@/lib/i18n/context"
 import {
   AlertTriangle,
@@ -97,7 +98,7 @@ import { cn } from "@/lib/utils"
 type CalisanLite = { id: number; isim: string | null; soyisim: string | null }
 
 /** Referans ekrandaki durum rozetleri */
-const statusStyles: Record<string, string> = {
+export const statusStyles: Record<string, string> = {
   Planned:     "bg-blue-500 text-white",
   Initialized: "bg-emerald-600 text-white",
   Postponed:   "bg-sky-600 text-white",
@@ -128,7 +129,7 @@ export type AuditPlanRow = {
   status: keyof typeof statusStyles | string
 }
 
-type AuditPlanDocumentRow = {
+export type AuditPlanDocumentRow = {
   id: number
   fileName: string
   mimeType: string | null
@@ -137,7 +138,7 @@ type AuditPlanDocumentRow = {
   createdAt: string
 }
 
-type AuditPlanFindingRow = {
+export type AuditPlanFindingRow = {
   id: number
   findingCode: string
   findingLevel: string
@@ -148,7 +149,7 @@ type AuditPlanFindingRow = {
   assignedTo: { id: number; name: string | null; department: string | null } | null
 }
 
-type AuditPlanHistoryRow = {
+export type AuditPlanHistoryRow = {
   id: number
   createdAt: string
   eventType: string
@@ -158,20 +159,20 @@ type AuditPlanHistoryRow = {
   actorName: string | null
 }
 
-function historyEventText(h: AuditPlanHistoryRow): string {
+export function historyEventText(h: AuditPlanHistoryRow): string {
   if (h.note?.trim()) return h.note.trim()
   const actor = h.actorName ?? "Bilinmeyen kullanıcı"
   if (h.eventType === "REOPENED") return `Denetim ${actor} tarafından yeniden açıldı.`
   return `${actor} tarafından durum "${h.statusFrom ?? "—"}" → "${h.statusTo ?? "—"}" olarak güncellendi.`
 }
 
-const findingLevelStyles: Record<string, { label: string; cls: string }> = {
+export const findingLevelStyles: Record<string, { label: string; cls: string }> = {
   Level1: { label: "Level 1", cls: "bg-red-100 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-800" },
   Level2: { label: "Level 2", cls: "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-400 dark:border-orange-800" },
   Observation: { label: "Gözlem", cls: "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800" },
 }
 
-type AuditPlanDetail = {
+export type AuditPlanDetail = {
   id: string
   title: string
   auditNumber: string
@@ -204,7 +205,7 @@ type AuditPlanDetail = {
   updatedAt: string
 }
 
-function normalizeAuditDetail(
+export function normalizeAuditDetail(
   data: AuditPlanDetail & { error?: string }
 ): AuditPlanDetail {
   return {
@@ -213,7 +214,7 @@ function normalizeAuditDetail(
   }
 }
 
-function formatDetailDate(iso: string): string {
+export function formatDetailDate(iso: string): string {
   try {
     const d = new Date(iso)
     return new Intl.DateTimeFormat("tr-TR", {
@@ -226,13 +227,13 @@ function formatDetailDate(iso: string): string {
   }
 }
 
-function formatBytes(n: number): string {
+export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function EmployeeMultiSelect({
+export function EmployeeMultiSelect({
   id,
   label,
   options,
@@ -315,6 +316,7 @@ function EmployeeMultiSelect({
 
 export function AuditPlanClient() {
   const { t } = useLanguage()
+  const router = useRouter()
   const uid = React.useId()
   const [keyword, setKeyword] = React.useState("")
   const [rows, setRows] = React.useState<AuditPlanRow[]>([])
@@ -1466,8 +1468,12 @@ export function AuditPlanClient() {
                   </TableRow>
                 ) : (
                   filtered.map((row) => (
-                    <TableRow key={row.id} className="hover:bg-muted/30">
-                      <TableCell className="w-10 px-1 align-middle">
+                    <TableRow
+                      key={row.id}
+                      className="hover:bg-muted/30 cursor-pointer"
+                      onClick={() => router.push(`/compliance/audit-plan/${row.id}/manage`)}
+                    >
+                      <TableCell className="w-10 px-1 align-middle" onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
@@ -1488,9 +1494,11 @@ export function AuditPlanClient() {
                               </Link>
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => setDetailEntryId(row.id)}>
-                              <ClipboardList className="mr-2 size-4" />
-                              Detay / Düzenle
+                            <DropdownMenuItem asChild>
+                              <Link href={`/compliance/audit-plan/${row.id}/manage`}>
+                                <ClipboardList className="mr-2 size-4" />
+                                Manage Audit
+                              </Link>
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             {row.status !== "Planned" && (
@@ -1535,7 +1543,9 @@ export function AuditPlanClient() {
                       <TableCell className="whitespace-nowrap text-sm">
                         {row.initializedDate ?? "—"}
                       </TableCell>
-                      <TableCell className="font-mono text-sm">{row.auditNumber}</TableCell>
+                      <TableCell className="font-mono text-sm">
+                        <span className="hover:text-primary hover:underline underline-offset-2">{row.auditNumber}</span>
+                      </TableCell>
                       <TableCell className="max-w-[240px] text-sm">{row.field}</TableCell>
                       <TableCell className="text-center font-mono text-sm">{row.ct}</TableCell>
                       <TableCell className="max-w-[240px] text-sm">

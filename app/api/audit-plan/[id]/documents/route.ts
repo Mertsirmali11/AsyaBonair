@@ -90,5 +90,25 @@ export async function POST(req: Request, ctx: Ctx) {
     })),
   })
 
+  try {
+    const uploaderCalisan = uploader
+      ? await prisma.calisan.findUnique({ where: { id: uploader.id }, select: { isim: true, soyisim: true } })
+      : null
+    const actorName = uploaderCalisan
+      ? [uploaderCalisan.isim, uploaderCalisan.soyisim].filter(Boolean).join(" ").trim() || "Bilinmeyen kullanıcı"
+      : "Bilinmeyen kullanıcı"
+    const names = valid.map((f) => f.fileName).join(", ")
+    await prisma.auditPlanEntryHistory.create({
+      data: {
+        auditPlanEntryId: entryId,
+        actorId: uploader?.id ?? null,
+        eventType: "FILE_UPLOADED",
+        note: `${valid.length} dosya (${names}) ${actorName} tarafından yüklendi.`,
+      },
+    })
+  } catch {
+    // Geçmiş kaydı başarısız olsa bile yükleme geçerli kalır
+  }
+
   return NextResponse.json({ created: created.count }, { status: 201 })
 }

@@ -290,7 +290,14 @@ export function downloadFullReportPdf(data: AuditPlanReportData): void {
   })
   y = lastAutoTableY(doc) + 8
 
-  // Checklist'ler
+  // Checklist'ler — checklist atanmamış (document-based) denetimlerde açıkça belirtilir
+  if (data.checklists.length === 0) {
+    y = sectionTitle(doc, "Checklist", y, margin)
+    doc.setFontSize(9)
+    doc.setFont("helvetica", "italic")
+    doc.text("No checklist assigned", margin, y)
+    y += 8
+  }
   for (const cl of data.checklists) {
     y = sectionTitle(
       doc,

@@ -150,5 +150,23 @@ export async function POST(req: Request, ctx: Ctx) {
     },
   })
 
+  try {
+    const actor = await prisma.calisan.findFirst({
+      where: { email: { equals: session.user.email, mode: "insensitive" } },
+      select: { id: true, isim: true, soyisim: true },
+    })
+    const actorName = actor ? [actor.isim, actor.soyisim].filter(Boolean).join(" ").trim() || "Bilinmeyen kullanıcı" : "Bilinmeyen kullanıcı"
+    await prisma.auditPlanEntryHistory.create({
+      data: {
+        auditPlanEntryId: entry.id,
+        actorId: actor?.id ?? null,
+        eventType: "FINDING_CREATED",
+        note: `Bulgu ${finding.findingCode} ${actorName} tarafından oluşturuldu.`,
+      },
+    })
+  } catch {
+    // Geçmiş kaydı başarısız olsa bile bulgu oluşturma geçerli kalır
+  }
+
   return NextResponse.json(finding, { status: 201 })
 }

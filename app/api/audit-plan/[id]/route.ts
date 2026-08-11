@@ -228,6 +228,57 @@ export async function PATCH(req: Request, ctx: Ctx) {
       auditees: [],
     } as EntryWithPeople))
   }
+
+  // Initialized Date'in yetkili kullanıcı tarafından manuel olarak belirlenmesi/değiştirilmesi
+  // (Manage Audit — General Audit Information). Boş gönderilirse tarih temizlenir.
+  if (b.initializedDateOnly === true) {
+    const raw = typeof b.initializedDate === "string" ? b.initializedDate.trim() : ""
+    const newDate = raw ? parseDdMmYyyyToUtcDate(raw) : null
+    if (raw && !newDate) {
+      return NextResponse.json({ error: "Invalid initialized date (use dd.mm.yyyy)" }, { status: 400 })
+    }
+
+    const oldDateStr = existing.initializedDate ? dbDateToDdMmYyyy(existing.initializedDate) : null
+    const newDateStr = newDate ? dbDateToDdMmYyyy(newDate) : null
+
+    const updated = await prisma.auditPlanEntry.update({
+      where: { id },
+      data: { initializedDate: newDate },
+      include: {
+        auditCategoryType: { select: { name: true } },
+        auditSubCategoryType: { select: { name: true } },
+        auditors: { include: { calisan: { select: { isim: true, soyisim: true } } } },
+      },
+    })
+
+    if (oldDateStr !== newDateStr) {
+      try {
+        const actorEmail = session.user?.email
+        const actor = actorEmail
+          ? await prisma.calisan.findFirst({
+              where: { email: { equals: actorEmail, mode: "insensitive" } },
+              select: { id: true, isim: true, soyisim: true },
+            })
+          : null
+        const actorName = actor ? [actor.isim, actor.soyisim].filter(Boolean).join(" ").trim() || "Bilinmeyen kullanıcı" : "Bilinmeyen kullanıcı"
+        await prisma.auditPlanEntryHistory.create({
+          data: {
+            auditPlanEntryId: id,
+            actorId: actor?.id ?? null,
+            eventType: "INITIALIZED_DATE_CHANGED",
+            statusFrom: oldDateStr,
+            statusTo: newDateStr,
+            note: `Initialized Date "${oldDateStr ?? "—"}" → "${newDateStr ?? "—"}" olarak ${actorName} tarafından değiştirildi.`,
+          },
+        })
+      } catch {
+        // Geçmiş kaydı başarısız olsa bile tarih güncellemesi geçerli kalır
+      }
+    }
+
+    return NextResponse.json(mapEntry({ ...updated, auditees: [] } as EntryWithPeople))
+  }
+
   const plannedDateStr = typeof b.plannedDate === "string" ? b.plannedDate : ""
   const auditNumberPrefix =
     typeof b.auditNumberPrefix === "string" ? b.auditNumberPrefix.trim() : ""
@@ -337,6 +388,35 @@ export async function PATCH(req: Request, ctx: Ctx) {
         auditees: { include: { calisan: { select: { isim: true, soyisim: true } } } },
       },
     })
+
+    // Geçmiş / Audit History — Planned Date değişikliği (Manage Audit'in General Info
+    // düzenlemesinden gelir). Ana güncellemeyi asla etkilemeyecek şekilde sessizce başarısız olabilir.
+    if (existing.plannedDate.getTime() !== planned.getTime()) {
+      try {
+        const actorEmail = session.user?.email
+        const actor = actorEmail
+          ? await prisma.calisan.findFirst({
+              where: { email: { equals: actorEmail, mode: "insensitive" } },
+              select: { id: true, isim: true, soyisim: true },
+            })
+          : null
+        const actorName = actor ? [actor.isim, actor.soyisim].filter(Boolean).join(" ").trim() || "Bilinmeyen kullanıcı" : "Bilinmeyen kullanıcı"
+        const oldStr = dbDateToDdMmYyyy(existing.plannedDate)
+        const newStr = dbDateToDdMmYyyy(planned)
+        await prisma.auditPlanEntryHistory.create({
+          data: {
+            auditPlanEntryId: id,
+            actorId: actor?.id ?? null,
+            eventType: "PLANNED_DATE_CHANGED",
+            statusFrom: oldStr,
+            statusTo: newStr,
+            note: `Planned Date "${oldStr}" → "${newStr}" olarak ${actorName} tarafından değiştirildi.`,
+          },
+        })
+      } catch {
+        // Geçmiş kaydı başarısız olsa bile güncelleme geçerli kalır
+      }
+    }
 
     return NextResponse.json(mapEntry(updated as EntryWithPeople))
   } catch (e) {

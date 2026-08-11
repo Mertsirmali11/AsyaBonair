@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
-import * as XLSX from "xlsx"
+import { useRef, useState } from "react"
+import ExcelJS from "exceljs"
+import { toPng } from "html-to-image"
 import {
   BarChart,
   Bar,
@@ -135,111 +136,291 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
 
   const { years, auditStats, findingStats, hazardStats } = data
   const [selectedYear, setSelectedYear] = useState<number>(years[years.length - 1])
+  const [exporting, setExporting] = useState(false)
 
   const auditY = auditStats.find((s) => s.year === selectedYear)!
   const findingY = findingStats.find((s) => s.year === selectedYear)!
   const hazardY = hazardStats.find((s) => s.year === selectedYear)!
 
-  function handleExportExcel() {
-    const wb = XLSX.utils.book_new()
+  // Excel export'a gömülecek grafiklerin canlı DOM referansları — ekranda görünenin
+  // birebir (aynı veri kaynağı, aynı seçili yıl) yüksek çözünürlüklü görüntüsü alınır.
+  const catPieCardRef = useRef<HTMLDivElement>(null)
+  const auditBarCardRef = useRef<HTMLDivElement>(null)
+  const findingPieCardRef = useRef<HTMLDivElement>(null)
+  const deptBarCardRef = useRef<HTMLDivElement>(null)
+  const hazardYearBarCardRef = useRef<HTMLDivElement>(null)
+  const hazardSourcePieCardRef = useRef<HTMLDivElement>(null)
+  const hazardDeptBarCardRef = useRef<HTMLDivElement>(null)
 
-    // ── Sheet 1: Audit Summary (3-year summary + selected-year categories) ──
-    const auditSummaryRows = auditStats.map((s) => ({
-      Year: s.year,
-      "Total Audits": s.total,
-      "Internal Audits": s.internal,
-      "External Audits": s.external,
-      SACA: s.saca,
-      SAFA: s.safa,
-      "Incoming Audits (External+SACA+SAFA)": s.incoming,
-    }))
-    const wsAudit = XLSX.utils.json_to_sheet(auditSummaryRows)
-    XLSX.utils.sheet_add_json(
-      wsAudit,
-      auditY.byCategory.map((c) => ({
-        Year: selectedYear,
-        Category: c.name,
-        Count: c.count,
-      })),
-      { origin: { r: auditSummaryRows.length + 3, c: 0 } }
-    )
-    XLSX.utils.book_append_sheet(wb, wsAudit, "Audit Summary")
-
-    // ── Sheet 2: Findings (summary + by department) ──
-    const findingsSummaryRows = [
-      { Year: selectedYear, Metric: "Total Findings", Value: findingY.total },
-      { Year: selectedYear, Metric: "Timely Closed", Value: findingY.timelyClosed },
-      { Year: selectedYear, Metric: "Closed Late", Value: findingY.closedLate },
-      { Year: selectedYear, Metric: "Closed (No Due Date)", Value: findingY.closedNoDl },
-      { Year: selectedYear, Metric: "Overdue (Open)", Value: findingY.overdue },
-      { Year: selectedYear, Metric: "Open (On Track)", Value: findingY.openOnTrack },
-      { Year: selectedYear, Metric: "With Extension", Value: findingY.withExtension },
-    ]
-    const wsFindings = XLSX.utils.json_to_sheet(findingsSummaryRows)
-    XLSX.utils.sheet_add_json(
-      wsFindings,
-      findingY.byDepartment.map((d) => ({
-        Year: selectedYear,
-        Department: d.departman,
-        "Total Findings": d.total,
-        "Timely Closed": d.timelyClosed,
-        "Overdue (Open)": d.overdue,
-        "With Extension": d.withExtension,
-      })),
-      { origin: { r: findingsSummaryRows.length + 3, c: 0 } }
-    )
-    XLSX.utils.book_append_sheet(wb, wsFindings, "Findings")
-
-    // ── Sheet 3: Hazard Reports (3-year totals + selected-year breakdowns) ──
-    const hazardTotalsRows = hazardStats.map((s) => ({
-      Year: s.year,
-      "Total Hazard Reports": s.total,
-    }))
-    const wsHazards = XLSX.utils.json_to_sheet(hazardTotalsRows)
-    XLSX.utils.sheet_add_json(
-      wsHazards,
-      hazardY.bySource.map((s) => ({
-        Year: selectedYear,
-        Source: s.source,
-        Count: s.count,
-      })),
-      { origin: { r: hazardTotalsRows.length + 3, c: 0 } }
-    )
-    XLSX.utils.sheet_add_json(
-      wsHazards,
-      hazardY.byDepartment.map((d) => ({
-        Year: selectedYear,
-        Department: d.departman,
-        Count: d.count,
-      })),
-      { origin: { r: hazardTotalsRows.length + hazardY.bySource.length + 7, c: 0 } }
-    )
-    XLSX.utils.book_append_sheet(wb, wsHazards, "Hazard Reports")
-
-    // ── Sheet 4: Department Analysis (merge findings + hazards by department) ──
-    const hazardDept = new Map(hazardY.byDepartment.map((d) => [d.departman, d.count] as const))
-    const allDepts = new Set<string>([
-      ...findingY.byDepartment.map((d) => d.departman),
-      ...hazardY.byDepartment.map((d) => d.departman),
-    ])
-    const deptRows = Array.from(allDepts)
-      .sort((a, b) => a.localeCompare(b, "tr"))
-      .map((dept) => {
-        const f = findingY.byDepartment.find((x) => x.departman === dept)
-        return {
-          Year: selectedYear,
-          Department: dept,
-          "Findings (Total)": f?.total ?? 0,
-          "Findings (Timely Closed)": f?.timelyClosed ?? 0,
-          "Findings (Overdue Open)": f?.overdue ?? 0,
-          "Findings (With Extension)": f?.withExtension ?? 0,
-          "Hazard Reports": hazardDept.get(dept) ?? 0,
-        }
+  /** Bir grafik kartını yüksek çözünürlüklü PNG'ye çevirir. Veri yoksa (EmptyState) bile
+   *  görüneni yakalar; herhangi bir hata durumunda export'u kesmeden null döner. */
+  async function captureChartCard(
+    ref: React.RefObject<HTMLDivElement | null>
+  ): Promise<{ dataUrl: string; width: number; height: number } | null> {
+    const node = ref.current
+    if (!node) return null
+    try {
+      const dataUrl = await toPng(node, {
+        backgroundColor: "#ffffff",
+        pixelRatio: 2,
+        cacheBust: true,
       })
-    const wsDept = XLSX.utils.json_to_sheet(deptRows)
-    XLSX.utils.book_append_sheet(wb, wsDept, "Department Analysis")
+      return { dataUrl, width: node.offsetWidth, height: node.offsetHeight }
+    } catch {
+      return null
+    }
+  }
 
-    XLSX.writeFile(wb, `performance-reports-${selectedYear}.xlsx`)
+  const HEADER_FILL = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FF1A365D" } }
+  const TITLE_FONT = { bold: true, size: 13, color: { argb: "FF1A365D" } }
+  const HEADER_FONT = { bold: true, color: { argb: "FFFFFFFF" } }
+
+  /** Sütun sayısını açıkça alır — satırın .values atamasından önce veya sonra
+   *  çağrılmasından bağımsız olarak, her zaman doğru hücreleri stiller. */
+  function styleHeaderRow(row: ExcelJS.Row, colCount: number) {
+    for (let c = 1; c <= colCount; c++) {
+      const cell = row.getCell(c)
+      cell.fill = HEADER_FILL
+      cell.font = HEADER_FONT
+      cell.alignment = { vertical: "middle" }
+    }
+  }
+
+  /** Bir görsel yakalamayı worksheet'e ekler; görsel alınamadıysa (veri yok/hata)
+   *  export'u bozmadan bilgilendirici bir not satırı bırakır. */
+  function embedChartImage(
+    wb: ExcelJS.Workbook,
+    ws: ExcelJS.Worksheet,
+    captured: { dataUrl: string; width: number; height: number } | null,
+    title: string,
+    row: number
+  ): number {
+    ws.getCell(row, 1).value = title
+    ws.getCell(row, 1).font = { bold: true, size: 11 }
+    if (!captured) {
+      ws.getCell(row + 1, 1).value = "Bu grafik için veri bulunmuyor."
+      ws.getCell(row + 1, 1).font = { italic: true, color: { argb: "FF888888" } }
+      return row + 3
+    }
+    const imageId = wb.addImage({ base64: captured.dataUrl, extension: "png" })
+    // Ekrandaki css-piksel boyutunu koru (pixelRatio yalnızca çözünürlüğü artırır).
+    // ExcelJS resim çapaları 0-index'lidir (getCell/getRow ise 1-index'li); "row" (1-index)
+    // başlık satırıdır — resmi başlığın hemen altındaki satırın üst kenarına hizalar.
+    const maxWidth = 640
+    const scale = Math.min(1, maxWidth / captured.width)
+    ws.addImage(imageId, {
+      tl: { col: 0, row },
+      ext: { width: captured.width * scale, height: captured.height * scale },
+    })
+    const rowsUsed = Math.ceil((captured.height * scale) / 20) + 2
+    return row + 1 + rowsUsed
+  }
+
+  async function handleExportExcel() {
+    setExporting(true)
+    try {
+      // Ekranda görünen grafiklerin anlık (seçili yıla göre) görüntülerini paralel yakala
+      const [
+        catPie,
+        auditBar,
+        findingPie,
+        deptBar,
+        hazardYearBar,
+        hazardSourcePie,
+        hazardDeptBar,
+      ] = await Promise.all([
+        captureChartCard(catPieCardRef),
+        captureChartCard(auditBarCardRef),
+        captureChartCard(findingPieCardRef),
+        captureChartCard(deptBarCardRef),
+        captureChartCard(hazardYearBarCardRef),
+        captureChartCard(hazardSourcePieCardRef),
+        captureChartCard(hazardDeptBarCardRef),
+      ])
+
+      const wb = new ExcelJS.Workbook()
+      wb.creator = "Bon Air — Compliance Monitoring"
+      wb.created = new Date()
+
+      // ── Sheet 1: Audit Summary ──────────────────────────────────────────
+      const wsAudit = wb.addWorksheet("Audit Summary")
+      wsAudit.columns = [
+        { width: 10 }, { width: 16 }, { width: 16 }, { width: 16 },
+        { width: 10 }, { width: 10 }, { width: 30 },
+      ]
+      wsAudit.getCell(1, 1).value = `Audit Summary — ${selectedYear}`
+      wsAudit.getCell(1, 1).font = TITLE_FONT
+      wsAudit.getRow(3).values = [
+        "Year", "Total Audits", "Internal Audits", "External Audits", "SACA", "SAFA",
+        "Incoming Audits (External+SACA+SAFA)",
+      ]
+      styleHeaderRow(wsAudit.getRow(3), 7)
+      let r = 4
+      for (const s of auditStats) {
+        wsAudit.getRow(r).values = [s.year, s.total, s.internal, s.external, s.saca, s.safa, s.incoming]
+        r++
+      }
+      r += 1
+      wsAudit.getCell(r, 1).value = `${selectedYear} — Category Distribution`
+      wsAudit.getCell(r, 1).font = { bold: true, size: 11 }
+      r += 1
+      styleHeaderRow(wsAudit.getRow(r), 2)
+      wsAudit.getRow(r).values = ["Category", "Count"]
+      r += 1
+      if (auditY.byCategory.length === 0) {
+        wsAudit.getCell(r, 1).value = "Bu yıl için denetim verisi bulunmuyor."
+        wsAudit.getCell(r, 1).font = { italic: true, color: { argb: "FF888888" } }
+        r += 1
+      } else {
+        for (const c of auditY.byCategory) {
+          wsAudit.getRow(r).values = [c.name, c.count]
+          r++
+        }
+      }
+      r += 2
+      r = embedChartImage(wb, wsAudit, catPie, `${selectedYear} — Yıllık Kategori Dağılımı`, r)
+      r = embedChartImage(wb, wsAudit, auditBar, "3 Yıllık Denetim Karşılaştırması", r)
+
+      // ── Sheet 2: Findings ────────────────────────────────────────────────
+      const wsFindings = wb.addWorksheet("Findings")
+      wsFindings.columns = [{ width: 28 }, { width: 16 }]
+      wsFindings.getCell(1, 1).value = `Findings — ${selectedYear}`
+      wsFindings.getCell(1, 1).font = TITLE_FONT
+      let fr = 3
+      styleHeaderRow(wsFindings.getRow(fr), 2)
+      wsFindings.getRow(fr).values = ["Metric", "Value"]
+      fr++
+      const findingMetrics: [string, number][] = [
+        ["Total Findings", findingY.total],
+        ["Timely Closed", findingY.timelyClosed],
+        ["Closed Late", findingY.closedLate],
+        ["Closed (No Due Date)", findingY.closedNoDl],
+        ["Overdue (Open)", findingY.overdue],
+        ["Open (On Track)", findingY.openOnTrack],
+        ["With Extension", findingY.withExtension],
+      ]
+      for (const [k, v] of findingMetrics) {
+        wsFindings.getRow(fr).values = [k, v]
+        fr++
+      }
+      fr += 1
+      wsFindings.getCell(fr, 1).value = `${selectedYear} — Findings by Department`
+      wsFindings.getCell(fr, 1).font = { bold: true, size: 11 }
+      fr += 1
+      styleHeaderRow(wsFindings.getRow(fr), 5)
+      wsFindings.getRow(fr).values = ["Department", "Total", "Timely Closed", "Overdue (Open)", "With Extension"]
+      wsFindings.getColumn(3).width = 16
+      wsFindings.getColumn(4).width = 16
+      wsFindings.getColumn(5).width = 16
+      fr++
+      if (findingY.byDepartment.length === 0) {
+        wsFindings.getCell(fr, 1).value = "Bu yıl için bulgu verisi bulunmuyor."
+        wsFindings.getCell(fr, 1).font = { italic: true, color: { argb: "FF888888" } }
+        fr += 1
+      } else {
+        for (const d of findingY.byDepartment) {
+          wsFindings.getRow(fr).values = [d.departman, d.total, d.timelyClosed, d.overdue, d.withExtension]
+          fr++
+        }
+      }
+      fr += 2
+      fr = embedChartImage(wb, wsFindings, findingPie, `${selectedYear} — Bulgu Kapanış Durumu`, fr)
+      fr = embedChartImage(wb, wsFindings, deptBar, `${selectedYear} — Departmana Göre Bulgular`, fr)
+
+      // ── Sheet 3: Hazard Reports ──────────────────────────────────────────
+      const wsHazards = wb.addWorksheet("Hazard Reports")
+      wsHazards.columns = [{ width: 26 }, { width: 16 }]
+      wsHazards.getCell(1, 1).value = `Hazard Reports — ${selectedYear}`
+      wsHazards.getCell(1, 1).font = TITLE_FONT
+      let hr = 3
+      styleHeaderRow(wsHazards.getRow(hr), 2)
+      wsHazards.getRow(hr).values = ["Year", "Total Hazard Reports"]
+      hr++
+      for (const s of hazardStats) {
+        wsHazards.getRow(hr).values = [s.year, s.total]
+        hr++
+      }
+      hr += 1
+      wsHazards.getCell(hr, 1).value = `${selectedYear} — By Source`
+      wsHazards.getCell(hr, 1).font = { bold: true, size: 11 }
+      hr += 1
+      styleHeaderRow(wsHazards.getRow(hr), 2)
+      wsHazards.getRow(hr).values = ["Source", "Count"]
+      hr++
+      if (hazardY.bySource.length === 0) {
+        wsHazards.getCell(hr, 1).value = "Bu yıl için veri bulunmuyor."
+        wsHazards.getCell(hr, 1).font = { italic: true, color: { argb: "FF888888" } }
+        hr += 1
+      } else {
+        for (const s of hazardY.bySource) {
+          wsHazards.getRow(hr).values = [s.source, s.count]
+          hr++
+        }
+      }
+      hr += 1
+      wsHazards.getCell(hr, 1).value = `${selectedYear} — By Department`
+      wsHazards.getCell(hr, 1).font = { bold: true, size: 11 }
+      hr += 1
+      styleHeaderRow(wsHazards.getRow(hr), 2)
+      wsHazards.getRow(hr).values = ["Department", "Count"]
+      hr++
+      if (hazardY.byDepartment.length === 0) {
+        wsHazards.getCell(hr, 1).value = "Bu yıl için veri bulunmuyor."
+        wsHazards.getCell(hr, 1).font = { italic: true, color: { argb: "FF888888" } }
+        hr += 1
+      } else {
+        for (const d of hazardY.byDepartment) {
+          wsHazards.getRow(hr).values = [d.departman, d.count]
+          hr++
+        }
+      }
+      hr += 2
+      hr = embedChartImage(wb, wsHazards, hazardYearBar, "3 Yıllık Hazard Report Karşılaştırması", hr)
+      hr = embedChartImage(wb, wsHazards, hazardSourcePie, `${selectedYear} — Kaynak Dağılımı`, hr)
+      hr = embedChartImage(wb, wsHazards, hazardDeptBar, `${selectedYear} — Departmana Göre Hazard`, hr)
+
+      // ── Sheet 4: Department Analysis (mevcut mantık aynen korunur) ───────
+      const wsDept = wb.addWorksheet("Department Analysis")
+      wsDept.columns = [
+        { width: 10 }, { width: 26 }, { width: 16 }, { width: 20 },
+        { width: 20 }, { width: 18 }, { width: 16 },
+      ]
+      styleHeaderRow(wsDept.getRow(1), 7)
+      wsDept.getRow(1).values = [
+        "Year", "Department", "Findings (Total)", "Findings (Timely Closed)",
+        "Findings (Overdue Open)", "Findings (With Extension)", "Hazard Reports",
+      ]
+      const hazardDept = new Map(hazardY.byDepartment.map((d) => [d.departman, d.count] as const))
+      const allDepts = new Set<string>([
+        ...findingY.byDepartment.map((d) => d.departman),
+        ...hazardY.byDepartment.map((d) => d.departman),
+      ])
+      let dr = 2
+      for (const dept of Array.from(allDepts).sort((a, b) => a.localeCompare(b, "tr"))) {
+        const f = findingY.byDepartment.find((x) => x.departman === dept)
+        wsDept.getRow(dr).values = [
+          selectedYear, dept, f?.total ?? 0, f?.timelyClosed ?? 0, f?.overdue ?? 0,
+          f?.withExtension ?? 0, hazardDept.get(dept) ?? 0,
+        ]
+        dr++
+      }
+
+      const buffer = await wb.xlsx.writeBuffer()
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `performance-reports-${selectedYear}.xlsx`
+      a.rel = "noopener"
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } finally {
+      setExporting(false)
+    }
   }
 
   // ── 3-year stacked bar data for audits ──
@@ -299,10 +480,11 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
         </div>
         <button
           type="button"
-          onClick={handleExportExcel}
-          className="h-9 rounded-md border bg-background px-3 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
+          onClick={() => void handleExportExcel()}
+          disabled={exporting}
+          className="h-9 rounded-md border bg-background px-3 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {pr.exportExcel}
+          {exporting ? "Hazırlanıyor…" : pr.exportExcel}
         </button>
       </div>
 
@@ -324,7 +506,7 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Pie: this year by category */}
-          <div className="rounded-xl border bg-card p-4 shadow-sm">
+          <div ref={catPieCardRef} className="rounded-xl border bg-card p-4 shadow-sm">
             <p className="text-sm font-medium mb-3">{selectedYear} — {pr.categoryDist}</p>
             {auditY.byCategory.length === 0 ? (
               <EmptyState message={`${selectedYear} ${pr.noAuditData}`} />
@@ -355,7 +537,7 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
           </div>
 
           {/* Stacked bar: 3 years comparison */}
-          <div className="rounded-xl border bg-card p-4 shadow-sm">
+          <div ref={auditBarCardRef} className="rounded-xl border bg-card p-4 shadow-sm">
             <p className="text-sm font-medium mb-3">{pr.threeYearComparison}</p>
             {auditBarData.every((r) => allCategoryNames.every((n) => r[n] === 0)) ? (
               <EmptyState message={pr.noThreeYearData} />
@@ -394,7 +576,7 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Pie: closure status */}
-          <div className="rounded-xl border bg-card p-4 shadow-sm">
+          <div ref={findingPieCardRef} className="rounded-xl border bg-card p-4 shadow-sm">
             <p className="text-sm font-medium mb-3">{selectedYear} — {pr.findingClosureStatus}</p>
             {findingPieData.length === 0 ? (
               <EmptyState message={`${selectedYear} ${pr.noFindingData}`} />
@@ -429,7 +611,7 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
           </div>
 
           {/* Horizontal bar: findings by department */}
-          <div className="rounded-xl border bg-card p-4 shadow-sm">
+          <div ref={deptBarCardRef} className="rounded-xl border bg-card p-4 shadow-sm">
             <p className="text-sm font-medium mb-3">{selectedYear} — {pr.findingsByDept}</p>
             {findingY.byDepartment.length === 0 ? (
               <EmptyState message={`${selectedYear} ${pr.noDeptData}`} />
@@ -514,7 +696,7 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Bar: 3-year totals */}
-          <div className="rounded-xl border bg-card p-4 shadow-sm">
+          <div ref={hazardYearBarCardRef} className="rounded-xl border bg-card p-4 shadow-sm">
             <p className="text-sm font-medium mb-3">{pr.hazardByYear}</p>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={hazardBarData} barCategoryGap="40%">
@@ -528,7 +710,7 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
           </div>
 
           {/* Pie: by source type — dilim etiketleri kapalı; özet grid ile okunabilir */}
-          <div className="rounded-xl border bg-card p-4 shadow-sm">
+          <div ref={hazardSourcePieCardRef} className="rounded-xl border bg-card p-4 shadow-sm">
             <p className="text-sm font-medium mb-3">{selectedYear} — {pr.sourceDistribution}</p>
             {hazardY.bySource.length === 0 ? (
               <EmptyState message={`${selectedYear} ${pr.noHazardData}`} />
@@ -588,7 +770,7 @@ export function PerformanceReportsClient({ data }: { data: PerformanceReportsDat
           </div>
 
           {/* Bar: by department (horizontal) */}
-          <div className="rounded-xl border bg-card p-4 shadow-sm">
+          <div ref={hazardDeptBarCardRef} className="rounded-xl border bg-card p-4 shadow-sm">
             <p className="text-sm font-medium mb-3">{selectedYear} — {pr.hazardByDept}</p>
             {hazardY.byDepartment.length === 0 ? (
               <EmptyState message={`${selectedYear} ${pr.noDeptData}`} />
