@@ -176,57 +176,64 @@ export async function PATCH(req: Request, ctx: Ctx) {
 
   const b = body as Record<string, unknown>
 
-  // Status-only update (quick action from table). "Cancelled" is intentionally excluded here —
-  // it requires a mandatory reason and always goes through the dedicated /cancel endpoint.
+  // Status-only update (quick action from table / Manage Audit). "Cancelled" is intentionally
+  // excluded here — it requires a mandatory reason and always goes through /cancel.
   if (b.statusOnly === true) {
     const validStatuses = ["Planned", "Initialized", "Postponed", "Completed"]
     const newStatus = typeof b.status === "string" ? b.status : ""
     if (!validStatuses.includes(newStatus)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 })
     }
-    const statusData: Record<string, unknown> = { status: newStatus }
-    if (newStatus === "Initialized") statusData.initializedDate = new Date()
-    if (newStatus === "Postponed" && typeof b.datePostponed === "string") {
-      const { parseDdMmYyyyToUtcDate } = await import("@/lib/correspondence-date")
-      const d = parseDdMmYyyyToUtcDate(b.datePostponed)
-      if (d) statusData.datePostponed = d
-    }
-    const updated = await prisma.auditPlanEntry.update({ where: { id }, data: statusData })
-
-    // Geçmiş / Audit History — durum değişikliği kaydı (Full Report'taki kapanış bilgisi için de kullanılır).
-    // Ana durum güncellemesini asla etkilememesi için sessizce başarısız olabilir.
-    if (newStatus !== existing.status) {
-      try {
-        const actorEmail = session.user?.email
-        const actor = actorEmail
-          ? await prisma.calisan.findFirst({
-              where: { email: { equals: actorEmail, mode: "insensitive" } },
-              select: { id: true },
-            })
-          : null
-        await prisma.auditPlanEntryHistory.create({
-          data: {
-            auditPlanEntryId: id,
-            actorId: actor?.id ?? null,
-            eventType: "STATUS_CHANGED",
-            statusFrom: existing.status,
-            statusTo: newStatus,
-          },
-        })
-      } catch {
-        // Geçmiş kaydı başarısız olsa bile durum güncellemesi geçerli kalır
+    try {
+      const statusData: Record<string, unknown> = { status: newStatus }
+      if (newStatus === "Initialized") statusData.initializedDate = new Date()
+      if (newStatus === "Postponed" && typeof b.datePostponed === "string") {
+        const d = parseDdMmYyyyToUtcDate(b.datePostponed)
+        if (d) statusData.datePostponed = d
       }
-    }
+      const updated = await prisma.auditPlanEntry.update({ where: { id }, data: statusData })
 
-    return NextResponse.json(mapEntry({
-      ...updated,
-      auditCategoryType: await prisma.auditCategoryType.findUniqueOrThrow({ where: { id: updated.auditCategoryTypeId }, select: { name: true } }),
-      auditSubCategoryType: updated.auditSubCategoryTypeId
-        ? await prisma.auditSubCategoryType.findUnique({ where: { id: updated.auditSubCategoryTypeId }, select: { name: true } })
-        : null,
-      auditors: await prisma.auditPlanAuditor.findMany({ where: { auditPlanEntryId: id }, include: { calisan: { select: { isim: true, soyisim: true } } } }),
-      auditees: [],
-    } as EntryWithPeople))
+      // Geçmiş / Audit History — durum değişikliği kaydı (Full Report'taki kapanış bilgisi için de kullanılır).
+      // Ana durum güncellemesini asla etkilememesi için sessizce başarısız olabilir.
+      if (newStatus !== existing.status) {
+        try {
+          const actorEmail = session.user?.email
+          const actor = actorEmail
+            ? await prisma.calisan.findFirst({
+                where: { email: { equals: actorEmail, mode: "insensitive" } },
+                select: { id: true },
+              })
+            : null
+          await prisma.auditPlanEntryHistory.create({
+            data: {
+              auditPlanEntryId: id,
+              actorId: actor?.id ?? null,
+              eventType: "STATUS_CHANGED",
+              statusFrom: existing.status,
+              statusTo: newStatus,
+            },
+          })
+        } catch {
+          // Geçmiş kaydı başarısız olsa bile durum güncellemesi geçerli kalır
+        }
+      }
+
+      return NextResponse.json(mapEntry({
+        ...updated,
+        auditCategoryType: await prisma.auditCategoryType.findUniqueOrThrow({ where: { id: updated.auditCategoryTypeId }, select: { name: true } }),
+        auditSubCategoryType: updated.auditSubCategoryTypeId
+          ? await prisma.auditSubCategoryType.findUnique({ where: { id: updated.auditSubCategoryTypeId }, select: { name: true } })
+          : null,
+        auditors: await prisma.auditPlanAuditor.findMany({ where: { auditPlanEntryId: id }, include: { calisan: { select: { isim: true, soyisim: true } } } }),
+        auditees: [],
+      } as EntryWithPeople))
+    } catch (e) {
+      console.error("[audit-plan PATCH statusOnly] unexpected error", { id, newStatus }, e)
+      return NextResponse.json(
+        { error: "Audit could not be completed. Please try again or contact the system administrator." },
+        { status: 500 }
+      )
+    }
   }
 
   // Initialized Date'in yetkili kullanıcı tarafından manuel olarak belirlenmesi/değiştirilmesi

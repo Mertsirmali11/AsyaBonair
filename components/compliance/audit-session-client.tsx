@@ -527,11 +527,26 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "Completed" }),
       })
-      if (!res.ok) { toast.error("Tamamlanamadı."); return }
-      toast.success("Denetim tamamlandı. Bulgular oluşturuldu.")
-      router.push(`/compliance/audit-plan`)
+      const data = await parseJson(res) as { error?: string; entryCompleted?: boolean } | null
+      if (!res.ok) {
+        toast.error(
+          data && typeof data.error === "string" && data.error.trim()
+            ? data.error.trim()
+            : "Audit could not be completed. Please try again or contact the system administrator."
+        )
+        return
+      }
+      toast.success(
+        data?.entryCompleted
+          ? "Audit successfully completed."
+          : "Denetim tamamlandı. Bulgular oluşturuldu."
+      )
+      // Denetim kaydının (Manage Audit) merkezi Completed görünümüne dön — eski
+      // liste ekranına değil; checklist, bulgular, dosyalar, notlar ve geçmiş
+      // olduğu gibi orada görüntülenmeye devam eder.
+      router.push(`/compliance/audit-plan/${auditPlanEntryId}/manage`)
     } catch {
-      toast.error("Bağlantı hatası.")
+      toast.error("Audit could not be completed. Please try again or contact the system administrator.")
     } finally {
       setCompleting(false)
       setConfirmComplete(false)

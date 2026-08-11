@@ -403,14 +403,19 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ statusOnly: true, status }),
       })
+      const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        toast.error("Durum güncellenemedi.")
+        toast.error(
+          typeof data.error === "string" && data.error.trim()
+            ? data.error.trim()
+            : "Audit could not be completed. Please try again or contact the system administrator."
+        )
         return
       }
-      toast.success(`Durum: ${status}`)
+      toast.success(status === "Completed" ? "Audit successfully completed." : `Durum: ${status}`)
       await Promise.all([silentRefetch(), reloadHistory()])
     } catch {
-      toast.error("Bağlantı hatası.")
+      toast.error("Audit could not be completed. Please try again or contact the system administrator.")
     } finally {
       setChangingStatus(false)
     }
