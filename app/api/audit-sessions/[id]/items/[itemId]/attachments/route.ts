@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server"
 import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import { prisma } from "@/lib/prisma-server"
-import { uploadBinaryToStorage } from "@/lib/supabase-storage"
 
 export const runtime = "nodejs"
 
 type Ctx = { params: Promise<{ id: string; itemId: string }> }
-
-const MAX_BYTES = 30 * 1024 * 1024 // 30 MB
 
 export async function GET(_req: Request, ctx: Ctx) {
   const session = await requireAuditPlanSession()
@@ -49,62 +46,37 @@ export async function POST(req: Request, ctx: Ctx) {
   })
   if (!item) return NextResponse.json({ error: "Item not found" }, { status: 404 })
 
-  let formData: FormData
-  try {
-    formData = await req.formData()
-  } catch {
-    return NextResponse.json({ error: "Invalid form data" }, { status: 400 })
+  // Tarayıcı dosyayı /upload-url üzerinden aldığı imzalı URL'e doğrudan
+  // Supabase'e yükledikten sonra burada sadece metadata kaydedilir.
+  const body = (await req.json().catch(() => null)) as {
+    path?: string
+    fileName?: string
+    mimeType?: string
+    sizeBytes?: number
+    uploadedBy?: string
+  } | null
+
+  const path = typeof body?.path === "string" ? body.path : ""
+  const fileName = typeof body?.fileName === "string" ? body.fileName : ""
+  if (!path || !fileName) {
+    return NextResponse.json({ error: "No file" }, { status: 400 })
   }
-
-  const file = formData.get("file")
-  if (!file || !(file instanceof File))
-    return NextResponse.json({ error: "No file provided" }, { status: 400 })
-
-  if (file.size > MAX_BYTES)
-    return NextResponse.json({ error: "File too large (max 30 MB)" }, { status: 413 })
 
   // "auditor" or "auditee"
-  const uploadedBy = formData.get("uploadedBy") === "auditee" ? "auditee" : "auditor"
-
-  const arrayBuffer = await file.arrayBuffer()
-  const buffer = Buffer.from(arrayBuffer)
-  const safeName = file.name
-    .replace(/[^a-zA-Z0-9._-]/g, "_")
-    .replace(/\.\./g, "_")
-    .replace(/\s+/g, "_") || "attachment"
-
-  const uid =
-    typeof crypto !== "undefined" && crypto.randomUUID
-      ? crypto.randomUUID()
-      : `${Date.now()}_${Math.random().toString(16).slice(2)}`
-
-  const storageFileName = `${uid}_${safeName}`
-  const folderPrefix = `audit-session-attachments/${sessionId}/${sessionItemId}`
-
-  const result = await uploadBinaryToStorage(
-    folderPrefix,
-    storageFileName,
-    buffer,
-    file.type || "application/octet-stream",
-    { upsert: false }
-  )
-
-  if (!result.ok) {
-    return NextResponse.json({ error: result.message }, { status: 500 })
-  }
+  const uploadedBy = body?.uploadedBy === "auditee" ? "auditee" : "auditor"
 
   const attachment = await prisma.auditSessionItemAttachment.create({
     data: {
       auditSessionItemId: sessionItemId,
       uploadedBy,
-      fileName: file.name,
-      storagePath: result.path,
-      mimeType: file.type || null,
-      fileSizeBytes: file.size,
+      fileName,
+      storagePath: path,
+      mimeType: typeof body?.mimeType === "string" ? body.mimeType : null,
+      fileSizeBytes: typeof body?.sizeBytes === "number" ? body.sizeBytes : null,
     },
   })
 
-  return NextResponse.json({ ...attachment, publicUrl: result.publicUrl }, { status: 201 })
+  return NextResponse.json(attachment, { status: 201 })
 }
 
 export async function DELETE(req: Request, ctx: Ctx) {

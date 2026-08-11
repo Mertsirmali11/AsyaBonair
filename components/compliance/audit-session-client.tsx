@@ -45,6 +45,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { uploadAuditSessionAttachmentsDirect } from "@/lib/client-audit-session-attachment-upload"
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -414,21 +415,43 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
     patchState(itemId, { uploading: true })
     const uploaded: Attachment[] = []
     try {
-      for (const file of Array.from(files)) {
-        const fd = new FormData()
-        fd.append("file", file)
-        fd.append("uploadedBy", "auditor")
-        const res = await fetch(
-          `/api/audit-sessions/${sid}/items/${st.id}/attachments`,
-          { method: "POST", body: fd }
-        )
-        if (!res.ok) { toast.error(`${file.name} yüklenemedi.`); continue }
-        const parsed = await parseJson(res)
-        if (!parsed || typeof parsed !== "object" || !("id" in parsed)) {
-          toast.error(`${file.name} yüklendi ama sunucu yanıtı okunamadı. Sayfayı yenileyin.`)
-          continue
+      // Dosyalar önce doğrudan Supabase Storage'a yüklenir (Vercel'in ~4.5MB
+      // fonksiyon gövde sınırını by-pass eder — büyük fotoğraf/taranmış kanıt
+      // dosyaları bu sınırı kolayca aşabiliyordu).
+      let refs: Awaited<ReturnType<typeof uploadAuditSessionAttachmentsDirect>>
+      try {
+        refs = await uploadAuditSessionAttachmentsDirect(sid, st.id, Array.from(files))
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Yükleme başarısız.")
+        return
+      }
+
+      for (const ref of refs) {
+        try {
+          const res = await fetch(
+            `/api/audit-sessions/${sid}/items/${st.id}/attachments`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                path: ref.path,
+                fileName: ref.fileName,
+                mimeType: ref.mimeType,
+                sizeBytes: ref.sizeBytes,
+                uploadedBy: "auditor",
+              }),
+            }
+          )
+          if (!res.ok) { toast.error(`${ref.fileName} kaydedilemedi.`); continue }
+          const parsed = await parseJson(res)
+          if (!parsed || typeof parsed !== "object" || !("id" in parsed)) {
+            toast.error(`${ref.fileName} yüklendi ama sunucu yanıtı okunamadı. Sayfayı yenileyin.`)
+            continue
+          }
+          uploaded.push(parsed as Attachment)
+        } catch {
+          toast.error(`${ref.fileName} kaydedilemedi.`)
         }
-        uploaded.push(parsed as Attachment)
       }
       if (uploaded.length > 0) {
         setItemStates((prev) => ({
@@ -808,11 +831,13 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
 
                     {/* Attachments row (full width) */}
                     <div className="sm:col-span-2 flex flex-wrap items-center gap-2">
-                      {st.attachments.map((att) => (
+                      {(st.attachments ?? [])
+                        .filter((att): att is Attachment => !!att && att.id != null)
+                        .map((att) => (
                         <div key={att.id} className="inline-flex items-center gap-1.5 rounded-full border bg-background px-2.5 py-1 text-xs text-muted-foreground">
                           <Paperclip className="size-3 shrink-0" />
-                          <span className="max-w-[180px] truncate">{att.fileName}</span>
-                          <span className="opacity-60 shrink-0">{formatBytes(att.fileSizeBytes)}</span>
+                          <span className="max-w-[180px] truncate">{att.fileName || "Dosya"}</span>
+                          <span className="opacity-60 shrink-0">{formatBytes(att.fileSizeBytes ?? null)}</span>
                           {!completed && (
                             <button type="button" onClick={() => void removeAttachment(item.id, att.id)} className="ml-0.5 text-destructive/60 hover:text-destructive shrink-0">
                               <Trash2 className="size-3" />
