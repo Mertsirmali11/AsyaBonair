@@ -334,7 +334,6 @@ export function AuditPlanClient() {
   const [documentsUploading, setDocumentsUploading] = React.useState(false)
   const [deleteDocTarget, setDeleteDocTarget] = React.useState<AuditPlanDocumentRow | null>(null)
   const [deletingDoc, setDeletingDoc] = React.useState(false)
-  const docFileInputRef = React.useRef<HTMLInputElement | null>(null)
 
   const reloadDocuments = React.useCallback(async () => {
     if (!detailEntryId) return
@@ -1605,23 +1604,23 @@ export function AuditPlanClient() {
                       <FileText className="size-4 shrink-0" />
                       Dosyalar ({documents.length})
                     </span>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-7 gap-1 px-2 text-xs"
-                      disabled={documentsUploading}
-                      onClick={() => docFileInputRef.current?.click()}
+                    <label
+                      htmlFor={`audit-doc-upload-${uid}`}
+                      className={cn(
+                        "border-input bg-background hover:bg-accent hover:text-accent-foreground inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md border px-2 text-xs font-medium shadow-xs",
+                        documentsUploading && "pointer-events-none opacity-60"
+                      )}
                     >
                       <Plus className="size-3.5" />
                       {documentsUploading ? "Yükleniyor…" : "Dosya Ekle"}
-                    </Button>
+                    </label>
                     <input
-                      ref={docFileInputRef}
+                      id={`audit-doc-upload-${uid}`}
                       type="file"
                       multiple
                       accept="application/pdf,.pdf,image/*,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
                       className="hidden"
+                      disabled={documentsUploading}
                       onChange={(e) => {
                         if (e.target.files?.length) void handleAddDocuments(e.target.files)
                         e.target.value = ""
@@ -1635,7 +1634,9 @@ export function AuditPlanClient() {
                     <p className="text-muted-foreground text-sm">Henüz dosya eklenmedi.</p>
                   ) : (
                     <ul className="space-y-1.5">
-                      {documents.map((doc) => (
+                      {documents
+                        .filter((doc): doc is AuditPlanDocumentRow => !!doc && doc.id != null)
+                        .map((doc) => (
                         <li
                           key={doc.id}
                           className="bg-background/60 flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
