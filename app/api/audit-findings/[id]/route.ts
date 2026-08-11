@@ -12,6 +12,16 @@ export async function GET(_req: Request, ctx: Ctx) {
   if (!Number.isInteger(id) || id < 1)
     return NextResponse.json({ error: "Invalid id" }, { status: 400 })
 
+  const entryInclude = {
+    auditCategoryType: { select: { name: true } },
+    auditSubCategoryType: { select: { name: true } },
+    auditees: {
+      select: {
+        calisan: { select: { id: true, isim: true, soyisim: true } },
+      },
+    },
+  } as const
+
   const finding = await prisma.auditFinding.findUnique({
     where: { id },
     include: {
@@ -31,20 +41,12 @@ export async function GET(_req: Request, ctx: Ctx) {
       },
       session: {
         include: {
-          entry: {
-            include: {
-              auditCategoryType: { select: { name: true } },
-              auditSubCategoryType: { select: { name: true } },
-              auditees: {
-                select: {
-                  calisan: { select: { id: true, isim: true, soyisim: true } },
-                },
-              },
-            },
-          },
+          entry: { include: entryInclude },
           checklist: { select: { id: true, title: true, checklistNumber: true } },
         },
       },
+      // Denetim Planı panelinden manuel eklenen bulgularda session yerine doğrudan entry bağlıdır
+      manualEntry: { include: entryInclude },
       sessionItem: {
         include: { checklistItem: true },
       },
@@ -52,7 +54,19 @@ export async function GET(_req: Request, ctx: Ctx) {
   })
 
   if (!finding) return NextResponse.json({ error: "Not found" }, { status: 404 })
-  return NextResponse.json(finding)
+
+  const { manualEntry, session: findingSession, ...rest } = finding
+
+  // Checklist tabanlı ve manuel bulguları istemci için tek biçimde döndür — manuel
+  // bulgularda gerçek AuditSession/checklist yoktur, ancak "entry" (kategori/denetlenenler)
+  // bilgisi aynı şekle sokularak finding-detail-client.tsx hiç değişmeden çalışabilir.
+  const normalizedSession = findingSession
+    ? findingSession
+    : manualEntry
+      ? { entry: manualEntry, checklist: null }
+      : null
+
+  return NextResponse.json({ ...rest, session: normalizedSession })
 }
 
 export async function PATCH(req: Request, ctx: Ctx) {

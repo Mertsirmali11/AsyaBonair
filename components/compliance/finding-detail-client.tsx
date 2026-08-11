@@ -91,14 +91,17 @@ type FindingDetail = {
   assignedTo: { id: number; isim: string | null; soyisim: string | null; departman: string | null } | null
   responses: Response[]
   extensions: Extension[]
+  // Checklist üzerinden otomatik oluşan bulgularda dolu (gerçek AuditSession).
+  // "Bulgu Ekle" ile Denetim Planı panelinden manuel eklenen bulgularda checklist=null
+  // olur ama entry (kategori/denetlenenler) bilgisi sunucu tarafında aynı şekle normalize edilir.
   session: {
     entry: {
       auditCategoryType: { name: string }
       auditSubCategoryType: { name: string } | null
       auditees: { calisan: { id: number; isim: string | null; soyisim: string | null } }[]
     }
-    checklist: { id: number; title: string; checklistNumber: string | null }
-  }
+    checklist: { id: number; title: string; checklistNumber: string | null } | null
+  } | null
   sessionItem: {
     checklistItem: { label: string; reference: string | null }
   } | null
@@ -249,7 +252,7 @@ export function FindingDetailClient({ findingId, currentCalisanId }: { findingId
   // Giriş yapan kişi auditee listesinde mi?
   const isCurrentUserAuditee = React.useMemo(() => {
     if (!currentCalisanId || !finding) return false
-    return finding.session.entry.auditees.some((a) => a.calisan.id === currentCalisanId)
+    return finding.session?.entry.auditees.some((a) => a.calisan.id === currentCalisanId) ?? false
   }, [currentCalisanId, finding])
 
   const openResponseDialog = () => {
@@ -599,7 +602,7 @@ export function FindingDetailClient({ findingId, currentCalisanId }: { findingId
               <div className="space-y-2">
                 <Label>Cevaplayan Kişi</Label>
                 <div className="flex h-10 w-full items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-foreground">
-                  {finding?.session.entry.auditees.find(
+                  {finding?.session?.entry.auditees.find(
                     (a) => a.calisan.id === currentCalisanId
                   )
                     ? calisanName(

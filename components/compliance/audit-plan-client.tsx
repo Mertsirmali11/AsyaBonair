@@ -4,6 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { useLanguage } from "@/lib/i18n/context"
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
@@ -78,6 +79,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { AuditCategoryCombobox } from "@/components/compliance/audit-category-combobox"
+import { EmployeeCombobox } from "@/components/employee-combobox"
 import type { AuditChecklistListRow } from "@/components/compliance/audit-checklists-client"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { parseDdMmYyyyToUtcDate, todayLocalDdMmYyyy } from "@/lib/correspondence-date"
@@ -124,6 +126,23 @@ type AuditPlanDocumentRow = {
   fileSizeBytes: number | null
   uploadedByName: string | null
   createdAt: string
+}
+
+type AuditPlanFindingRow = {
+  id: number
+  findingCode: string
+  findingLevel: string
+  explanation: string
+  status: string
+  dueDate: string | null
+  isManual: boolean
+  assignedTo: { id: number; name: string | null; department: string | null } | null
+}
+
+const findingLevelStyles: Record<string, { label: string; cls: string }> = {
+  Level1: { label: "Level 1", cls: "bg-red-100 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-800" },
+  Level2: { label: "Level 2", cls: "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-400 dark:border-orange-800" },
+  Observation: { label: "Gözlem", cls: "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800" },
 }
 
 type AuditPlanDetail = {
@@ -392,6 +411,99 @@ export function AuditPlanClient() {
       toast.error("Silinemedi.")
     } finally {
       setDeletingDoc(false)
+    }
+  }
+
+  // ─── Bulgu / notlar — manuel bulgu ekleme (mevcut standart Finding sistemini kullanır) ──
+  const [findings, setFindings] = React.useState<AuditPlanFindingRow[]>([])
+  const [findingsLoading, setFindingsLoading] = React.useState(false)
+  const [findingDialogOpen, setFindingDialogOpen] = React.useState(false)
+  const [findingLevelInput, setFindingLevelInput] = React.useState("Level1")
+  const [findingExplanation, setFindingExplanation] = React.useState("")
+  const [findingReference, setFindingReference] = React.useState("")
+  const [findingAssignedToId, setFindingAssignedToId] = React.useState<number | undefined>(undefined)
+  const [findingAssignees, setFindingAssignees] = React.useState<{ id: number; label: string }[]>([])
+  const [creatingFinding, setCreatingFinding] = React.useState(false)
+
+  const reloadFindings = React.useCallback(async () => {
+    if (!detailEntryId) return
+    setFindingsLoading(true)
+    try {
+      const res = await fetch(`/api/audit-plan/${detailEntryId}/findings`, { cache: "no-store" })
+      const data = await res.json().catch(() => [])
+      setFindings(res.ok && Array.isArray(data) ? data : [])
+    } finally {
+      setFindingsLoading(false)
+    }
+  }, [detailEntryId])
+
+  React.useEffect(() => {
+    if (!detailEntryId) {
+      setFindings([])
+      return
+    }
+    void reloadFindings()
+  }, [detailEntryId, reloadFindings])
+
+  React.useEffect(() => {
+    if (!findingDialogOpen) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch("/api/calisanlar")
+        if (!res.ok || cancelled) return
+        const data = (await res.json()) as CalisanLite[]
+        if (cancelled) return
+        setFindingAssignees(
+          data.map((c) => ({
+            id: c.id,
+            label: [c.isim, c.soyisim].filter(Boolean).join(" ").trim() || `ID ${c.id}`,
+          }))
+        )
+      } catch {
+        if (!cancelled) setFindingAssignees([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [findingDialogOpen])
+
+  const openFindingDialog = () => {
+    setFindingLevelInput("Level1")
+    setFindingExplanation("")
+    setFindingReference("")
+    setFindingAssignedToId(undefined)
+    setFindingDialogOpen(true)
+  }
+
+  const submitFinding = async () => {
+    if (!detailEntryId) return
+    if (!findingExplanation.trim()) {
+      toast.error("Açıklama zorunludur.")
+      return
+    }
+    setCreatingFinding(true)
+    try {
+      const res = await fetch(`/api/audit-plan/${detailEntryId}/findings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          findingLevel: findingLevelInput,
+          explanation: findingExplanation.trim(),
+          reference: findingReference.trim() || null,
+          assignedToId: findingAssignedToId ?? null,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Bulgu kaydedilemedi.")
+      toast.success(`Bulgu eklendi (${data.findingCode ?? ""}).`)
+      setFindingDialogOpen(false)
+      await reloadFindings()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Bulgu kaydedilemedi.")
+    } finally {
+      setCreatingFinding(false)
     }
   }
 
@@ -1587,15 +1699,66 @@ export function AuditPlanClient() {
                 </div>
 
                 <div className="bg-muted/40 space-y-2 rounded-lg border p-4">
-                  <div className="text-muted-foreground flex items-center gap-2 text-sm font-medium">
-                    <FileText className="size-4 shrink-0" />
-                    Bulgu / notlar
+                  <div className="text-muted-foreground flex items-center justify-between gap-2 text-sm font-medium">
+                    <span className="flex items-center gap-2">
+                      <FileText className="size-4 shrink-0" />
+                      Bulgu / notlar
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 gap-1 px-2 text-xs"
+                      onClick={openFindingDialog}
+                    >
+                      <Plus className="size-3.5" />
+                      Bulgu Ekle
+                    </Button>
                   </div>
                   <p className="text-foreground text-sm whitespace-pre-wrap">
                     {detail.remarks?.trim()
                       ? detail.remarks.trim()
                       : "- Bulgu bilgisi yok"}
                   </p>
+
+                  {findingsLoading ? (
+                    <p className="text-muted-foreground text-sm">Yükleniyor…</p>
+                  ) : findings.length > 0 ? (
+                    <ul className="space-y-1.5 pt-1">
+                      {findings
+                        .filter((f): f is AuditPlanFindingRow => !!f && f.id != null)
+                        .map((f) => {
+                          const lvl = findingLevelStyles[f.findingLevel] ?? findingLevelStyles.Level1
+                          return (
+                            <li key={f.id}>
+                              <Link
+                                href={`/compliance/findings-follow-up/${f.id}`}
+                                className="hover:bg-background flex flex-wrap items-center gap-2 rounded-md border bg-background/60 px-3 py-2 text-sm transition-colors"
+                              >
+                                <span className="font-mono text-xs font-semibold">{f.findingCode}</span>
+                                <span className={cn("rounded-full border px-1.5 py-0.5 text-[11px] font-medium", lvl.cls)}>
+                                  {lvl.label}
+                                </span>
+                                <span className="text-muted-foreground min-w-0 flex-1 truncate">{f.explanation}</span>
+                                {f.assignedTo?.name && (
+                                  <span className="text-muted-foreground text-xs shrink-0">{f.assignedTo.name}</span>
+                                )}
+                                <span
+                                  className={cn(
+                                    "shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium",
+                                    f.status === "Closed"
+                                      ? "bg-teal-100 text-teal-700 dark:bg-teal-950/40 dark:text-teal-400"
+                                      : "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400"
+                                  )}
+                                >
+                                  {f.status === "Closed" ? "Kapalı" : "Açık"}
+                                </span>
+                              </Link>
+                            </li>
+                          )
+                        })}
+                    </ul>
+                  ) : null}
                 </div>
 
                 <div className="bg-muted/40 space-y-2 rounded-lg border p-4">
@@ -1797,6 +1960,67 @@ export function AuditPlanClient() {
               onClick={handleConfirmDelete}
             >
               {deleteSubmitting ? "Siliniyor…" : "Sil"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Bulgu Ekle (manuel — mevcut standart Finding sistemini kullanır) ──── */}
+      <Dialog open={findingDialogOpen} onOpenChange={(o) => !creatingFinding && setFindingDialogOpen(o)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="size-4 text-red-500" />
+              Bulgu Ekle
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-1">
+            <div className="space-y-2">
+              <Label>Bulgu Seviyesi</Label>
+              <Select value={findingLevelInput} onValueChange={setFindingLevelInput}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Level1">Level 1</SelectItem>
+                  <SelectItem value="Level2">Level 2</SelectItem>
+                  <SelectItem value="Observation">Gözlem (Observation)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Açıklama / Bulgu *</Label>
+              <Textarea
+                value={findingExplanation}
+                onChange={(e) => setFindingExplanation(e.target.value)}
+                placeholder="Bulguyu açıklayın…"
+                className="min-h-[90px]"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Referans (İsteğe Bağlı)</Label>
+              <Input
+                value={findingReference}
+                onChange={(e) => setFindingReference(e.target.value)}
+                placeholder="Referans madde / doküman"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Sorumlu Kişi (İsteğe Bağlı)</Label>
+              <EmployeeCombobox
+                options={findingAssignees}
+                value={findingAssignedToId}
+                onChange={setFindingAssignedToId}
+                placeholder="Personel seçin…"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setFindingDialogOpen(false)} disabled={creatingFinding}>
+              Vazgeç
+            </Button>
+            <Button type="button" disabled={creatingFinding} onClick={() => void submitFinding()}>
+              {creatingFinding ? "Kaydediliyor…" : "Kaydet"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -933,6 +933,8 @@ model AuditPlanEntry {
   checklistAssignments AuditPlanChecklistAssignment[]
   sessions             AuditSession[]
   documents            AuditPlanDocument[]
+  /// Checklist/session'dan bağımsız, doğrudan bu denetime manuel olarak eklenen bulgular
+  manualFindings       AuditFinding[] @relation("AuditPlanEntryManualFindings")
 
   @@index([plannedDate])
   @@index([auditCategoryTypeId])
@@ -1118,8 +1120,12 @@ model AuditFinding {
   id                 Int       @id @default(autoincrement())
   /// BON-AF-XXX formatında otomatik kod
   findingCode        String    @unique @db.VarChar(50) @map("finding_code")
-  auditSessionId     Int       @map("audit_session_id")
+  /// Checklist üzerinden (Unsatisfactory sonucuyla) otomatik oluşan bulgularda dolu.
+  /// Denetim Planı panelinden manuel eklenen bulgularda null olabilir (bkz. auditPlanEntryId).
+  auditSessionId     Int?      @map("audit_session_id")
   auditSessionItemId Int?      @unique @map("audit_session_item_id")
+  /// Denetim Planı "Bulgu Ekle" ile checklist/session'dan bağımsız oluşturulan bulgularda dolu.
+  auditPlanEntryId   Int?      @map("audit_plan_entry_id")
   /// Level1 | Level2 | Observation
   findingLevel       String    @default("Level1") @db.VarChar(20) @map("finding_level")
   /// Bulgunun açıklaması / gözlem
@@ -1135,13 +1141,15 @@ model AuditFinding {
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  session     AuditSession       @relation(fields: [auditSessionId], references: [id], onDelete: Cascade)
+  session     AuditSession?      @relation(fields: [auditSessionId], references: [id], onDelete: Cascade)
   sessionItem AuditSessionItem?  @relation(fields: [auditSessionItemId], references: [id], onDelete: SetNull)
+  manualEntry AuditPlanEntry?    @relation("AuditPlanEntryManualFindings", fields: [auditPlanEntryId], references: [id], onDelete: Cascade)
   assignedTo  Calisan?           @relation("AuditFindingAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
   responses   AuditFindingResponse[]
   extensions  AuditFindingExtension[]
 
   @@index([auditSessionId])
+  @@index([auditPlanEntryId])
   @@index([status])
   @@index([dueDate])
   @@map("audit_findings")
