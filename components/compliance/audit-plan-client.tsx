@@ -81,6 +81,7 @@ import { AuditCategoryCombobox } from "@/components/compliance/audit-category-co
 import type { AuditChecklistListRow } from "@/components/compliance/audit-checklists-client"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { parseDdMmYyyyToUtcDate, todayLocalDdMmYyyy } from "@/lib/correspondence-date"
+import { uploadAuditPlanDocumentsDirect } from "@/lib/client-audit-plan-document-upload"
 import { cn } from "@/lib/utils"
 
 type CalisanLite = { id: number; isim: string | null; soyisim: string | null }
@@ -114,6 +115,15 @@ export type AuditPlanRow = {
   ct: string
   auditors: string
   status: keyof typeof statusStyles | string
+}
+
+type AuditPlanDocumentRow = {
+  id: number
+  fileName: string
+  mimeType: string | null
+  fileSizeBytes: number | null
+  uploadedByName: string | null
+  createdAt: string
 }
 
 type AuditPlanDetail = {
@@ -168,6 +178,12 @@ function formatDetailDate(iso: string): string {
   } catch {
     return iso
   }
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function EmployeeMultiSelect({
@@ -311,6 +327,74 @@ export function AuditPlanClient() {
   const [detailEntryId, setDetailEntryId] = React.useState<string | null>(null)
   const [detail, setDetail] = React.useState<AuditPlanDetail | null>(null)
   const [detailLoading, setDetailLoading] = React.useState(false)
+
+  // ─── Denetim dosyaları (checklist eklerinden bağımsız, Audit ID'ye bağlı) ──
+  const [documents, setDocuments] = React.useState<AuditPlanDocumentRow[]>([])
+  const [documentsLoading, setDocumentsLoading] = React.useState(false)
+  const [documentsUploading, setDocumentsUploading] = React.useState(false)
+  const [deleteDocTarget, setDeleteDocTarget] = React.useState<AuditPlanDocumentRow | null>(null)
+  const [deletingDoc, setDeletingDoc] = React.useState(false)
+  const docFileInputRef = React.useRef<HTMLInputElement | null>(null)
+
+  const reloadDocuments = React.useCallback(async () => {
+    if (!detailEntryId) return
+    setDocumentsLoading(true)
+    try {
+      const res = await fetch(`/api/audit-plan/${detailEntryId}/documents`, { cache: "no-store" })
+      const data = await res.json().catch(() => [])
+      setDocuments(res.ok && Array.isArray(data) ? data : [])
+    } finally {
+      setDocumentsLoading(false)
+    }
+  }, [detailEntryId])
+
+  React.useEffect(() => {
+    if (!detailEntryId) {
+      setDocuments([])
+      return
+    }
+    void reloadDocuments()
+  }, [detailEntryId, reloadDocuments])
+
+  const handleAddDocuments = async (fileList: FileList) => {
+    if (!detailEntryId || fileList.length === 0) return
+    setDocumentsUploading(true)
+    try {
+      const files = Array.from(fileList)
+      const uploaded = await uploadAuditPlanDocumentsDirect(detailEntryId, files)
+      const res = await fetch(`/api/audit-plan/${detailEntryId}/documents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ files: uploaded }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Dosya kaydedilemedi.")
+      toast.success(`${uploaded.length} dosya eklendi.`)
+      await reloadDocuments()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Dosya yüklenemedi.")
+    } finally {
+      setDocumentsUploading(false)
+    }
+  }
+
+  const confirmDeleteDocument = async () => {
+    if (!deleteDocTarget || !detailEntryId) return
+    setDeletingDoc(true)
+    try {
+      const res = await fetch(`/api/audit-plan/${detailEntryId}/documents/${deleteDocTarget.id}`, {
+        method: "DELETE",
+      })
+      if (!res.ok) throw new Error()
+      toast.success("Dosya silindi.")
+      setDeleteDocTarget(null)
+      await reloadDocuments()
+    } catch {
+      toast.error("Silinemedi.")
+    } finally {
+      setDeletingDoc(false)
+    }
+  }
 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false)
   const [deleteSubmitting, setDeleteSubmitting] = React.useState(false)
@@ -1519,10 +1603,72 @@ export function AuditPlanClient() {
                   <div className="text-muted-foreground flex items-center justify-between gap-2 text-sm font-medium">
                     <span className="flex items-center gap-2">
                       <FileText className="size-4 shrink-0" />
-                      Dosyalar (0)
+                      Dosyalar ({documents.length})
                     </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 gap-1 px-2 text-xs"
+                      disabled={documentsUploading}
+                      onClick={() => docFileInputRef.current?.click()}
+                    >
+                      <Plus className="size-3.5" />
+                      {documentsUploading ? "Yükleniyor…" : "Dosya Ekle"}
+                    </Button>
+                    <input
+                      ref={docFileInputRef}
+                      type="file"
+                      multiple
+                      accept="application/pdf,.pdf,image/*,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files?.length) void handleAddDocuments(e.target.files)
+                        e.target.value = ""
+                      }}
+                    />
                   </div>
-                  <p className="text-muted-foreground text-sm">Henüz dosya eklenmedi.</p>
+
+                  {documentsLoading ? (
+                    <p className="text-muted-foreground text-sm">Yükleniyor…</p>
+                  ) : documents.length === 0 ? (
+                    <p className="text-muted-foreground text-sm">Henüz dosya eklenmedi.</p>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {documents.map((doc) => (
+                        <li
+                          key={doc.id}
+                          className="bg-background/60 flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
+                        >
+                          <div className="min-w-0">
+                            <a
+                              href={`/api/audit-plan/${detail.id}/documents/${doc.id}/file`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary inline-flex items-center gap-1.5 font-medium underline-offset-2 hover:underline"
+                            >
+                              <Download className="size-3.5 shrink-0" />
+                              <span className="max-w-[220px] truncate">{doc.fileName}</span>
+                            </a>
+                            <p className="text-muted-foreground mt-0.5 text-xs">
+                              {doc.uploadedByName ?? "—"} · {formatDetailDate(doc.createdAt)}
+                              {doc.fileSizeBytes ? ` · ${formatBytes(doc.fileSizeBytes)}` : ""}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive hover:text-destructive size-7 shrink-0"
+                            onClick={() => setDeleteDocTarget(doc)}
+                            aria-label="Dosyayı sil"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
 
                 <div className="bg-muted/40 space-y-3 rounded-lg border p-4">
@@ -1650,6 +1796,30 @@ export function AuditPlanClient() {
               onClick={handleConfirmDelete}
             >
               {deleteSubmitting ? "Siliniyor…" : "Sil"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deleteDocTarget} onOpenChange={(o) => !o && setDeleteDocTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Dosya silinsin mi?</DialogTitle>
+          </DialogHeader>
+          <p className="text-muted-foreground text-sm">
+            {deleteDocTarget ? `“${deleteDocTarget.fileName}” kalıcı olarak silinecek.` : ""}
+          </p>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setDeleteDocTarget(null)}>
+              Vazgeç
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deletingDoc}
+              onClick={confirmDeleteDocument}
+            >
+              {deletingDoc ? "Siliniyor…" : "Sil"}
             </Button>
           </DialogFooter>
         </DialogContent>

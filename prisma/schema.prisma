@@ -135,6 +135,7 @@ model Calisan {
   leaveRequestsAsApprover  LeaveRequest[] @relation("LeaveApprover")
   trainingRecords          TrainingRecord[]        @relation("TrainingRecordCalisan")
   trainingRecordsCreated   TrainingRecord[]        @relation("TrainingRecordCreator")
+  auditPlanDocumentsUploaded AuditPlanDocument[]   @relation("AuditPlanDocumentUploader")
 
   @@index([createdAt(sort: Desc)])
   @@index([isim, soyisim])
@@ -931,12 +932,32 @@ model AuditPlanEntry {
   auditees             AuditPlanAuditee[]
   checklistAssignments AuditPlanChecklistAssignment[]
   sessions             AuditSession[]
+  documents            AuditPlanDocument[]
 
   @@index([plannedDate])
   @@index([auditCategoryTypeId])
   @@index([auditSubCategoryTypeId])
   @@index([createdAt(sort: Desc)])
   @@map("audit_plan_entries")
+}
+
+/// Denetim kaydına doğrudan bağlı genel dosyalar (rapor, imzalı checklist, kapanış
+/// dokümanları vb.) — checklist madde eklerinden bağımsız, Audit ID ile ilişkili.
+model AuditPlanDocument {
+  id               Int      @id @default(autoincrement())
+  auditPlanEntryId Int      @map("audit_plan_entry_id")
+  fileName         String   @map("file_name") @db.VarChar(255)
+  storagePath      String   @map("storage_path") @db.VarChar(1000)
+  mimeType         String?  @map("mime_type") @db.VarChar(200)
+  fileSizeBytes    Int?     @map("file_size_bytes")
+  uploadedBy       Int?     @map("uploaded_by")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  entry    AuditPlanEntry @relation(fields: [auditPlanEntryId], references: [id], onDelete: Cascade)
+  uploader Calisan?       @relation("AuditPlanDocumentUploader", fields: [uploadedBy], references: [id], onDelete: SetNull)
+
+  @@index([auditPlanEntryId])
+  @@map("audit_plan_documents")
 }
 
 /// Denetim checklist şablonu (Compliance → Checklists)
