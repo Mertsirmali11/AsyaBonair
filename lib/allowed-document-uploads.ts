@@ -134,6 +134,65 @@ export function isAllowedDepartmentFormFile(file: File): boolean {
 }
 
 /**
+ * Finding Files — bulguya doğrudan yüklenen dosyalar. Yaygın güvenli iş dosyası
+ * biçimlerinin geniş bir alt kümesini kabul eder (yalnızca birkaç uzantıya sabitlenmez);
+ * allow-list yaklaşımı zaten çalıştırılabilir/riskli türleri (exe, bat, js, vbs, msi, dll, …)
+ * listede bulunmadıkları için otomatik olarak reddeder.
+ */
+const FINDING_FILE_EXTENSIONS = [
+  ".pdf",
+  ".doc", ".docx",
+  ".xls", ".xlsx",
+  ".ppt", ".pptx",
+  ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp",
+  ".txt", ".csv",
+  ".zip",
+  ".rtf",
+  ".odt", ".ods", ".odp",
+] as const
+
+const FINDING_FILE_MIME_TYPES = [
+  ...MIME_TYPES,
+  "image/png", "image/jpeg", "image/gif", "image/bmp", "image/webp",
+  "text/plain", "text/csv",
+  "application/zip", "application/x-zip-compressed",
+  "application/rtf", "text/rtf",
+  "application/vnd.oasis.opendocument.text",
+  "application/vnd.oasis.opendocument.spreadsheet",
+  "application/vnd.oasis.opendocument.presentation",
+] as const
+
+const FINDING_FILE_EXT = new Set<string>(FINDING_FILE_EXTENSIONS)
+const FINDING_FILE_MIME = new Set<string>(FINDING_FILE_MIME_TYPES)
+
+export const FINDING_FILE_ACCEPT_HTML = [...FINDING_FILE_EXTENSIONS, ...FINDING_FILE_MIME_TYPES].join(",")
+
+export const FINDING_FILE_TYPES_USER_MESSAGE =
+  "PDF, Word, Excel, PowerPoint, görsel, metin/CSV veya ZIP"
+
+export const FINDING_FILE_ALLOWED_ERROR_EN =
+  "Allowed file types: PDF, Word, Excel, PowerPoint, images, text/CSV, and ZIP. Executable or script files are not allowed."
+
+export function isAllowedFindingFile(file: File): boolean {
+  const mime = (file.type || "").trim().toLowerCase()
+  if (mime && FINDING_FILE_MIME.has(mime)) return true
+  const ext = lowerExtension(file.name)
+  return ext !== null && FINDING_FILE_EXT.has(ext)
+}
+
+export function isAllowedFindingFileName(fileName: string): boolean {
+  const ext = lowerExtension(fileName)
+  return ext !== null && FINDING_FILE_EXT.has(ext)
+}
+
+export function resolveFindingFileMimeForUpload(file: File): string {
+  const mime = (file.type || "").trim().toLowerCase()
+  if (mime) return mime
+  const ext = lowerExtension(file.name)
+  return (ext && EXT_TO_MIME[ext]) || "application/octet-stream"
+}
+
+/**
  * Supabase veya HTTP yanıtları için dosya adından Content-Type.
  */
 export function contentTypeFromFileName(fileName: string): string {

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { FindingDetailClient } from "@/components/compliance/finding-detail-client"
+import { canAccessAuditPlan } from "@/lib/audit-plan-access"
 import { prisma } from "@/lib/prisma-server"
 
 type Props = { params: Promise<{ id: string }> }
@@ -21,5 +22,12 @@ export default async function FindingDetailPage({ params }: Props) {
       })
     : null
 
-  return <FindingDetailClient findingId={findingId} currentCalisanId={calisan?.id ?? null} />
+  return (
+    <FindingDetailClient
+      findingId={findingId}
+      currentCalisanId={calisan?.id ?? null}
+      currentDepartman={session.user?.departman ?? null}
+      isAdmin={canAccessAuditPlan(session.user?.email)}
+    />
+  )
 }

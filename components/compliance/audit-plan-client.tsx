@@ -191,6 +191,8 @@ export type AuditPlanDetail = {
   cancellationReason: string | null
   auditors: { id: number; name: string }[]
   auditees: { id: number; name: string }[]
+  /// Denetlenen olarak bireylere ek olarak (veya onların yerine) atanmış Group/Department isimleri
+  auditeeDepartments: string[]
   assignedChecklists: {
     assignmentId: number
     checklistId: number
@@ -286,7 +288,9 @@ export function EmployeeMultiSelect({
           className="w-[var(--radix-popover-trigger-width)] p-0"
           align="start"
         >
-          <ScrollArea className="h-[min(240px,40vh)]">
+          {/* Native overflow scroll — Radix ScrollArea + Popover içinde fare tekerleği
+              kaydırması güvenilir çalışmıyordu; klavye navigasyonu ve seçili kişiler korunur. */}
+          <div className="max-h-[min(240px,40vh)] overflow-y-auto overscroll-contain">
             <div className="flex flex-col gap-0.5 p-2">
               {options.length === 0 ? (
                 <p className="text-muted-foreground px-2 py-3 text-center text-sm">
@@ -307,7 +311,7 @@ export function EmployeeMultiSelect({
                 ))
               )}
             </div>
-          </ScrollArea>
+          </div>
         </PopoverContent>
       </Popover>
     </div>

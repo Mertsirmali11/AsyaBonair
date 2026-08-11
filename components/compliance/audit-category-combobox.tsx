@@ -9,7 +9,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 
 export function AuditCategoryCombobox({
@@ -72,7 +71,9 @@ export function AuditCategoryCombobox({
             className="rounded-b-none border-0 border-b shadow-none focus-visible:ring-0"
             autoFocus
           />
-          <ScrollArea className="h-[min(260px,45vh)]">
+          {/* Native overflow scroll — Radix ScrollArea + Popover içinde fare tekerleği
+              kaydırması güvenilir çalışmıyordu; klavye navigasyonu ve scrollbar korunur. */}
+          <div className="max-h-[min(260px,45vh)] overflow-y-auto overscroll-contain">
             <div className="flex flex-col p-1">
               {filtered.length === 0 ? (
                 <p className="text-muted-foreground px-2 py-6 text-center text-sm">
@@ -103,7 +104,7 @@ export function AuditCategoryCombobox({
                 ))
               )}
             </div>
-          </ScrollArea>
+          </div>
         </div>
       </PopoverContent>
     </Popover>

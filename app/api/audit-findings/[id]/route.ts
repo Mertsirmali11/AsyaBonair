@@ -1,16 +1,24 @@
 import { NextResponse } from "next/server"
+import { auth } from "@/auth"
 import { requireAuditPlanSession } from "@/lib/audit-plan-session"
+import { resolveFindingAuditeeAccess } from "@/lib/audit-finding-auditee-access"
 import { prisma } from "@/lib/prisma-server"
 
 type Ctx = { params: Promise<{ id: string }> }
 
 export async function GET(_req: Request, ctx: Ctx) {
-  const session = await requireAuditPlanSession()
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-
   const id = Number((await ctx.params).id)
   if (!Number.isInteger(id) || id < 1)
     return NextResponse.json({ error: "Invalid id" }, { status: 400 })
+
+  // Admin (Audit Plan) HER ZAMAN erişir; ayrıca bu bulgunun bağlı olduğu denetime bireysel
+  // auditee, Auditee Group/Department eşleşmesi veya doğrudan assignedTo olarak atanmış
+  // kullanıcılar da görüntüleyip cevap verebilir ("departmandan herhangi bir yetkili kişi").
+  const authSession = await auth()
+  const access = await resolveFindingAuditeeAccess(id, authSession?.user?.email, authSession?.user?.departman)
+  if (!access.isAdmin && !access.isAuditee) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
 
   const entryInclude = {
     auditCategoryType: { select: { name: true } },
@@ -20,6 +28,7 @@ export async function GET(_req: Request, ctx: Ctx) {
         calisan: { select: { id: true, isim: true, soyisim: true } },
       },
     },
+    auditeeDepartments: { select: { departmentName: true } },
   } as const
 
   const finding = await prisma.auditFinding.findUnique({

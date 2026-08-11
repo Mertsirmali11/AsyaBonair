@@ -9,6 +9,7 @@ import {
   Ban,
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
   ClipboardCheck,
   ClipboardList,
   FileSpreadsheet,
@@ -30,6 +31,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -40,6 +42,11 @@ import {
 import { DatePicker } from "@/components/ui/date-picker"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import {
   Select,
   SelectContent,
@@ -501,6 +508,8 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
   const [auditPrefix, setAuditPrefix] = React.useState("")
   const [auditorIds, setAuditorIds] = React.useState<number[]>([])
   const [auditeeIds, setAuditeeIds] = React.useState<number[]>([])
+  const [auditeeDepartments, setAuditeeDepartments] = React.useState<string[]>([])
+  const [departmentOptions, setDepartmentOptions] = React.useState<string[]>([])
   const [remarksInput, setRemarksInput] = React.useState("")
   const [employees, setEmployees] = React.useState<{ id: number; label: string }[]>([])
   const [savingEdit, setSavingEdit] = React.useState(false)
@@ -515,6 +524,7 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
     setAuditPrefix(detail.auditNumberPrefix?.trim() ?? "")
     setAuditorIds(detail.auditors.map((a) => a.id))
     setAuditeeIds(detail.auditees.map((a) => a.id))
+    setAuditeeDepartments(detail.auditeeDepartments)
     setRemarksInput(detail.remarks ?? "")
     setEditOpen(true)
   }
@@ -548,6 +558,20 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
         setEmployees(data.map((c) => ({ id: c.id, label: [c.isim, c.soyisim].filter(Boolean).join(" ").trim() || `ID ${c.id}` })))
       } catch {
         setEmployees([])
+      }
+    })()
+  }, [editOpen])
+
+  React.useEffect(() => {
+    if (!editOpen) return
+    ;(async () => {
+      try {
+        const res = await fetch("/api/audit-plan/departments", { cache: "no-store" })
+        if (!res.ok) return
+        const data = (await res.json()) as string[]
+        setDepartmentOptions(Array.isArray(data) ? data : [])
+      } catch {
+        setDepartmentOptions([])
       }
     })()
   }, [editOpen])
@@ -607,6 +631,7 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
           remarks: remarksInput.trim() || undefined,
           auditorIds,
           auditeeIds,
+          auditeeDepartments,
         }),
       })
       const errJson = await res.json().catch(() => ({}))
@@ -763,7 +788,15 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
                 </div>
                 <InfoField label="Lead Auditor" value={detail.auditors[0]?.name ?? "—"} />
                 <InfoField label="Audit Team / Auditors" value={detail.auditors.length > 0 ? detail.auditors.map((a) => a.name).join(", ") : "—"} />
-                <InfoField label="Auditee / Responsible Persons" value={detail.auditees.length > 0 ? detail.auditees.map((a) => a.name).join(", ") : "Henüz atanmadı"} />
+                <InfoField
+                  label="Auditee / Responsible Persons"
+                  value={
+                    [
+                      ...detail.auditees.map((a) => a.name),
+                      ...detail.auditeeDepartments.map((d) => `${d} (Group)`),
+                    ].join(", ") || "Henüz atanmadı"
+                  }
+                />
                 <InfoField label="Current Status" value={detail.status} />
               </div>
             </section>
@@ -1001,6 +1034,17 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
               </div>
               <EmployeeMultiSelect id="manage-auditors" label="Audit Team / Auditors" options={employees} selectedIds={auditorIds} onChange={setAuditorIds} />
               <EmployeeMultiSelect id="manage-auditees" label="Auditee / Responsible Persons" options={employees} selectedIds={auditeeIds} onChange={setAuditeeIds} />
+              <DepartmentMultiSelect
+                id="manage-auditee-departments"
+                label="Auditee Group / Department"
+                options={departmentOptions}
+                selected={auditeeDepartments}
+                onChange={setAuditeeDepartments}
+              />
+              <p className="text-muted-foreground -mt-2 text-xs">
+                Bir departman/grup atandığında, o departmandaki yetkili kullanıcılar bu denetimi görüp
+                cevap verebilir — bireysel seçim şart değildir, ikisi birlikte de kullanılabilir.
+              </p>
               <div className="space-y-2">
                 <Label>Audit Remarks</Label>
                 <Textarea value={remarksInput} onChange={(e) => setRemarksInput(e.target.value)} className="min-h-[88px] resize-y" />
@@ -1154,6 +1198,68 @@ function InfoField({ label, value }: { label: string; value: string }) {
     <div className="space-y-1">
       <p className="text-muted-foreground text-xs font-medium">{label}</p>
       <p className="text-foreground text-sm">{value}</p>
+    </div>
+  )
+}
+
+/** Auditee Group/Department çoklu seçimi — EmployeeMultiSelect ile aynı desen, string listesi için. */
+function DepartmentMultiSelect({
+  id,
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  id: string
+  label: string
+  options: string[]
+  selected: string[]
+  onChange: (names: string[]) => void
+}) {
+  const [open, setOpen] = React.useState(false)
+  const summary = selected.length === 0 ? "Departman/Grup seçin… (isteğe bağlı)" : selected.join(", ")
+
+  const toggle = (name: string) => {
+    if (selected.includes(name)) onChange(selected.filter((x) => x !== name))
+    else onChange([...selected, name])
+  }
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            id={id}
+            type="button"
+            variant="outline"
+            className={cn(
+              "border-input h-9 w-full justify-between px-3 font-normal shadow-xs",
+              selected.length === 0 && "text-muted-foreground"
+            )}
+          >
+            <span className="truncate text-left">{summary}</span>
+            <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+          {/* Native overflow scroll — Popover + Radix ScrollArea'da fare tekerleği kaydırması sorunluydu. */}
+          <div className="max-h-[min(240px,40vh)] overflow-y-auto overscroll-contain">
+            <div className="flex flex-col gap-0.5 p-2">
+              {options.length === 0 ? (
+                <p className="text-muted-foreground px-2 py-3 text-center text-sm">Kayıtlı departman yok.</p>
+              ) : (
+                options.map((name) => (
+                  <label key={name} className="hover:bg-muted/80 flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5">
+                    <Checkbox checked={selected.includes(name)} onCheckedChange={() => toggle(name)} />
+                    <span className="text-sm leading-none">{name}</span>
+                  </label>
+                ))
+              )}
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }

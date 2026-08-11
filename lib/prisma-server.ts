@@ -5,7 +5,7 @@ import { Pool } from "pg"
 import { PrismaPg } from "@prisma/adapter-pg"
 
 /** Şemada alan/model değişince artırın; dev’de global’deki eski PrismaClient’ı atar. */
-const PRISMA_CLIENT_CACHE_REVISION = 17 // bumped: AuditPlanEntry.cancellationReason
+const PRISMA_CLIENT_CACHE_REVISION = 18 // bumped: AuditPlanAuditeeDepartment, AuditFindingFile, AuditFindingHistory
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined

@@ -5,13 +5,17 @@ import Link from "next/link"
 import {
   AlertTriangle,
   ArrowLeft,
+  Bell,
   CheckCircle2,
   Clock,
   FileText,
   GitBranch,
+  History as HistoryIcon,
   Loader2,
   Paperclip,
+  Plus,
   Send,
+  Trash2,
   User,
   XCircle,
 } from "lucide-react"
@@ -44,6 +48,8 @@ import {
 } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
+import { normalizeDepartmentKey } from "@/lib/department-access"
+import { uploadAuditFindingFilesDirect } from "@/lib/client-audit-finding-file-upload"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
@@ -99,6 +105,8 @@ type FindingDetail = {
       auditCategoryType: { name: string }
       auditSubCategoryType: { name: string } | null
       auditees: { calisan: { id: number; isim: string | null; soyisim: string | null } }[]
+      /// Auditee Group/Department — bireysel auditee'ye ek olarak (veya onun yerine) atanmış olabilir.
+      auditeeDepartments: { departmentName: string }[]
     }
     checklist: { id: number; title: string; checklistNumber: string | null } | null
   } | null
@@ -109,6 +117,30 @@ type FindingDetail = {
 
 type CalisanLite = { id: number; isim: string | null; soyisim: string | null }
 
+type FindingFileRow = {
+  id: number
+  fileName: string
+  mimeType: string | null
+  fileSizeBytes: number | null
+  uploadedByName: string | null
+  createdAt: string
+}
+
+type FindingHistoryRow = {
+  id: number
+  createdAt: string
+  eventType: string
+  note: string | null
+  actorName: string | null
+}
+
+function formatFileBytes(n: number | null): string {
+  if (!n) return ""
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
 async function parseJson(res: Response | globalThis.Response): Promise<unknown> {
   const t = await (res as globalThis.Response).text()
   if (!t) return null
@@ -118,6 +150,19 @@ async function parseJson(res: Response | globalThis.Response): Promise<unknown> 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—"
   try { return new Date(iso).toISOString().slice(0, 10) } catch { return "—" }
+}
+
+function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return "—"
+  try {
+    return new Intl.DateTimeFormat("tr-TR", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: "Europe/Istanbul",
+    }).format(new Date(iso))
+  } catch {
+    return "—"
+  }
 }
 
 function calisanName(c: { isim: string | null; soyisim: string | null } | null): string {
@@ -131,7 +176,18 @@ const cpaStatusConfig: Record<string, { label: string; cls: string }> = {
   Rejected: { label: "Reddedildi", cls: "bg-red-100 text-red-700 border-red-300 dark:bg-red-950/40 dark:text-red-400 dark:border-red-700" },
 }
 
-export function FindingDetailClient({ findingId, currentCalisanId }: { findingId: number; currentCalisanId: number | null }) {
+export function FindingDetailClient({
+  findingId,
+  currentCalisanId,
+  currentDepartman,
+  isAdmin = true,
+}: {
+  findingId: number
+  currentCalisanId: number | null
+  currentDepartman?: string | null
+  /** Audit Plan admini mi (canAccessAuditPlan) — atama/CPA karar gibi yönetici aksiyonları buna göre gösterilir. */
+  isAdmin?: boolean
+}) {
   const [finding, setFinding] = React.useState<FindingDetail | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [calisanlar, setCalisanlar] = React.useState<CalisanLite[]>([])
@@ -161,6 +217,20 @@ export function FindingDetailClient({ findingId, currentCalisanId }: { findingId
   const [rejectComment, setRejectComment] = React.useState("")
   const [rejecting, setRejecting] = React.useState(false)
 
+  // Finding Files state (checklist eklerinden ve Audit Files'tan bağımsız, doğrudan Finding ID'ye bağlı)
+  const [findingFiles, setFindingFiles] = React.useState<FindingFileRow[]>([])
+  const [findingFilesLoading, setFindingFilesLoading] = React.useState(false)
+  const [findingFilesUploading, setFindingFilesUploading] = React.useState(false)
+  const [deleteFileTarget, setDeleteFileTarget] = React.useState<FindingFileRow | null>(null)
+  const [deletingFile, setDeletingFile] = React.useState(false)
+
+  // Finding History state (Reminder gönderimi vb.)
+  const [findingHistory, setFindingHistory] = React.useState<FindingHistoryRow[]>([])
+  const [findingHistoryLoading, setFindingHistoryLoading] = React.useState(false)
+
+  // Send Reminder state
+  const [sendingReminder, setSendingReminder] = React.useState(false)
+
   const load = React.useCallback(async () => {
     setLoading(true)
     try {
@@ -175,6 +245,85 @@ export function FindingDetailClient({ findingId, currentCalisanId }: { findingId
     }
   }, [findingId])
 
+  const loadFindingFiles = React.useCallback(async () => {
+    setFindingFilesLoading(true)
+    try {
+      const res = await fetch(`/api/audit-findings/${findingId}/files`, { cache: "no-store" })
+      const data = await res.json().catch(() => [])
+      setFindingFiles(res.ok && Array.isArray(data) ? data : [])
+    } finally {
+      setFindingFilesLoading(false)
+    }
+  }, [findingId])
+
+  const loadFindingHistory = React.useCallback(async () => {
+    setFindingHistoryLoading(true)
+    try {
+      const res = await fetch(`/api/audit-findings/${findingId}/history`, { cache: "no-store" })
+      const data = await res.json().catch(() => [])
+      setFindingHistory(res.ok && Array.isArray(data) ? data : [])
+    } finally {
+      setFindingHistoryLoading(false)
+    }
+  }, [findingId])
+
+  const handleAddFindingFiles = async (fileList: FileList) => {
+    if (fileList.length === 0) return
+    setFindingFilesUploading(true)
+    try {
+      const files = Array.from(fileList)
+      const uploaded = await uploadAuditFindingFilesDirect(findingId, files)
+      const res = await fetch(`/api/audit-findings/${findingId}/files`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ files: uploaded }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Dosya kaydedilemedi.")
+      toast.success(`${uploaded.length} dosya eklendi.`)
+      await Promise.all([loadFindingFiles(), loadFindingHistory()])
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Dosya yüklenemedi.")
+    } finally {
+      setFindingFilesUploading(false)
+    }
+  }
+
+  const confirmDeleteFindingFile = async () => {
+    if (!deleteFileTarget) return
+    setDeletingFile(true)
+    try {
+      const res = await fetch(`/api/audit-findings/${findingId}/files/${deleteFileTarget.id}`, { method: "DELETE" })
+      if (!res.ok) throw new Error()
+      toast.success("Dosya silindi.")
+      setDeleteFileTarget(null)
+      await Promise.all([loadFindingFiles(), loadFindingHistory()])
+    } catch {
+      toast.error("Silinemedi.")
+    } finally {
+      setDeletingFile(false)
+    }
+  }
+
+  const sendReminder = async () => {
+    setSendingReminder(true)
+    try {
+      const res = await fetch(`/api/audit-findings/${findingId}/reminder`, { method: "POST" })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : "Hatırlatma gönderilemedi.")
+      if (data.skipped) {
+        toast.error(`Hatırlatma gönderilemedi: ${data.reason ?? "e-posta altyapısı yapılandırılmamış."}`)
+      } else {
+        toast.success(`Hatırlatma ${data.recipientLabel ?? ""} adresine gönderildi (${data.sent}/${data.recipientCount}).`)
+      }
+      await loadFindingHistory()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Hatırlatma gönderilemedi.")
+    } finally {
+      setSendingReminder(false)
+    }
+  }
+
   const loadCalisanlar = React.useCallback(async () => {
     try {
       const res = await fetch("/api/calisanlar?limit=200", { cache: "no-store" })
@@ -183,7 +332,12 @@ export function FindingDetailClient({ findingId, currentCalisanId }: { findingId
     } catch { /* ignore */ }
   }, [])
 
-  React.useEffect(() => { void load(); void loadCalisanlar() }, [load, loadCalisanlar])
+  React.useEffect(() => {
+    void load()
+    void loadCalisanlar()
+    void loadFindingFiles()
+    void loadFindingHistory()
+  }, [load, loadCalisanlar, loadFindingFiles, loadFindingHistory])
 
   const submitResponse = async () => {
     if (!rootCause.trim() && !correctiveAction.trim() && !preventiveAction.trim()) {
@@ -249,11 +403,20 @@ export function FindingDetailClient({ findingId, currentCalisanId }: { findingId
     }
   }
 
-  // Giriş yapan kişi auditee listesinde mi?
+  // Giriş yapan kişi bireysel auditee mi, ya da denetime atanmış Auditee Group/Department'ın
+  // bir üyesi mi? ("Departmandan herhangi bir yetkili kişi denetime cevap verebilsin.")
   const isCurrentUserAuditee = React.useMemo(() => {
-    if (!currentCalisanId || !finding) return false
-    return finding.session?.entry.auditees.some((a) => a.calisan.id === currentCalisanId) ?? false
-  }, [currentCalisanId, finding])
+    if (!finding?.session) return false
+    const individualMatch = currentCalisanId
+      ? finding.session.entry.auditees.some((a) => a.calisan.id === currentCalisanId)
+      : false
+    const departmentMatch = currentDepartman
+      ? finding.session.entry.auditeeDepartments.some(
+          (d) => normalizeDepartmentKey(d.departmentName) === normalizeDepartmentKey(currentDepartman)
+        )
+      : false
+    return individualMatch || departmentMatch
+  }, [currentCalisanId, currentDepartman, finding])
 
   const openResponseDialog = () => {
     setRootCause("")
@@ -381,13 +544,36 @@ export function FindingDetailClient({ findingId, currentCalisanId }: { findingId
             </Badge>
           </div>
           <div className="flex gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => {
-              setAssignedToId(finding.assignedTo ? String(finding.assignedTo.id) : "")
-              setAssignOpen(true)
-            }}>
-              <User className="mr-1.5 size-3.5" />
-              {finding.assignedTo ? calisanName(finding.assignedTo) : "Atama yap"}
-            </Button>
+            {isAdmin ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => {
+                setAssignedToId(finding.assignedTo ? String(finding.assignedTo.id) : "")
+                setAssignOpen(true)
+              }}>
+                <User className="mr-1.5 size-3.5" />
+                {finding.assignedTo ? calisanName(finding.assignedTo) : "Atama yap"}
+              </Button>
+            ) : finding.assignedTo ? (
+              <Badge variant="outline" className="gap-1.5 px-2.5 py-1.5">
+                <User className="size-3.5" />
+                {calisanName(finding.assignedTo)}
+              </Badge>
+            ) : null}
+            {isAdmin && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={sendingReminder}
+                onClick={() => void sendReminder()}
+              >
+                {sendingReminder ? (
+                  <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                ) : (
+                  <Bell className="mr-1.5 size-3.5" />
+                )}
+                Send Reminder
+              </Button>
+            )}
             {isOpen && isCurrentUserAuditee && (
               <Button
                 type="button"
@@ -460,6 +646,75 @@ export function FindingDetailClient({ findingId, currentCalisanId }: { findingId
               </div>
             )}
           </div>
+        </div>
+
+        {/* Finding Files — checklist eklerinden ve Audit Files'tan bağımsız, doğrudan Finding ID'ye bağlı */}
+        <div className="bg-card rounded-lg border p-4 shadow-sm">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
+              <Paperclip className="size-4 text-muted-foreground" />
+              Finding Files ({findingFiles.length})
+            </h2>
+            <label
+              htmlFor="finding-file-upload"
+              className={cn(
+                "border-input bg-background hover:bg-accent hover:text-accent-foreground inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md border px-2 text-xs font-medium shadow-xs",
+                findingFilesUploading && "pointer-events-none opacity-60"
+              )}
+            >
+              <Plus className="size-3.5" />
+              {findingFilesUploading ? "Yükleniyor…" : "Add File"}
+            </label>
+            <input
+              id="finding-file-upload"
+              type="file"
+              multiple
+              className="hidden"
+              disabled={findingFilesUploading}
+              onChange={(e) => {
+                if (e.target.files?.length) void handleAddFindingFiles(e.target.files)
+                e.target.value = ""
+              }}
+            />
+          </div>
+          {findingFilesLoading ? (
+            <p className="text-muted-foreground text-sm">Yükleniyor…</p>
+          ) : findingFiles.length === 0 ? (
+            <p className="text-muted-foreground text-sm">Henüz dosya eklenmedi.</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {findingFiles
+                .filter((f): f is FindingFileRow => !!f && f.id != null)
+                .map((f) => (
+                  <li key={f.id} className="bg-background/60 flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs">
+                    <a
+                      href={`/api/audit-findings/${findingId}/files/${f.id}/file`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="min-w-0 flex-1 truncate hover:underline"
+                      title={f.fileName}
+                    >
+                      {f.fileName}
+                    </a>
+                    <span className="text-muted-foreground shrink-0">{formatFileBytes(f.fileSizeBytes)}</span>
+                    <span className="text-muted-foreground shrink-0">{f.uploadedByName ?? "—"}</span>
+                    <span className="text-muted-foreground shrink-0">{formatDateTime(f.createdAt)}</span>
+                    {isAdmin && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive size-6 shrink-0"
+                        onClick={() => setDeleteFileTarget(f)}
+                        aria-label="Dosyayı sil"
+                      >
+                        <Trash2 className="size-3" />
+                      </Button>
+                    )}
+                  </li>
+                ))}
+            </ul>
+          )}
         </div>
 
         {/* Responses */}
@@ -584,7 +839,53 @@ export function FindingDetailClient({ findingId, currentCalisanId }: { findingId
             </div>
           )}
         </div>
+
+        {/* Finding History — Reminder gönderimi, dosya yükleme/silme vb. kronolojik olaylar */}
+        <div className="bg-card rounded-lg border p-4 shadow-sm">
+          <h2 className="mb-3 text-sm font-semibold flex items-center gap-2">
+            <HistoryIcon className="size-4 text-muted-foreground" />
+            Finding History
+          </h2>
+          {findingHistoryLoading ? (
+            <p className="text-muted-foreground text-sm">Yükleniyor…</p>
+          ) : findingHistory.length === 0 ? (
+            <p className="text-muted-foreground text-sm">Henüz kayıtlı bir işlem yok.</p>
+          ) : (
+            <ul className="text-muted-foreground space-y-2 text-sm">
+              {findingHistory
+                .filter((h): h is FindingHistoryRow => !!h && h.id != null)
+                .map((h) => (
+                  <li key={h.id} className="border-border flex gap-2 border-l-2 pl-3">
+                    <Clock className="mt-0.5 size-3.5 shrink-0" />
+                    <span>
+                      <span className="text-foreground font-mono text-xs">{formatDateTime(h.createdAt)}</span>
+                      {" — "}
+                      {h.note?.trim() || h.eventType}
+                    </span>
+                  </li>
+                ))}
+            </ul>
+          )}
+        </div>
       </div>
+
+      {/* Delete Finding File onayı */}
+      <Dialog open={!!deleteFileTarget} onOpenChange={(o) => !o && setDeleteFileTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Dosya silinsin mi?</DialogTitle>
+          </DialogHeader>
+          <p className="text-muted-foreground text-sm">
+            {deleteFileTarget ? `“${deleteFileTarget.fileName}” kalıcı olarak silinecek.` : ""}
+          </p>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setDeleteFileTarget(null)}>Vazgeç</Button>
+            <Button type="button" variant="destructive" disabled={deletingFile} onClick={() => void confirmDeleteFindingFile()}>
+              {deletingFile ? "Siliniyor…" : "Sil"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Response dialog */}
       <Dialog open={responseOpen} onOpenChange={setResponseOpen}>
@@ -602,15 +903,9 @@ export function FindingDetailClient({ findingId, currentCalisanId }: { findingId
               <div className="space-y-2">
                 <Label>Cevaplayan Kişi</Label>
                 <div className="flex h-10 w-full items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-foreground">
-                  {finding?.session?.entry.auditees.find(
-                    (a) => a.calisan.id === currentCalisanId
-                  )
-                    ? calisanName(
-                        finding.session.entry.auditees.find(
-                          (a) => a.calisan.id === currentCalisanId
-                        )!.calisan
-                      )
-                    : "—"}
+                  {/* Bireysel auditee veya Auditee Group/Department eşleşmesiyle erişen
+                      kullanıcının kendi kimliği — cevap her zaman bu kullanıcı adına kaydedilir. */}
+                  {calisanName(calisanlar.find((c) => c.id === currentCalisanId) ?? null)}
                 </div>
               </div>
 

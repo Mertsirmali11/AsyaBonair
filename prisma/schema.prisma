@@ -137,6 +137,8 @@ model Calisan {
   trainingRecordsCreated   TrainingRecord[]        @relation("TrainingRecordCreator")
   auditPlanDocumentsUploaded AuditPlanDocument[]   @relation("AuditPlanDocumentUploader")
   auditPlanEntryHistoryActions AuditPlanEntryHistory[] @relation("AuditPlanEntryHistoryActor")
+  auditFindingFilesUploaded AuditFindingFile[] @relation("AuditFindingFileUploader")
+  auditFindingHistoryActions AuditFindingHistory[] @relation("AuditFindingHistoryActor")
 
   @@index([createdAt(sort: Desc)])
   @@index([isim, soyisim])
@@ -933,6 +935,7 @@ model AuditPlanEntry {
   auditSubCategoryType AuditSubCategoryType? @relation(fields: [auditSubCategoryTypeId], references: [id], onDelete: SetNull)
   auditors             AuditPlanAuditor[]
   auditees             AuditPlanAuditee[]
+  auditeeDepartments   AuditPlanAuditeeDepartment[]
   checklistAssignments AuditPlanChecklistAssignment[]
   sessions             AuditSession[]
   documents            AuditPlanDocument[]
@@ -1172,12 +1175,53 @@ model AuditFinding {
   assignedTo  Calisan?           @relation("AuditFindingAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
   responses   AuditFindingResponse[]
   extensions  AuditFindingExtension[]
+  /// Checklist ekleri (AuditSessionItemAttachment) veya Audit Files'tan (AuditPlanDocument)
+  /// bağımsız — doğrudan bu bulguya yüklenen dosyalar.
+  files       AuditFindingFile[]
+  /// Reminder gönderimi, durum değişikliği vb. kronolojik olay geçmişi.
+  history     AuditFindingHistory[]
 
   @@index([auditSessionId])
   @@index([auditPlanEntryId])
   @@index([status])
   @@index([dueDate])
   @@map("audit_findings")
+}
+
+/// Bulguya doğrudan yüklenen dosyalar — checklist madde eklerinden ve Audit Files'tan
+/// bağımsız, doğrudan Finding ID ile ilişkilidir.
+model AuditFindingFile {
+  id             Int      @id @default(autoincrement())
+  auditFindingId Int      @map("audit_finding_id")
+  fileName       String   @map("file_name") @db.VarChar(500)
+  storagePath    String   @map("storage_path") @db.Text
+  mimeType       String?  @map("mime_type") @db.VarChar(200)
+  fileSizeBytes  Int?     @map("file_size_bytes")
+  uploadedBy     Int?     @map("uploaded_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  finding  AuditFinding @relation(fields: [auditFindingId], references: [id], onDelete: Cascade)
+  uploader Calisan?     @relation("AuditFindingFileUploader", fields: [uploadedBy], references: [id], onDelete: SetNull)
+
+  @@index([auditFindingId])
+  @@map("audit_finding_files")
+}
+
+/// Bulguya özel kronolojik olay geçmişi (Reminder gönderimi vb.) — kim/ne zaman bilgisiyle.
+model AuditFindingHistory {
+  id             Int      @id @default(autoincrement())
+  auditFindingId Int      @map("audit_finding_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  actorId        Int?     @map("actor_id")
+  /// REMINDER_SENT | STATUS_CHANGED | ASSIGNED | ...
+  eventType      String   @db.VarChar(40) @map("event_type")
+  note           String?  @db.Text
+
+  finding AuditFinding @relation(fields: [auditFindingId], references: [id], onDelete: Cascade)
+  actor   Calisan?     @relation("AuditFindingHistoryActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([auditFindingId, createdAt])
+  @@map("audit_finding_history")
 }
 
 /// Bulgulara verilen kök neden analizi cevabı
@@ -1280,6 +1324,21 @@ model AuditPlanAuditee {
   @@unique([auditPlanEntryId, calisanId])
   @@index([calisanId])
   @@map("audit_plan_auditees")
+}
+
+/// Denetlenen olarak tek tek kişi yerine (veya kişilerle birlikte) bir departman/grup
+/// atanabilir — o departmandaki herhangi bir yetkili kullanıcı denetimi görebilir/cevaplayabilir.
+/// departmentName, Configurations → Departmanlar (CustomDepartment) ile aynı metindir.
+model AuditPlanAuditeeDepartment {
+  id               Int    @id @default(autoincrement())
+  auditPlanEntryId Int    @map("audit_plan_entry_id")
+  departmentName   String @map("department_name") @db.VarChar(100)
+
+  entry AuditPlanEntry @relation(fields: [auditPlanEntryId], references: [id], onDelete: Cascade)
+
+  @@unique([auditPlanEntryId, departmentName])
+  @@index([departmentName])
+  @@map("audit_plan_auditee_departments")
 }
 
 enum SupportTicketStatus {

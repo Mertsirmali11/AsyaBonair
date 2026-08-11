@@ -43,6 +43,7 @@ export async function GET(_req: Request, ctx: Ctx) {
       auditSubCategoryType: { select: { name: true } },
       auditors: { include: { calisan: { select: { isim: true, soyisim: true } } } },
       auditees: { include: { calisan: { select: { isim: true, soyisim: true } } } },
+      auditeeDepartments: { orderBy: { departmentName: "asc" } },
       checklistAssignments: {
         orderBy: { assignedAt: "asc" },
         include: {
@@ -96,6 +97,7 @@ export async function GET(_req: Request, ctx: Ctx) {
       id: a.calisanId,
       name: calisanName(a.calisan),
     })),
+    auditeeDepartments: entry.auditeeDepartments.map((d) => d.departmentName),
     assignedChecklists: entry.checklistAssignments.map((a) => ({
       assignmentId: a.id,
       checklistId: a.checklist.id,
@@ -293,12 +295,22 @@ export async function PATCH(req: Request, ctx: Ctx) {
 
   const auditorIdsRaw = Array.isArray(b.auditorIds) ? b.auditorIds : []
   const auditeeIdsRaw = Array.isArray(b.auditeeIds) ? b.auditeeIds : []
+  const auditeeDepartmentsRaw = Array.isArray(b.auditeeDepartments) ? b.auditeeDepartments : []
 
   const auditorIds = [
     ...new Set(auditorIdsRaw.map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0)),
   ]
   const auditeeIds = [
     ...new Set(auditeeIdsRaw.map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0)),
+  ]
+  // Denetlenen olarak birey yerine (veya bireylerle birlikte) atanan departman/grup isimleri —
+  // mevcut individual auditee seçimini kaldırmaz, ona ek olarak çalışır.
+  const auditeeDepartments = [
+    ...new Set(
+      auditeeDepartmentsRaw
+        .map((x) => (typeof x === "string" ? x.trim() : ""))
+        .filter((s) => s.length > 0)
+    ),
   ]
 
   const auditCategoryTypeId = Number(b.auditCategoryTypeId)
@@ -370,6 +382,13 @@ export async function PATCH(req: Request, ctx: Ctx) {
   const auditorCreate = auditorIds.filter((cid) => auditorOk.has(cid)).map((calisanId) => ({ calisanId }))
   const auditeeCreate = auditeeIds.filter((cid) => auditeeOk.has(cid)).map((calisanId) => ({ calisanId }))
 
+  const priorDepartments = (
+    await prisma.auditPlanAuditeeDepartment.findMany({
+      where: { auditPlanEntryId: id },
+      select: { departmentName: true },
+    })
+  ).map((d) => d.departmentName).sort()
+
   try {
     const updated = await prisma.auditPlanEntry.update({
       where: { id },
@@ -386,6 +405,10 @@ export async function PATCH(req: Request, ctx: Ctx) {
         auditees: {
           deleteMany: {},
           create: auditeeCreate,
+        },
+        auditeeDepartments: {
+          deleteMany: {},
+          create: auditeeDepartments.map((departmentName) => ({ departmentName })),
         },
       },
       include: {
@@ -418,6 +441,31 @@ export async function PATCH(req: Request, ctx: Ctx) {
             statusFrom: oldStr,
             statusTo: newStr,
             note: `Planned Date "${oldStr}" → "${newStr}" olarak ${actorName} tarafından değiştirildi.`,
+          },
+        })
+      } catch {
+        // Geçmiş kaydı başarısız olsa bile güncelleme geçerli kalır
+      }
+    }
+
+    // Geçmiş / Audit History — Auditee Group/Department ataması değişikliği.
+    const sortedNewDepartments = [...auditeeDepartments].sort()
+    if (JSON.stringify(priorDepartments) !== JSON.stringify(sortedNewDepartments)) {
+      try {
+        const actorEmail = session.user?.email
+        const actor = actorEmail
+          ? await prisma.calisan.findFirst({
+              where: { email: { equals: actorEmail, mode: "insensitive" } },
+              select: { id: true, isim: true, soyisim: true },
+            })
+          : null
+        const actorName = actor ? [actor.isim, actor.soyisim].filter(Boolean).join(" ").trim() || "Bilinmeyen kullanıcı" : "Bilinmeyen kullanıcı"
+        await prisma.auditPlanEntryHistory.create({
+          data: {
+            auditPlanEntryId: id,
+            actorId: actor?.id ?? null,
+            eventType: "AUDITEE_DEPARTMENT_CHANGED",
+            note: `Auditee Group: ${sortedNewDepartments.length > 0 ? sortedNewDepartments.join(", ") : "—"} olarak ${actorName} tarafından güncellendi.`,
           },
         })
       } catch {

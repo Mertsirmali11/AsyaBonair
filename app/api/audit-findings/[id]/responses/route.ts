@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server"
-import { requireAuditPlanSession } from "@/lib/audit-plan-session"
+import { auth } from "@/auth"
+import { resolveFindingAuditeeAccess } from "@/lib/audit-finding-auditee-access"
 import { prisma } from "@/lib/prisma-server"
 
 type Ctx = { params: Promise<{ id: string }> }
 
 export async function GET(_req: Request, ctx: Ctx) {
-  const session = await requireAuditPlanSession()
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-
   const id = Number((await ctx.params).id)
   if (!Number.isInteger(id) || id < 1)
     return NextResponse.json({ error: "Invalid id" }, { status: 400 })
+
+  const authSession = await auth()
+  const access = await resolveFindingAuditeeAccess(id, authSession?.user?.email, authSession?.user?.departman)
+  if (!access.isAdmin && !access.isAuditee) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
 
   const responses = await prisma.auditFindingResponse.findMany({
     where: { auditFindingId: id },
@@ -25,12 +29,15 @@ export async function GET(_req: Request, ctx: Ctx) {
 }
 
 export async function POST(req: Request, ctx: Ctx) {
-  const session = await requireAuditPlanSession()
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-
   const id = Number((await ctx.params).id)
   if (!Number.isInteger(id) || id < 1)
     return NextResponse.json({ error: "Invalid id" }, { status: 400 })
+
+  const authSession = await auth()
+  const access = await resolveFindingAuditeeAccess(id, authSession?.user?.email, authSession?.user?.departman)
+  if (!access.isAdmin && !access.isAuditee) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
 
   const finding = await prisma.auditFinding.findUnique({ where: { id } })
   if (!finding) return NextResponse.json({ error: "Finding not found" }, { status: 404 })
@@ -49,6 +56,13 @@ export async function POST(req: Request, ctx: Ctx) {
   } else if (typeof rawResponder === "string" && rawResponder.trim()) {
     const n = Number(rawResponder.trim())
     if (Number.isInteger(n) && n > 0) respondedById = n
+  }
+
+  // Bütünlük: admin olmayan (bireysel/departman) auditee için cevabı verenin kimliği
+  // istemciden gelen değere göre değil, gerçek oturum sahibine göre kayıt altına alınır —
+  // "cevabı hangi kullanıcı verdiyse sistem bunu ayrıca kayıt altına alsın" gereksinimi.
+  if (!access.isAdmin) {
+    respondedById = access.calisanId
   }
 
   if (!rootCause && !correctiveAction && !preventiveAction)
