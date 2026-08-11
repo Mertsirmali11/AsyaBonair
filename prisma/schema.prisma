@@ -136,6 +136,7 @@ model Calisan {
   trainingRecords          TrainingRecord[]        @relation("TrainingRecordCalisan")
   trainingRecordsCreated   TrainingRecord[]        @relation("TrainingRecordCreator")
   auditPlanDocumentsUploaded AuditPlanDocument[]   @relation("AuditPlanDocumentUploader")
+  auditPlanEntryHistoryActions AuditPlanEntryHistory[] @relation("AuditPlanEntryHistoryActor")
 
   @@index([createdAt(sort: Desc)])
   @@index([isim, soyisim])
@@ -935,6 +936,8 @@ model AuditPlanEntry {
   documents            AuditPlanDocument[]
   /// Checklist/session'dan bağımsız, doğrudan bu denetime manuel olarak eklenen bulgular
   manualFindings       AuditFinding[] @relation("AuditPlanEntryManualFindings")
+  /// Reopen ve durum değişikliği olayları (Geçmiş / Audit History paneli)
+  history              AuditPlanEntryHistory[]
 
   @@index([plannedDate])
   @@index([auditCategoryTypeId])
@@ -960,6 +963,26 @@ model AuditPlanDocument {
 
   @@index([auditPlanEntryId])
   @@map("audit_plan_documents")
+}
+
+/// Denetim kaydı olay geçmişi (Reopen, durum değişiklikleri vb.) — "Geçmiş / Audit History"
+/// panelinde kim/ne zaman yaptı bilgisiyle gösterilir; append-only, hiçbir kayıt silinmez.
+model AuditPlanEntryHistory {
+  id               Int      @id @default(autoincrement())
+  auditPlanEntryId Int      @map("audit_plan_entry_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  actorId          Int?     @map("actor_id")
+  /// REOPENED | STATUS_CHANGED
+  eventType        String   @db.VarChar(40) @map("event_type")
+  statusFrom       String?  @db.VarChar(50) @map("status_from")
+  statusTo         String?  @db.VarChar(50) @map("status_to")
+  note             String?  @db.Text
+
+  entry AuditPlanEntry @relation(fields: [auditPlanEntryId], references: [id], onDelete: Cascade)
+  actor Calisan?       @relation("AuditPlanEntryHistoryActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([auditPlanEntryId, createdAt])
+  @@map("audit_plan_entry_history")
 }
 
 /// Denetim checklist şablonu (Compliance → Checklists)

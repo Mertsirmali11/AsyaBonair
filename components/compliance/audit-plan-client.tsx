@@ -20,8 +20,10 @@ import {
   Filter,
   History,
   List,
+  Loader2,
   MoreVertical,
   Plus,
+  RotateCcw,
   Search,
   Settings,
   Share2,
@@ -84,6 +86,11 @@ import type { AuditChecklistListRow } from "@/components/compliance/audit-checkl
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { parseDdMmYyyyToUtcDate, todayLocalDdMmYyyy } from "@/lib/correspondence-date"
 import { uploadAuditPlanDocumentsDirect } from "@/lib/client-audit-plan-document-upload"
+import {
+  downloadFullReportPdf,
+  downloadInitialReportPdf,
+  type AuditPlanReportData,
+} from "@/lib/audit-plan-report-download"
 import { cn } from "@/lib/utils"
 
 type CalisanLite = { id: number; isim: string | null; soyisim: string | null }
@@ -95,6 +102,7 @@ const statusStyles: Record<string, string> = {
   Postponed:   "bg-sky-600 text-white",
   Completed:   "bg-teal-600 text-white",
   Cancelled:   "bg-slate-500 text-white",
+  Reopened:    "bg-violet-600 text-white",
 }
 
 type SortColumn =
@@ -137,6 +145,23 @@ type AuditPlanFindingRow = {
   dueDate: string | null
   isManual: boolean
   assignedTo: { id: number; name: string | null; department: string | null } | null
+}
+
+type AuditPlanHistoryRow = {
+  id: number
+  createdAt: string
+  eventType: string
+  statusFrom: string | null
+  statusTo: string | null
+  note: string | null
+  actorName: string | null
+}
+
+function historyEventText(h: AuditPlanHistoryRow): string {
+  if (h.note?.trim()) return h.note.trim()
+  const actor = h.actorName ?? "Bilinmeyen kullanıcı"
+  if (h.eventType === "REOPENED") return `Denetim ${actor} tarafından yeniden açıldı.`
+  return `${actor} tarafından durum "${h.statusFrom ?? "—"}" → "${h.statusTo ?? "—"}" olarak güncellendi.`
 }
 
 const findingLevelStyles: Record<string, { label: string; cls: string }> = {
@@ -504,6 +529,71 @@ export function AuditPlanClient() {
       toast.error(e instanceof Error ? e.message : "Bulgu kaydedilemedi.")
     } finally {
       setCreatingFinding(false)
+    }
+  }
+
+  // ─── Geçmiş / Audit History (Reopen ve durum değişikliği olayları) ────────
+  const [historyRows, setHistoryRows] = React.useState<AuditPlanHistoryRow[]>([])
+  const [historyLoading, setHistoryLoading] = React.useState(false)
+
+  const reloadHistory = React.useCallback(async () => {
+    if (!detailEntryId) return
+    setHistoryLoading(true)
+    try {
+      const res = await fetch(`/api/audit-plan/${detailEntryId}/history`, { cache: "no-store" })
+      const data = await res.json().catch(() => [])
+      setHistoryRows(res.ok && Array.isArray(data) ? data : [])
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [detailEntryId])
+
+  React.useEffect(() => {
+    if (!detailEntryId) {
+      setHistoryRows([])
+      return
+    }
+    void reloadHistory()
+  }, [detailEntryId, reloadHistory])
+
+  // ─── Reopen ────────────────────────────────────────────────────────────────
+  const [reopenDialogOpen, setReopenDialogOpen] = React.useState(false)
+  const [reopening, setReopening] = React.useState(false)
+
+  const confirmReopen = async () => {
+    if (!detailEntryId) return
+    setReopening(true)
+    try {
+      const res = await fetch(`/api/audit-plan/${detailEntryId}/reopen`, { method: "POST" })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Denetim yeniden açılamadı.")
+      toast.success("Denetim yeniden açıldı.")
+      setReopenDialogOpen(false)
+      await Promise.all([silentRefetchDetail(), reloadHistory(), refreshRows()])
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Denetim yeniden açılamadı.")
+    } finally {
+      setReopening(false)
+    }
+  }
+
+  // ─── Initial Report / Full Report ──────────────────────────────────────────
+  const [reportGenerating, setReportGenerating] = React.useState<"initial" | "full" | null>(null)
+
+  const generateReport = async (kind: "initial" | "full") => {
+    if (!detailEntryId) return
+    setReportGenerating(kind)
+    try {
+      const res = await fetch(`/api/audit-plan/${detailEntryId}/report`, { cache: "no-store" })
+      const data = (await res.json().catch(() => null)) as (AuditPlanReportData & { error?: string }) | null
+      if (!res.ok || !data) throw new Error(data?.error || "Rapor verileri alınamadı.")
+      if (kind === "initial") downloadInitialReportPdf(data)
+      else downloadFullReportPdf(data)
+      toast.success(kind === "initial" ? "İlk rapor indirildi." : "Tam rapor indirildi.")
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Rapor oluşturulamadı.")
+    } finally {
+      setReportGenerating(null)
     }
   }
 
@@ -1617,6 +1707,51 @@ export function AuditPlanClient() {
                     <Trash2 className="size-4" />
                     Sil
                   </Button>
+
+                  {detail.status === "Completed" && (
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5"
+                        disabled={reportGenerating !== null}
+                        onClick={() => void generateReport("initial")}
+                      >
+                        {reportGenerating === "initial" ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <FileText className="size-4" />
+                        )}
+                        Initial Report
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5"
+                        disabled={reportGenerating !== null}
+                        onClick={() => void generateReport("full")}
+                      >
+                        {reportGenerating === "full" ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <FileSpreadsheet className="size-4" />
+                        )}
+                        Full Report
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 border-violet-300 text-violet-700 hover:bg-violet-50 dark:text-violet-400 dark:border-violet-800"
+                        onClick={() => setReopenDialogOpen(true)}
+                      >
+                        <RotateCcw className="size-4" />
+                        Reopen
+                      </Button>
+                    </>
+                  )}
                 </div>
 
                 <div className="bg-muted/40 space-y-3 rounded-lg border p-4">
@@ -1841,6 +1976,28 @@ export function AuditPlanClient() {
                     Geçmiş
                   </div>
                   <ul className="text-muted-foreground space-y-2 text-sm">
+                    {historyLoading ? (
+                      <li className="text-sm">Yükleniyor…</li>
+                    ) : (
+                      historyRows
+                        .filter((h): h is AuditPlanHistoryRow => !!h && h.id != null)
+                        .map((h) => (
+                          <li key={h.id} className="flex gap-2 border-l-2 border-violet-300 pl-3 dark:border-violet-700">
+                            {h.eventType === "REOPENED" ? (
+                              <RotateCcw className="mt-0.5 size-4 shrink-0 text-violet-600 dark:text-violet-400" />
+                            ) : (
+                              <Clock className="mt-0.5 size-4 shrink-0" />
+                            )}
+                            <span>
+                              <span className="text-foreground font-mono text-xs">
+                                {formatDetailDate(h.createdAt)}
+                              </span>
+                              {" — "}
+                              {historyEventText(h)}
+                            </span>
+                          </li>
+                        ))
+                    )}
                     <li className="flex gap-2 border-l-2 border-border pl-3">
                       <Clock className="mt-0.5 size-4 shrink-0" />
                       <span>
@@ -1929,6 +2086,42 @@ export function AuditPlanClient() {
               className="bg-emerald-600 hover:bg-emerald-700"
             >
               {assignSubmitting ? "Atanıyor…" : "Ata"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Reopen onayı ────────────────────────────────────────────────────── */}
+      <Dialog open={reopenDialogOpen} onOpenChange={(o) => !reopening && setReopenDialogOpen(o)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="size-4 text-violet-600" />
+              Denetimi yeniden aç
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-muted-foreground text-sm">
+            Bu denetimi yeniden açmak istediğinizden emin misiniz?
+          </p>
+          <p className="text-muted-foreground text-xs">
+            Checklist cevapları, bulgular, dosyalar ve denetçi/denetlenen bilgileri korunur.
+            Denetim tekrar düzenlenebilir duruma gelir.
+          </p>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setReopenDialogOpen(false)} disabled={reopening}>
+              Vazgeç
+            </Button>
+            <Button
+              type="button"
+              className="bg-violet-600 hover:bg-violet-700"
+              disabled={reopening}
+              onClick={() => void confirmReopen()}
+            >
+              {reopening ? (
+                <><Loader2 className="mr-1.5 size-4 animate-spin" />Açılıyor…</>
+              ) : (
+                <><RotateCcw className="mr-1.5 size-4" />Yeniden Aç</>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

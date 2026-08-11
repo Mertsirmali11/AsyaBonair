@@ -190,6 +190,32 @@ export async function PATCH(req: Request, ctx: Ctx) {
       if (d) statusData.datePostponed = d
     }
     const updated = await prisma.auditPlanEntry.update({ where: { id }, data: statusData })
+
+    // Geçmiş / Audit History — durum değişikliği kaydı (Full Report'taki kapanış bilgisi için de kullanılır).
+    // Ana durum güncellemesini asla etkilememesi için sessizce başarısız olabilir.
+    if (newStatus !== existing.status) {
+      try {
+        const actorEmail = session.user?.email
+        const actor = actorEmail
+          ? await prisma.calisan.findFirst({
+              where: { email: { equals: actorEmail, mode: "insensitive" } },
+              select: { id: true },
+            })
+          : null
+        await prisma.auditPlanEntryHistory.create({
+          data: {
+            auditPlanEntryId: id,
+            actorId: actor?.id ?? null,
+            eventType: "STATUS_CHANGED",
+            statusFrom: existing.status,
+            statusTo: newStatus,
+          },
+        })
+      } catch {
+        // Geçmiş kaydı başarısız olsa bile durum güncellemesi geçerli kalır
+      }
+    }
+
     return NextResponse.json(mapEntry({
       ...updated,
       auditCategoryType: await prisma.auditCategoryType.findUniqueOrThrow({ where: { id: updated.auditCategoryTypeId }, select: { name: true } }),
