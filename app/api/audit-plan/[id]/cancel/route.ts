@@ -15,15 +15,12 @@ function calisanName(c: { isim: string | null; soyisim: string | null } | null):
 }
 
 /**
- * Tamamlanmış (Completed) veya iptal edilmiş (Cancelled) bir denetimi yeniden açar:
- * - AuditPlanEntry.status → "Reopened"
- * - Bu denetime bağlı, "Completed" durumundaki tüm AuditSession'lar → "InProgress"
- *   (checklist maddeleri audit-session-client.tsx'te tekrar düzenlenebilir hale gelir)
- * - Checklist cevapları, finding'ler, dosyalar ve denetçi/denetlenen bilgileri HİÇ değiştirilmez.
- * - cancellationReason (varsa) silinmez — geçmişte kalıcı olarak korunur.
- * - Geçmiş/Audit History'ye kim/ne zaman yeniden açtı bilgisiyle bir kayıt düşülür.
+ * Bir denetimi iptal eder (Cancelled):
+ * - AuditPlanEntry.status → "Cancelled", cancellationReason kaydedilir.
+ * - Planlanan tarih, checklist, dosya, finding ve diğer tüm veriler HİÇ değiştirilmez/silinmez.
+ * - Geçmiş/Audit History'ye kim/ne zaman/hangi gerekçeyle iptal ettiği bilgisiyle bir kayıt düşülür.
  */
-export async function POST(_req: Request, ctx: Ctx) {
+export async function POST(req: Request, ctx: Ctx) {
   const session = await auth()
   if (!session?.user?.email || !canAccessAuditPlan(session.user.email)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -39,41 +36,38 @@ export async function POST(_req: Request, ctx: Ctx) {
   if (!entry) {
     return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
-  if (entry.status !== "Completed" && entry.status !== "Cancelled") {
-    return NextResponse.json(
-      { error: "Sadece tamamlanmış (Completed) veya iptal edilmiş (Cancelled) denetimler yeniden açılabilir." },
-      { status: 400 }
-    )
+  if (entry.status === "Cancelled") {
+    return NextResponse.json({ error: "Bu denetim zaten iptal edilmiş." }, { status: 400 })
+  }
+
+  const body = (await req.json().catch(() => null)) as { reason?: string } | null
+  const reason = typeof body?.reason === "string" ? body.reason.trim() : ""
+  if (!reason) {
+    return NextResponse.json({ error: "İptal nedeni zorunludur." }, { status: 400 })
   }
 
   const actor = await prisma.calisan.findFirst({
     where: { email: { equals: session.user.email, mode: "insensitive" } },
     select: { id: true, isim: true, soyisim: true },
   })
-
   const actorName = calisanName(actor)
-  const statusFrom = entry.status
 
   const [updated] = await prisma.$transaction([
     prisma.auditPlanEntry.update({
       where: { id: entryId },
-      data: { status: "Reopened" },
-    }),
-    prisma.auditSession.updateMany({
-      where: { auditPlanEntryId: entryId, status: "Completed" },
-      data: { status: "InProgress", completedAt: null },
+      data: { status: "Cancelled", cancellationReason: reason },
     }),
     prisma.auditPlanEntryHistory.create({
       data: {
         auditPlanEntryId: entryId,
         actorId: actor?.id ?? null,
-        eventType: "REOPENED",
-        statusFrom,
-        statusTo: "Reopened",
-        note: `Denetim ${actorName} tarafından yeniden açıldı.`,
+        eventType: "CANCELLED",
+        statusFrom: entry.status,
+        statusTo: "Cancelled",
+        note: `Audit cancelled by ${actorName}. Reason: ${reason}`,
       },
     }),
   ])
 
-  return NextResponse.json({ ok: true, status: updated.status, actorName })
+  return NextResponse.json({ ok: true, status: updated.status, cancellationReason: updated.cancellationReason })
 }

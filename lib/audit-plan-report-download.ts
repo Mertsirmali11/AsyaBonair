@@ -18,6 +18,7 @@ export type AuditPlanReportData = {
     ct: string
     remarks: string | null
     status: string
+    cancellationReason: string | null
     createdAt: string
     updatedAt: string
   }
@@ -278,6 +279,7 @@ export function downloadFullReportPdf(data: AuditPlanReportData): void {
       ["Başlangıç Tarihi", data.entry.initializedDate ?? "—"],
       ["C / T", data.entry.ct?.trim() || "—"],
       ["Durum", data.entry.status],
+      ...(data.entry.cancellationReason ? [["İptal Nedeni", data.entry.cancellationReason]] : []),
       ["Kayıt Oluşturma", fmtDateTime(data.entry.createdAt)],
       ["Son Güncelleme", fmtDateTime(data.entry.updatedAt)],
     ],

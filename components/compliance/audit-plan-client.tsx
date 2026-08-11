@@ -8,6 +8,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Ban,
   CalendarRange,
   CheckCircle2,
   ChevronDown,
@@ -186,6 +187,7 @@ type AuditPlanDetail = {
   ct: string
   remarks: string | null
   status: string
+  cancellationReason: string | null
   auditors: { id: number; name: string }[]
   auditees: { id: number; name: string }[]
   assignedChecklists: {
@@ -555,6 +557,46 @@ export function AuditPlanClient() {
     }
     void reloadHistory()
   }, [detailEntryId, reloadHistory])
+
+  // ─── Cancelled ─────────────────────────────────────────────────────────────
+  const [cancelTargetId, setCancelTargetId] = React.useState<string | null>(null)
+  const [cancelReason, setCancelReason] = React.useState("")
+  const [cancelling, setCancelling] = React.useState(false)
+
+  const openCancelDialog = (rowId: string) => {
+    setCancelTargetId(rowId)
+    setCancelReason("")
+  }
+
+  const confirmCancel = async () => {
+    if (!cancelTargetId) return
+    if (!cancelReason.trim()) {
+      toast.error("İptal nedeni zorunludur.")
+      return
+    }
+    setCancelling(true)
+    try {
+      const res = await fetch(`/api/audit-plan/${cancelTargetId}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: cancelReason.trim() }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Denetim iptal edilemedi.")
+      toast.success("Denetim iptal edildi.")
+      const targetId = cancelTargetId
+      setCancelTargetId(null)
+      setCancelReason("")
+      await refreshRows()
+      if (detailEntryId === targetId) {
+        await Promise.all([silentRefetchDetail(), reloadHistory()])
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Denetim iptal edilemedi.")
+    } finally {
+      setCancelling(false)
+    }
+  }
 
   // ─── Reopen ────────────────────────────────────────────────────────────────
   const [reopenDialogOpen, setReopenDialogOpen] = React.useState(false)
@@ -1475,6 +1517,12 @@ export function AuditPlanClient() {
                                 Completed
                               </DropdownMenuItem>
                             )}
+                            {row.status !== "Cancelled" && (
+                              <DropdownMenuItem onClick={() => openCancelDialog(row.id)}>
+                                <Ban className="mr-2 size-4 text-red-600" />
+                                Cancelled
+                              </DropdownMenuItem>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -1708,7 +1756,7 @@ export function AuditPlanClient() {
                     Sil
                   </Button>
 
-                  {detail.status === "Completed" && (
+                  {(detail.status === "Completed" || detail.status === "Cancelled") && (
                     <>
                       <Button
                         type="button"
@@ -1753,6 +1801,28 @@ export function AuditPlanClient() {
                     </>
                   )}
                 </div>
+
+                {detail.cancellationReason && (
+                  <div
+                    className={cn(
+                      "space-y-1.5 rounded-lg border p-4",
+                      detail.status === "Cancelled"
+                        ? "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/30"
+                        : "bg-muted/40"
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "flex items-center gap-2 text-sm font-medium",
+                        detail.status === "Cancelled" ? "text-red-700 dark:text-red-400" : "text-muted-foreground"
+                      )}
+                    >
+                      <Ban className="size-4 shrink-0" />
+                      {detail.status === "Cancelled" ? "Bu denetim iptal edildi" : "Önceki iptal nedeni"}
+                    </div>
+                    <p className="text-foreground text-sm whitespace-pre-wrap">{detail.cancellationReason}</p>
+                  </div>
+                )}
 
                 <div className="bg-muted/40 space-y-3 rounded-lg border p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2086,6 +2156,46 @@ export function AuditPlanClient() {
               className="bg-emerald-600 hover:bg-emerald-700"
             >
               {assignSubmitting ? "Atanıyor…" : "Ata"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Cancelled onayı (iptal nedeni zorunlu) ─────────────────────────── */}
+      <Dialog open={!!cancelTargetId} onOpenChange={(o) => !cancelling && !o && setCancelTargetId(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Ban className="size-4 text-red-600" />
+              Denetimi iptal et
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <Label htmlFor="cancel-reason">Cancellation Reason / İptal Nedeni *</Label>
+            <Textarea
+              id="cancel-reason"
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder="İptal nedenini açıklayın…"
+              className="min-h-[90px]"
+              autoFocus
+            />
+          </div>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setCancelTargetId(null)} disabled={cancelling}>
+              Vazgeç
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={cancelling || !cancelReason.trim()}
+              onClick={() => void confirmCancel()}
+            >
+              {cancelling ? (
+                <><Loader2 className="mr-1.5 size-4 animate-spin" />İptal ediliyor…</>
+              ) : (
+                <><Ban className="mr-1.5 size-4" />Denetimi İptal Et</>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

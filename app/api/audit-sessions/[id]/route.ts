@@ -46,6 +46,7 @@ export async function GET(_req: Request, ctx: Ctx) {
           responses: { select: { id: true, cpaStatus: true } },
         },
       },
+      entry: { select: { status: true, cancellationReason: true } },
     },
   })
 

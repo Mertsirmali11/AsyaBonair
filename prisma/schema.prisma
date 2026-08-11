@@ -924,6 +924,8 @@ model AuditPlanEntry {
   ct                  String    @default("") @db.VarChar(20)
   remarks             String?   @db.Text
   status              String    @default("Initialized") @db.VarChar(50)
+  /// Cancelled durumuna geçildiğinde girilen zorunlu iptal nedeni — Detay/Audit Screen'de gösterilir, geçmişte kalıcı olarak saklanır
+  cancellationReason  String?   @db.Text @map("cancellation_reason")
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 

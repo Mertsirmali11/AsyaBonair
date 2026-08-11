@@ -122,6 +122,7 @@ type AuditSession = {
     finding: FindingInfo | null
     attachments: Attachment[]
   }[]
+  entry: { status: string; cancellationReason: string | null } | null
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -601,6 +602,19 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
             )}
           </div>
         </div>
+
+        {/* İptal bilgisi */}
+        {sessionData?.entry?.status === "Cancelled" && (
+          <div className="flex items-start gap-2 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">
+            <XCircle className="mt-0.5 size-4 shrink-0" />
+            <span>
+              <span className="font-semibold">Bu denetim iptal edildi.</span>
+              {sessionData.entry.cancellationReason && (
+                <> {" "}Neden: {sessionData.entry.cancellationReason}</>
+              )}
+            </span>
+          </div>
+        )}
 
         {/* Progress bar */}
         {sessionData && questionItems.length > 0 && (

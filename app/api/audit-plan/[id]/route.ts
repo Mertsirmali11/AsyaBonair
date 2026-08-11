@@ -87,6 +87,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     ct: entry.ct,
     remarks: entry.remarks,
     status: entry.status,
+    cancellationReason: entry.cancellationReason,
     auditors: entry.auditors.map((a) => ({
       id: a.calisanId,
       name: calisanName(a.calisan),
@@ -175,9 +176,10 @@ export async function PATCH(req: Request, ctx: Ctx) {
 
   const b = body as Record<string, unknown>
 
-  // Status-only update (quick action from table)
+  // Status-only update (quick action from table). "Cancelled" is intentionally excluded here —
+  // it requires a mandatory reason and always goes through the dedicated /cancel endpoint.
   if (b.statusOnly === true) {
-    const validStatuses = ["Planned", "Initialized", "Postponed", "Completed", "Cancelled"]
+    const validStatuses = ["Planned", "Initialized", "Postponed", "Completed"]
     const newStatus = typeof b.status === "string" ? b.status : ""
     if (!validStatuses.includes(newStatus)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 })

@@ -185,6 +185,7 @@ export async function GET(_req: Request, ctx: Ctx) {
       ct: entry.ct,
       remarks: entry.remarks,
       status: entry.status,
+      cancellationReason: entry.cancellationReason,
       createdAt: entry.createdAt.toISOString(),
       updatedAt: entry.updatedAt.toISOString(),
     },
