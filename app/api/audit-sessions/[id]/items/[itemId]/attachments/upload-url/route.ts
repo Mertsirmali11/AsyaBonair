@@ -3,8 +3,8 @@ import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import { prisma } from "@/lib/prisma-server"
 import {
   CORRESPONDENCE_ALLOWED_ERROR_EN,
-  assignUniqueDocumentStorageNamesFromNames,
   isAllowedCorrespondenceDocumentOrImageFileName,
+  lowerExtension,
 } from "@/lib/allowed-document-uploads"
 import { createSignedUploadUrl, getStorageBucket } from "@/lib/supabase-storage"
 
@@ -13,6 +13,41 @@ export const runtime = "nodejs"
 type Ctx = { params: Promise<{ id: string; itemId: string }> }
 
 const MAX_BYTES = 30 * 1024 * 1024
+
+// Checklist ekleri, evrak/döküman modüllerinin aksine görselleri de kabul eder
+// (.png/.jpg/.jpeg). Paylaşılan `assignUniqueDocumentStorageNamesFromNames`
+// yalnızca Office/PDF uzantılarını tanıyor ve tanımadığı her uzantıyı sessizce
+// ".pdf" yapıyordu — bir JPG/PNG kanıt fotoğrafı yüklendiğinde depoda ve
+// veritabanında ".pdf" uzantılı ama içeriği görsel olan bozuk bir kayıt
+// oluşuyordu. Bu route'a özel, doğrulanmış uzantıyı koruyan güvenli bir
+// isimlendirme kullanıyoruz (diğer modülleri etkilemez).
+const CHECKLIST_ATTACHMENT_EXT = new Set([
+  ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".png", ".jpg", ".jpeg",
+])
+
+function assignSafeChecklistAttachmentNames(names: string[]): string[] {
+  const used = new Set<string>()
+  const result: string[] = []
+  for (const name of names) {
+    const ext = lowerExtension(name)
+    const normalizedExt = ext && CHECKLIST_ATTACHMENT_EXT.has(ext) ? ext : ".pdf"
+    const base = name.includes(".") ? name.slice(0, name.lastIndexOf(".")) : name
+    const stem =
+      base
+        .replace(/[^a-zA-Z0-9._-]/g, "_")
+        .replace(/\.\./g, "_")
+        .replace(/\s+/g, "_") || "document"
+    let candidate = `${stem}${normalizedExt}`
+    let n = 0
+    while (used.has(candidate)) {
+      n += 1
+      candidate = `${stem}_${n}${normalizedExt}`
+    }
+    used.add(candidate)
+    result.push(candidate)
+  }
+  return result
+}
 
 /**
  * Denetim checklist maddesi eki için imzalı Supabase upload URL'i — tarayıcı
@@ -57,7 +92,7 @@ export async function POST(req: Request, ctx: Ctx) {
     }
   }
 
-  const finalNames = assignUniqueDocumentStorageNamesFromNames(names)
+  const finalNames = assignSafeChecklistAttachmentNames(names)
   const folderPrefix = `audit-session-attachments/${sessionId}/${sessionItemId}`
 
   const uploads: {
