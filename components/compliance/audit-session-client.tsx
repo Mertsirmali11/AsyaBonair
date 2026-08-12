@@ -721,7 +721,15 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
 
               return (
                 <div key={item.id} className={cn(
-                  "transition-colors",
+                  // Not: burada bilinçli olarak CSS transition kullanılmıyor.
+                  // Bu kapsayıcı, cevap değiştikçe (S/U/NA/OBS) arka plan
+                  // rengini değiştiriyor; bir cevap kaydedildiğinde madde
+                  // içine (Finding paneli, ek dosya rozetleri vb.) yeni içerik
+                  // ekleniyor. Bu container'da aktif bir CSS transition/animasyon
+                  // varsa, tarayıcının native scroll-anchoring mekanizması bu
+                  // elemanı anchor adayı olarak eleyebiliyor; bu da görünürdeki
+                  // içerik üstte büyüdüğünde sayfanın/checklist'in beklenmedik
+                  // şekilde kaymasına (scroll jump) yol açabiliyor.
                   isU   && !isFindingClosed && "bg-red-50/40 dark:bg-red-950/10",
                   isOBS && "bg-amber-50/40 dark:bg-amber-950/10",
                   st.result === "S" && "bg-emerald-50/20 dark:bg-emerald-950/5",
@@ -770,7 +778,9 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
                             onClick={() => handleResultClick(item.id, r)}
                             title={cfg.label}
                             className={cn(
-                              "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-semibold transition-all",
+                              // "transition-all" bilinçli olarak kaldırıldı — bkz. yukarıdaki
+                              // madde kapsayıcısındaki scroll-anchoring notu.
+                              "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-semibold",
                               active ? cfg.activeCls : cfg.cls,
                               (completed || st.saving) && "opacity-50 cursor-not-allowed",
                             )}
