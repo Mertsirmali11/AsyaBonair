@@ -343,7 +343,7 @@ export function EmployeeMultiSelect({
                   </p>
                 ) : filteredOptions.length === 0 ? (
                   <p className="text-muted-foreground px-2 py-3 text-center text-sm">
-                    No users found
+                    Sonuç yok.
                   </p>
                 ) : (
                   filteredOptions.map((opt) => (

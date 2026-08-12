@@ -88,7 +88,7 @@ export function EmployeeCombobox({
           >
             <div className="flex flex-col p-1">
               {filtered.length === 0 ? (
-                <p className="text-muted-foreground px-2 py-6 text-center text-sm">No users found</p>
+                <p className="text-muted-foreground px-2 py-6 text-center text-sm">Sonuç yok.</p>
               ) : (
                 filtered.map((opt) => (
                   <button

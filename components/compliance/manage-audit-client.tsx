@@ -1589,7 +1589,7 @@ export function DepartmentMultiSelect({
                 {options.length === 0 ? (
                   <p className="text-muted-foreground px-2 py-3 text-center text-sm">Kayıtlı departman yok.</p>
                 ) : filteredOptions.length === 0 ? (
-                  <p className="text-muted-foreground px-2 py-3 text-center text-sm">No users found</p>
+                  <p className="text-muted-foreground px-2 py-3 text-center text-sm">Sonuç yok.</p>
                 ) : (
                   filteredOptions.map((name) => (
                     <label key={name} className="hover:bg-muted/80 flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5">
