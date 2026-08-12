@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { requireAuditPlanSession } from "@/lib/audit-plan-session"
+import { normalizeFindingCategory } from "@/lib/finding-category"
 import { prisma } from "@/lib/prisma-server"
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -17,7 +18,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     where: { auditSessionId: id },
     include: {
       checklistItem: true,
-      finding: { select: { id: true, findingCode: true, findingLevel: true, status: true } },
+      finding: { select: { id: true, findingCode: true, findingLevel: true, findingCategory: true, status: true } },
       attachments: true,
     },
   })
@@ -46,6 +47,9 @@ export async function PUT(req: Request, ctx: Ctx) {
   // findingLevel: Level1 | Level2 | Observation (required when result=U, optional otherwise)
   const findingLevel =
     typeof b.findingLevel === "string" ? b.findingLevel : "Level1"
+  // findingCategory: CAT1 | CAT2 | CAT3 — yalnızca SACA/SAFA denetimlerinde; diğerlerinde
+  // aşağıda entry'nin kategorisi bilindikten sonra null'a zorlanır.
+  const rawFindingCategory = b.findingCategory
 
   if (!Number.isInteger(auditChecklistItemId) || auditChecklistItemId < 1)
     return NextResponse.json({ error: "Invalid auditChecklistItemId" }, { status: 400 })
@@ -72,6 +76,8 @@ export async function PUT(req: Request, ctx: Ctx) {
     },
   })
   if (!auditSession) return NextResponse.json({ error: "Session not found" }, { status: 404 })
+
+  const findingCategory = normalizeFindingCategory(rawFindingCategory, auditSession.entry.auditCategoryType.name)
 
   // Verify checklist item belongs to the session's checklist
   const clItem = await prisma.auditChecklistItem.findFirst({
@@ -131,6 +137,7 @@ export async function PUT(req: Request, ctx: Ctx) {
           auditSessionId: id,
           auditSessionItemId: sessionItem.id,
           findingLevel,
+          findingCategory,
           explanation: notes ?? clItem.label,
           reference: clItem.reference,
           field,
@@ -152,7 +159,13 @@ export async function PUT(req: Request, ctx: Ctx) {
       }
       await prisma.auditFinding.update({
         where: { id: existingFinding.id },
-        data: { findingLevel, dueDate },
+        data: { findingLevel, findingCategory, dueDate },
+      })
+    } else if (existingFinding.findingCategory !== findingCategory) {
+      // Yalnızca kategori değişti — vade tarihine dokunma
+      await prisma.auditFinding.update({
+        where: { id: existingFinding.id },
+        data: { findingCategory },
       })
     }
   } else {
@@ -174,7 +187,7 @@ export async function PUT(req: Request, ctx: Ctx) {
   const updated = await prisma.auditSessionItem.findUnique({
     where: { id: sessionItem.id },
     include: {
-      finding: { select: { id: true, findingCode: true, findingLevel: true, status: true } },
+      finding: { select: { id: true, findingCode: true, findingLevel: true, findingCategory: true, status: true } },
       attachments: true,
     },
   })

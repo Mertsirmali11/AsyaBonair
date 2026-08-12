@@ -37,9 +37,11 @@ export function EmployeeCombobox({
   const selected = options.find((o) => o.id === value)
 
   const filtered = React.useMemo(() => {
-    const n = q.trim().toLowerCase()
+    const n = q.trim().toLocaleLowerCase("tr-TR")
     if (!n) return options
-    return options.filter((o) => `${o.label} ${o.sublabel ?? ""}`.toLowerCase().includes(n))
+    return options.filter((o) =>
+      `${o.label} ${o.sublabel ?? ""}`.toLocaleLowerCase("tr-TR").includes(n)
+    )
   }, [options, q])
 
   React.useEffect(() => {
@@ -75,12 +77,18 @@ export function EmployeeCombobox({
             className="rounded-b-none border-0 border-b shadow-none focus-visible:ring-0"
             autoFocus
           />
-          {/* Native overflow scroll (Radix ScrollArea içinde Popover ile fare tekerleği
-              kaydırması güvenilir çalışmıyordu) — klavye navigasyonu ve scrollbar korunur. */}
-          <div className="max-h-[min(260px,45vh)] overflow-y-auto overscroll-contain">
+          {/* Native overflow scroll + manuel onWheel: bu bileşen bir Dialog içinde açıldığında
+              Dialog'un scroll-lock'u (react-remove-scroll) global wheel event'ini preventDefault
+              ediyor; scrollTop'u elle güncelleyerek fare tekerleği kaydırmasını garantiye alıyoruz. */}
+          <div
+            className="max-h-[min(260px,45vh)] overflow-y-auto overscroll-contain"
+            onWheel={(e) => {
+              e.currentTarget.scrollTop += e.deltaY
+            }}
+          >
             <div className="flex flex-col p-1">
               {filtered.length === 0 ? (
-                <p className="text-muted-foreground px-2 py-6 text-center text-sm">Sonuç yok.</p>
+                <p className="text-muted-foreground px-2 py-6 text-center text-sm">No users found</p>
               ) : (
                 filtered.map((opt) => (
                   <button

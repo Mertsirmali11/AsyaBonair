@@ -139,6 +139,15 @@ model Calisan {
   auditPlanEntryHistoryActions AuditPlanEntryHistory[] @relation("AuditPlanEntryHistoryActor")
   auditFindingFilesUploaded AuditFindingFile[] @relation("AuditFindingFileUploader")
   auditFindingHistoryActions AuditFindingHistory[] @relation("AuditFindingHistoryActor")
+  auditResponseLinksCreated AuditResponseLink[] @relation("AuditResponseLinkCreator")
+  auditResponseNotesSubmitted AuditResponseNote[] @relation("AuditResponseNoteSubmitter")
+  plannerPlansCreated PlannerPlan[] @relation("PlannerPlanCreator")
+  plannerPlanMemberships PlannerPlanMember[] @relation("PlannerPlanMemberCalisan")
+  plannerTasksCreated PlannerTask[] @relation("PlannerTaskCreator")
+  plannerTaskAssignments PlannerTaskAssignee[] @relation("PlannerTaskAssigneeCalisan")
+  plannerTaskCommentsAuthored PlannerTaskComment[] @relation("PlannerTaskCommentAuthor")
+  plannerTaskAttachmentsUploaded PlannerTaskAttachment[] @relation("PlannerTaskAttachmentUploader")
+  plannerTaskHistoryActions PlannerTaskHistory[] @relation("PlannerTaskHistoryActor")
 
   @@index([createdAt(sort: Desc)])
   @@index([isim, soyisim])
@@ -943,6 +952,10 @@ model AuditPlanEntry {
   manualFindings       AuditFinding[] @relation("AuditPlanEntryManualFindings")
   /// Reopen ve durum değişikliği olayları (Geçmiş / Audit History paneli)
   history              AuditPlanEntryHistory[]
+  /// Public Audit Response Link — denetlenen tarafın not/dosya gönderebildiği güvenli link(ler)
+  responseLinks        AuditResponseLink[]
+  /// Public link (veya kendi hesabı) üzerinden denetlenen tarafın gönderdiği notlar
+  responseNotes        AuditResponseNote[]
 
   @@index([plannedDate])
   @@index([auditCategoryTypeId])
@@ -961,13 +974,78 @@ model AuditPlanDocument {
   mimeType         String?  @map("mime_type") @db.VarChar(200)
   fileSizeBytes    Int?     @map("file_size_bytes")
   uploadedBy       Int?     @map("uploaded_by")
+  /// "auditor" | "auditee" — kim yükledi (Manage Audit'te "Uploaded by Auditor" /
+  /// "Submitted by Auditee" ayrımı için). NULL = eski kayıt, uygulama katmanında
+  /// "auditor" olarak ele alınır (geriye dönük uyumluluk, hiçbir backfill gerekmez).
+  source           String?  @db.VarChar(10)
+  /// Public Audit Response Link üzerinden yüklendiyse hangi link — link revoke/silinse
+  /// bile bu dosya kaydı SetNull ile kalıcı olarak audit'e bağlı kalır, silinmez.
+  responseLinkId   Int?     @map("response_link_id")
+  /// Bonjour hesabı olmayan external submitter'ın isim/e-posta bilgisi (varsa)
+  submitterName    String?  @map("submitter_name") @db.VarChar(200)
+  submitterEmail   String?  @map("submitter_email") @db.VarChar(200)
   createdAt        DateTime @default(now()) @map("created_at")
 
-  entry    AuditPlanEntry @relation(fields: [auditPlanEntryId], references: [id], onDelete: Cascade)
-  uploader Calisan?       @relation("AuditPlanDocumentUploader", fields: [uploadedBy], references: [id], onDelete: SetNull)
+  entry        AuditPlanEntry     @relation(fields: [auditPlanEntryId], references: [id], onDelete: Cascade)
+  uploader     Calisan?           @relation("AuditPlanDocumentUploader", fields: [uploadedBy], references: [id], onDelete: SetNull)
+  responseLink AuditResponseLink? @relation(fields: [responseLinkId], references: [id], onDelete: SetNull)
 
   @@index([auditPlanEntryId])
+  @@index([responseLinkId])
   @@map("audit_plan_documents")
+}
+
+/// Public Audit Response Link — denetlenen tarafa (Bonjour hesabı gerektirmeden) gönderilen,
+/// tahmin edilemeyen token içeren güvenli bağlantı. Yalnızca ilgili tek denetime erişim sağlar;
+/// bu bağlantı üzerinden yalnızca not girilebilir ve dosya yüklenebilir (checklist/finding/status
+/// değişikliği YAPILAMAZ — bu kısıtlama her public API route'unda sunucu tarafında uygulanır).
+model AuditResponseLink {
+  id               Int       @id @default(autoincrement())
+  auditPlanEntryId Int       @map("audit_plan_entry_id")
+  /// Uzun, tahmin edilemeyen rastgele token — URL'de kullanılır, tek başına erişim yeter.
+  token            String    @unique @db.VarChar(64)
+  /// Boşsa süresiz; doluysa bu tarihten sonra link otomatik geçersiz sayılır.
+  expiresAt        DateTime? @map("expires_at")
+  /// Doluysa link devre dışı — yetkili kullanıcı tarafından manuel iptal edilmiş veya
+  /// denetim Completed/Cancelled olduğunda otomatik iptal edilmiştir. Reopen bu alanı
+  /// OTOMATİK sıfırlamaz — yeniden aktif etmek yetkili kullanıcının açık işlemini gerektirir.
+  revokedAt        DateTime? @map("revoked_at")
+  createdBy        Int?      @map("created_by")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  entry     AuditPlanEntry       @relation(fields: [auditPlanEntryId], references: [id], onDelete: Cascade)
+  creator   Calisan?             @relation("AuditResponseLinkCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  notes     AuditResponseNote[]
+  documents AuditPlanDocument[]
+
+  @@index([auditPlanEntryId])
+  @@map("audit_response_links")
+}
+
+/// Public Audit Response Link (veya giriş yapmış bir denetlenenin kendi hesabı) üzerinden
+/// gönderilen not/açıklama — kalıcıdır, yalnızca yetkili bir Bonjour kullanıcısı silebilir;
+/// public link üzerinden gönderildikten sonra düzenlenemez/silinemez.
+model AuditResponseNote {
+  id                    Int      @id @default(autoincrement())
+  auditPlanEntryId      Int      @map("audit_plan_entry_id")
+  /// Hangi response link kullanıldı — link daha sonra iptal edilse/silinse bile bu not
+  /// SetNull ile kalıcı olarak audit'e bağlı kalır.
+  responseLinkId        Int?     @map("response_link_id")
+  note                  String   @db.Text
+  /// Bonjour hesabı olan bir denetlenen kendi oturumuyla gönderdiyse dolu.
+  submittedByCalisanId  Int?     @map("submitted_by_calisan_id")
+  /// Bonjour hesabı olmayan external kullanıcının isim/e-posta bilgisi (varsa)
+  submitterName         String?  @map("submitter_name") @db.VarChar(200)
+  submitterEmail        String?  @map("submitter_email") @db.VarChar(200)
+  submittedAt           DateTime @default(now()) @map("submitted_at")
+
+  entry        AuditPlanEntry     @relation(fields: [auditPlanEntryId], references: [id], onDelete: Cascade)
+  responseLink AuditResponseLink? @relation(fields: [responseLinkId], references: [id], onDelete: SetNull)
+  submittedBy  Calisan?           @relation("AuditResponseNoteSubmitter", fields: [submittedByCalisanId], references: [id], onDelete: SetNull)
+
+  @@index([auditPlanEntryId])
+  @@index([responseLinkId])
+  @@map("audit_response_notes")
 }
 
 /// Denetim kaydı olay geçmişi (Reopen, durum değişiklikleri vb.) — "Geçmiş / Audit History"
@@ -1156,6 +1234,9 @@ model AuditFinding {
   auditPlanEntryId   Int?      @map("audit_plan_entry_id")
   /// Level1 | Level2 | Observation
   findingLevel       String    @default("Level1") @db.VarChar(20) @map("finding_level")
+  /// CAT1 | CAT2 | CAT3 — yalnızca SACA/SAFA denetimlerinde kullanılır, diğerlerinde null.
+  /// Mevcut findingLevel (Level1/Level2/Observation) workflow'undan bağımsız, ek sınıflandırma.
+  findingCategory    String?   @db.VarChar(10) @map("finding_category")
   /// Bulgunun açıklaması / gözlem
   explanation        String    @db.Text
   /// Referans madde / doküman
@@ -1483,4 +1564,236 @@ model ShgmCategoryDefaultDepartment {
   department String @db.VarChar(100)
 
   @@map("shgm_category_default_departments")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Planner — tamamen ayrı, bağımsız bir task management modülü. Mevcut "Görev &
+// Aksiyonlar" (/tasks, MeetingTask) modülüyle HİÇBİR FK/relation paylaşmaz —
+// MeetingTask'ın toplantı onay workflow'u (Pending Assessment/Review/Revision)
+// Planner'ın Trello/Planner-tarzı board+checklist+recurring ihtiyacına uymuyor.
+// Sadece User (Calisan) ve Department (isim string, AuditPlanAuditeeDepartment
+// ile aynı desen) altyapısı yeniden kullanılır.
+//
+// Silme davranışı: Plan/Bucket/Task hiçbir zaman HARD DELETE edilmez — yalnızca
+// deletedAt (soft delete) işaretlenir. Böylece PlannerTaskHistory asla sessizce
+// kaybolmaz (kayıtlar zaten cascade tetiklenmediği için kalıcı kalır).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Planner çalışma alanı — örn. "Compliance Monitoring", "Safety Management".
+model PlannerPlan {
+  id          Int       @id @default(autoincrement())
+  name        String    @db.VarChar(200)
+  description String?   @db.Text
+  /// Board üzerinde plan rozetinin rengi (isteğe bağlı, örn. "#2563eb")
+  color       String?   @db.VarChar(20)
+  createdBy   Int?      @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  /// Soft delete — dolu ise plan artık aktif değil, hiçbir listede görünmez ama
+  /// veritabanında (ve tüm geçmişiyle) kalıcı olarak durur.
+  deletedAt   DateTime? @map("deleted_at")
+
+  creator Calisan? @relation("PlannerPlanCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  members PlannerPlanMember[]
+  buckets PlannerBucket[]
+  tasks   PlannerTask[]
+
+  @@index([deletedAt])
+  @@map("planner_plans")
+}
+
+/// Plan bazlı erişim/yetki — OWNER/MANAGER plan/bucket/task oluşturabilir, task
+/// silebilir, üye ekleyebilir; MEMBER yalnızca kendisine/atandığı departmana
+/// atanan task'ları güncelleyebilir. Sunucu tarafında HER ZAMAN uygulanır
+/// (bkz. lib/planner-access.ts) — yalnızca UI'da gizlemekle yetinilmez.
+model PlannerPlanMember {
+  id        Int      @id @default(autoincrement())
+  planId    Int      @map("plan_id")
+  calisanId Int      @map("calisan_id")
+  /// OWNER | MANAGER | MEMBER
+  role      String   @default("MEMBER") @db.VarChar(20)
+  addedAt   DateTime @default(now()) @map("added_at")
+
+  plan    PlannerPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  calisan Calisan     @relation("PlannerPlanMemberCalisan", fields: [calisanId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, calisanId])
+  @@index([calisanId])
+  @@map("planner_plan_members")
+}
+
+/// Board kolonu (Short Term, Mid Term, Repetitive, vb. — kullanıcı kendi bucket'ını da oluşturabilir)
+model PlannerBucket {
+  id        Int       @id @default(autoincrement())
+  planId    Int       @map("plan_id")
+  name      String    @db.VarChar(200)
+  sortOrder Int       @default(0) @map("sort_order")
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  plan  PlannerPlan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+  tasks PlannerTask[]
+
+  @@index([planId])
+  @@index([deletedAt])
+  @@map("planner_buckets")
+}
+
+/// Planner görevi. List/Calendar/Timeline/Charts görünümleri ileride bu şema
+/// üzerinde ek tablo gerektirmeden (yalnızca view-layer olarak) eklenebilir —
+/// startDate/dueDate/priority/status/bucket zaten mevcut.
+model PlannerTask {
+  id          Int       @id @default(autoincrement())
+  planId      Int       @map("plan_id")
+  bucketId    Int       @map("bucket_id")
+  title       String    @db.VarChar(500)
+  description String?   @db.Text
+  /// Board içindeki sırası — kesirli indeks (iki kart arasına eklerken aradaki
+  /// değer atanır, diğer kartlara dokunulmaz; sayfa yenilendiğinde sıra korunur).
+  sortOrder   Float     @default(0) @map("sort_order")
+  /// Not Started | In Progress | Completed | Blocked
+  status      String    @default("Not Started") @db.VarChar(30)
+  /// Low | Medium | High | Urgent
+  priority    String    @default("Medium") @db.VarChar(20)
+  /// Labels/Tags — basit string listesi (Postgres text[])
+  labels      String[]  @default([])
+  startDate   DateTime? @map("start_date") @db.Date
+  dueDate     DateTime? @map("due_date") @db.Date
+  completedAt DateTime? @map("completed_at")
+  /// NONE | MONTHLY | QUARTERLY | SEMIANNUAL | YEARLY | CUSTOM
+  recurrenceRule         String? @db.VarChar(20) @map("recurrence_rule")
+  /// CUSTOM seçildiğinde kaç günde bir tekrarlanacağı
+  recurrenceIntervalDays Int?    @map("recurrence_interval_days")
+  /// Bu task hangi occurrence'dan üretildi — zincir geriye "previous/original"a
+  /// böylece izlenebilir. Tamamlanan occurrence'ın comment/attachment'ları YENİ
+  /// occurrence'a KOPYALANMAZ; yalnızca title/description/assignees/bucket/
+  /// recurrence ayarları/checklist YAPISI kopyalanır.
+  recurrenceParentId Int? @map("recurrence_parent_id")
+  createdBy   Int?      @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  /// Soft delete — silme onay gerektirir (UI) ve PlannerTaskHistory asla kaybolmaz.
+  deletedAt   DateTime? @map("deleted_at")
+
+  plan             PlannerPlan             @relation(fields: [planId], references: [id], onDelete: Cascade)
+  bucket            PlannerBucket           @relation(fields: [bucketId], references: [id], onDelete: Cascade)
+  creator           Calisan?                @relation("PlannerTaskCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  recurrenceParent  PlannerTask?            @relation("PlannerTaskRecurrenceChain", fields: [recurrenceParentId], references: [id], onDelete: SetNull)
+  recurrenceChildren PlannerTask[]          @relation("PlannerTaskRecurrenceChain")
+  assignees         PlannerTaskAssignee[]
+  departments       PlannerTaskDepartment[]
+  checklistItems    PlannerChecklistItem[]
+  comments          PlannerTaskComment[]
+  attachments       PlannerTaskAttachment[]
+  history           PlannerTaskHistory[]
+
+  @@index([planId])
+  @@index([bucketId])
+  @@index([dueDate])
+  @@index([deletedAt])
+  @@index([recurrenceParentId])
+  @@map("planner_tasks")
+}
+
+/// Bireysel kişi ataması — departman atamasından (PlannerTaskDepartment)
+/// BAĞIMSIZ, biri diğerini asla üzerine yazmaz; ikisi birlikte kullanılabilir.
+model PlannerTaskAssignee {
+  id         Int      @id @default(autoincrement())
+  taskId     Int      @map("task_id")
+  calisanId  Int      @map("calisan_id")
+  assignedAt DateTime @default(now()) @map("assigned_at")
+
+  task    PlannerTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  calisan Calisan     @relation("PlannerTaskAssigneeCalisan", fields: [calisanId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, calisanId])
+  @@index([calisanId])
+  @@map("planner_task_assignees")
+}
+
+/// Departman/Grup ataması — bireysel atamadan bağımsız (AuditPlanAuditeeDepartment
+/// ile aynı desen). O departmandaki herhangi bir yetkili kullanıcı task'ı
+/// çalışabilir; ancak yaptığı her değişiklik PlannerTaskHistory'de KENDİ
+/// kimliğiyle (actorId) kayıt altına alınır — departman adına değil.
+model PlannerTaskDepartment {
+  id             Int    @id @default(autoincrement())
+  taskId         Int    @map("task_id")
+  departmentName String @map("department_name") @db.VarChar(100)
+
+  task PlannerTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, departmentName])
+  @@index([departmentName])
+  @@map("planner_task_departments")
+}
+
+/// Task içi alt görev / checklist maddesi (örn. "SMS Audit Checklist")
+model PlannerChecklistItem {
+  id        Int      @id @default(autoincrement())
+  taskId    Int      @map("task_id")
+  label     String   @db.VarChar(500)
+  isDone    Boolean  @default(false) @map("is_done")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task PlannerTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("planner_checklist_items")
+}
+
+model PlannerTaskComment {
+  id        Int      @id @default(autoincrement())
+  taskId    Int      @map("task_id")
+  authorId  Int?     @map("author_id")
+  body      String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task   PlannerTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author Calisan?    @relation("PlannerTaskCommentAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([taskId])
+  @@map("planner_task_comments")
+}
+
+/// Task ekleri — mevcut direct-to-Supabase güvenli yükleme deseni (Vercel gövde
+/// sınırını by-pass eder) ve Finding Files ile aynı güvenli format allow-list'i kullanılır.
+model PlannerTaskAttachment {
+  id            Int      @id @default(autoincrement())
+  taskId        Int      @map("task_id")
+  fileName      String   @map("file_name") @db.VarChar(500)
+  storagePath   String   @map("storage_path") @db.Text
+  mimeType      String?  @map("mime_type") @db.VarChar(200)
+  fileSizeBytes Int?     @map("file_size_bytes")
+  uploadedBy    Int?     @map("uploaded_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  task     PlannerTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploader Calisan?    @relation("PlannerTaskAttachmentUploader", fields: [uploadedBy], references: [id], onDelete: SetNull)
+
+  @@index([taskId])
+  @@map("planner_task_attachments")
+}
+
+/// Task'a özel kronolojik olay geçmişi — append-only, hiçbir kayıt silinmez.
+/// actorId HER ZAMAN işlemi yapan gerçek kullanıcıdır (departman adına yapılan
+/// işlemlerde bile) — "hangi departman üyesi ne zaman ne yaptı" izlenebilir kalır.
+model PlannerTaskHistory {
+  id        Int      @id @default(autoincrement())
+  taskId    Int      @map("task_id")
+  actorId   Int?     @map("actor_id")
+  /// CREATED | ASSIGNED | UNASSIGNED | DEPARTMENT_ASSIGNED | DEPARTMENT_UNASSIGNED |
+  /// DUE_DATE_CHANGED | MOVED_BUCKET | STATUS_CHANGED | PRIORITY_CHANGED |
+  /// CHECKLIST_ITEM_ADDED | CHECKLIST_ITEM_COMPLETED | COMMENT_ADDED |
+  /// ATTACHMENT_ADDED | ATTACHMENT_DELETED | COMPLETED | REOPENED | DELETED |
+  /// RECURRENCE_CREATED
+  eventType String   @db.VarChar(40) @map("event_type")
+  note      String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task  PlannerTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  actor Calisan?    @relation("PlannerTaskHistoryActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([taskId, createdAt])
+  @@map("planner_task_history")
 }

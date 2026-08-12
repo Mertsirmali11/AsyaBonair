@@ -40,6 +40,9 @@ export async function GET(_req: Request, ctx: Ctx) {
       fileSizeBytes: d.fileSizeBytes,
       uploadedByName: calisanName(d.uploader),
       createdAt: d.createdAt.toISOString(),
+      // NULL (eski kayıt) → istemci tarafında "auditor" olarak ele alınır, geriye dönük uyumlu.
+      source: d.source,
+      submitterName: d.submitterName,
     }))
   )
 }

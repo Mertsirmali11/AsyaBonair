@@ -22,10 +22,12 @@ export const authConfig: NextAuthConfig = {
       const isLoggedIn = !!auth?.user
       const path = nextUrl.pathname
 
-      // Public paths: login, register, API routes, static assets
+      // Public paths: login, register, API routes, static assets,
+      // Public Audit Response Link (token-authenticated, no Bonjour account required)
       const isPublic =
         path.startsWith("/login") ||
         path.startsWith("/register") ||
+        path.startsWith("/audit-response") ||
         path.startsWith("/api/") ||
         path.startsWith("/_next/") ||
         path.startsWith("/favicon") ||

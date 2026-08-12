@@ -12,12 +12,17 @@ import {
   ChevronDown,
   ClipboardCheck,
   ClipboardList,
+  Copy,
   FileSpreadsheet,
   FileText,
   History as HistoryIcon,
+  Link2,
   Loader2,
+  MessageSquare,
   Plus,
+  RefreshCw,
   RotateCcw,
+  Search,
   Settings,
   Trash2,
 } from "lucide-react"
@@ -74,6 +79,13 @@ import {
   statusStyles,
 } from "@/components/compliance/audit-plan-client"
 import { uploadAuditPlanDocumentsDirect } from "@/lib/client-audit-plan-document-upload"
+import { parseDdMmYyyyToUtcDate } from "@/lib/correspondence-date"
+import {
+  FINDING_CATEGORY_VALUES,
+  findingCategoryLabels,
+  findingCategoryStyles,
+  isSacaOrSafaAuditCategory,
+} from "@/lib/finding-category"
 import {
   downloadFullReportPdf,
   downloadInitialReportPdf,
@@ -192,11 +204,149 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
     }
   }
 
+  // ─── Public Audit Response Link — denetlenen tarafa gönderilebilecek, Bonjour
+  // hesabı gerektirmeyen güvenli cevap bağlantısı (bkz. lib/audit-response-link.ts) ──
+  type ResponseLinkRow = {
+    id: number
+    token: string
+    expiresAt: string | null
+    revokedAt: string | null
+    createdAt: string
+    createdByName: string | null
+    isActive: boolean
+    isExpired: boolean
+  }
+  const [responseLinks, setResponseLinks] = React.useState<ResponseLinkRow[]>([])
+  const [responseLinksLoading, setResponseLinksLoading] = React.useState(false)
+  const [linkActionLoading, setLinkActionLoading] = React.useState(false)
+  const [expiryInput, setExpiryInput] = React.useState("")
+
+  const reloadResponseLinks = React.useCallback(async () => {
+    setResponseLinksLoading(true)
+    try {
+      const res = await fetch(`/api/audit-plan/${entryId}/response-link`, { cache: "no-store" })
+      const data = await res.json().catch(() => [])
+      setResponseLinks(res.ok && Array.isArray(data) ? data : [])
+    } finally {
+      setResponseLinksLoading(false)
+    }
+  }, [entryId])
+
+  React.useEffect(() => {
+    void reloadResponseLinks()
+  }, [reloadResponseLinks])
+
+  const activeLink = responseLinks.find((l) => l.isActive) ?? null
+
+  const responseLinkUrl = (token: string) =>
+    typeof window !== "undefined" ? `${window.location.origin}/audit-response/${token}` : `/audit-response/${token}`
+
+  const createResponseLink = async () => {
+    setLinkActionLoading(true)
+    try {
+      const expiresAt = expiryInput ? (parseDdMmYyyyToUtcDate(expiryInput)?.toISOString() ?? null) : null
+      const res = await fetch(`/api/audit-plan/${entryId}/response-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expiresAt }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Bağlantı oluşturulamadı.")
+      toast.success("Response link oluşturuldu.")
+      setExpiryInput("")
+      await Promise.all([reloadResponseLinks(), reloadHistory()])
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        await navigator.clipboard.writeText(responseLinkUrl(data.token)).catch(() => {})
+        toast.success("Bağlantı panoya kopyalandı.")
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Bağlantı oluşturulamadı.")
+    } finally {
+      setLinkActionLoading(false)
+    }
+  }
+
+  const copyResponseLink = async (token: string) => {
+    try {
+      await navigator.clipboard.writeText(responseLinkUrl(token))
+      toast.success("Bağlantı panoya kopyalandı.")
+    } catch {
+      toast.error("Kopyalanamadı.")
+    }
+  }
+
+  const linkAction = async (linkId: number, action: "revoke" | "reactivate") => {
+    setLinkActionLoading(true)
+    try {
+      const res = await fetch(`/api/audit-plan/${entryId}/response-link/${linkId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "İşlem başarısız.")
+      toast.success(action === "revoke" ? "Bağlantı devre dışı bırakıldı." : "Bağlantı yeniden etkinleştirildi.")
+      await Promise.all([reloadResponseLinks(), reloadHistory()])
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "İşlem başarısız.")
+    } finally {
+      setLinkActionLoading(false)
+    }
+  }
+
+  // ─── Auditee Notes — Public Audit Response Link (veya kendi hesabı) üzerinden
+  // gönderilen notlar, salt okunur; yalnızca yetkili kullanıcı silebilir ──────────
+  type ResponseNoteRow = {
+    id: number
+    note: string
+    submitterName: string | null
+    submitterEmail: string | null
+    submittedAt: string
+    viaLink: boolean
+  }
+  const [auditeeNotes, setAuditeeNotes] = React.useState<ResponseNoteRow[]>([])
+  const [auditeeNotesLoading, setAuditeeNotesLoading] = React.useState(false)
+  const [deleteNoteTarget, setDeleteNoteTarget] = React.useState<ResponseNoteRow | null>(null)
+  const [deletingNote, setDeletingNote] = React.useState(false)
+
+  const reloadAuditeeNotes = React.useCallback(async () => {
+    setAuditeeNotesLoading(true)
+    try {
+      const res = await fetch(`/api/audit-plan/${entryId}/response-notes`, { cache: "no-store" })
+      const data = await res.json().catch(() => [])
+      setAuditeeNotes(res.ok && Array.isArray(data) ? data : [])
+    } finally {
+      setAuditeeNotesLoading(false)
+    }
+  }, [entryId])
+
+  React.useEffect(() => {
+    void reloadAuditeeNotes()
+  }, [reloadAuditeeNotes])
+
+  const confirmDeleteNote = async () => {
+    if (!deleteNoteTarget) return
+    setDeletingNote(true)
+    try {
+      const res = await fetch(`/api/audit-plan/${entryId}/response-notes/${deleteNoteTarget.id}`, { method: "DELETE" })
+      if (!res.ok) throw new Error()
+      toast.success("Not silindi.")
+      setDeleteNoteTarget(null)
+      await Promise.all([reloadAuditeeNotes(), reloadHistory()])
+    } catch {
+      toast.error("Silinemedi.")
+    } finally {
+      setDeletingNote(false)
+    }
+  }
+
   // ─── Findings (mevcut standart Finding sistemi — aynen kullanılır) ─────────
   const [findings, setFindings] = React.useState<AuditPlanFindingRow[]>([])
   const [findingsLoading, setFindingsLoading] = React.useState(false)
   const [findingDialogOpen, setFindingDialogOpen] = React.useState(false)
   const [findingLevelInput, setFindingLevelInput] = React.useState("Level1")
+  /** CAT1 | CAT2 | CAT3 — yalnızca SACA/SAFA denetimlerinde gösterilir/gönderilir. */
+  const [findingCategoryInput, setFindingCategoryInput] = React.useState("CAT1")
   const [findingExplanation, setFindingExplanation] = React.useState("")
   const [findingReference, setFindingReference] = React.useState("")
   const [findingAssignedToId, setFindingAssignedToId] = React.useState<number | undefined>(undefined)
@@ -241,6 +391,7 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
 
   const openFindingDialog = () => {
     setFindingLevelInput("Level1")
+    setFindingCategoryInput("CAT1")
     setFindingExplanation("")
     setFindingReference("")
     setFindingAssignedToId(undefined)
@@ -259,6 +410,8 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           findingLevel: findingLevelInput,
+          // Sunucu SACA/SAFA dışındaki audit type'larda bu değeri zaten null'a zorlar.
+          findingCategory: isSacaOrSafaAuditCategory(detail?.categoryName) ? findingCategoryInput : null,
           explanation: findingExplanation.trim(),
           reference: findingReference.trim() || null,
           assignedToId: findingAssignedToId ?? null,
@@ -420,7 +573,9 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
         return
       }
       toast.success(status === "Completed" ? "Audit successfully completed." : `Durum: ${status}`)
-      await Promise.all([silentRefetch(), reloadHistory()])
+      // Completed olduğunda sunucu aktif response link'leri otomatik iptal eder —
+      // paneli güncel göstermek için burada da yeniden yükle.
+      await Promise.all([silentRefetch(), reloadHistory(), reloadResponseLinks()])
     } catch {
       toast.error("Audit could not be completed. Please try again or contact the system administrator.")
     } finally {
@@ -860,6 +1015,17 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
                         <Link href={`/compliance/findings-follow-up/${f.id}`} className="bg-background/60 hover:bg-background flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors">
                           <span className="font-mono text-xs font-semibold">{f.findingCode}</span>
                           <span className={cn("rounded-full border px-1.5 py-0.5 text-[11px] font-medium", lvl.cls)}>{lvl.label}</span>
+                          {f.findingCategory && (
+                            <span
+                              className={cn(
+                                "rounded-full border px-1.5 py-0.5 text-[11px] font-medium",
+                                findingCategoryStyles[f.findingCategory as keyof typeof findingCategoryStyles] ??
+                                  findingCategoryStyles.CAT1
+                              )}
+                            >
+                              {findingCategoryLabels[f.findingCategory as keyof typeof findingCategoryLabels] ?? f.findingCategory}
+                            </span>
+                          )}
                           <span className="text-muted-foreground min-w-0 flex-1 truncate">{f.explanation}</span>
                           {f.assignedTo?.name && <span className="text-muted-foreground shrink-0 text-xs">{f.assignedTo.name}</span>}
                           <span className={cn("shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium", f.status === "Closed" ? "bg-teal-100 text-teal-700 dark:bg-teal-950/40 dark:text-teal-400" : "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400")}>
@@ -926,15 +1092,124 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
                 <p className="text-muted-foreground text-sm">Henüz dosya eklenmedi.</p>
               ) : (
                 <ul className="space-y-1.5">
-                  {documents.filter((d): d is AuditPlanDocumentRow => !!d && d.id != null).map((doc) => (
-                    <li key={doc.id} className="flex items-center justify-between gap-2 rounded-md border p-2 text-xs">
-                      <a href={`/api/audit-plan/${entryId}/documents/${doc.id}/file`} target="_blank" rel="noopener noreferrer" className="min-w-0 flex-1 truncate hover:underline" title={doc.fileName}>
-                        {doc.fileName}
-                      </a>
-                      <span className="text-muted-foreground shrink-0">{formatBytes(doc.fileSizeBytes ?? 0)}</span>
-                      <Button type="button" variant="ghost" size="icon" className="text-destructive hover:text-destructive size-6 shrink-0" onClick={() => setDeleteDocTarget(doc)} aria-label="Dosyayı sil">
-                        <Trash2 className="size-3" />
-                      </Button>
+                  {documents.filter((d): d is AuditPlanDocumentRow => !!d && d.id != null).map((doc) => {
+                    // NULL (eski kayıt) → "auditor" olarak ele alınır, geriye dönük uyumlu.
+                    const isAuditee = doc.source === "auditee"
+                    return (
+                      <li key={doc.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-xs">
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                          <a href={`/api/audit-plan/${entryId}/documents/${doc.id}/file`} target="_blank" rel="noopener noreferrer" className="min-w-0 truncate hover:underline" title={doc.fileName}>
+                            {doc.fileName}
+                          </a>
+                          <span
+                            className={cn(
+                              "shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap",
+                              isAuditee
+                                ? "border-violet-200 bg-violet-100 text-violet-700 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-400"
+                                : "border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400"
+                            )}
+                          >
+                            {isAuditee ? `Submitted by Auditee${doc.submitterName ? ` (${doc.submitterName})` : ""}` : "Uploaded by Auditor"}
+                          </span>
+                        </div>
+                        <span className="text-muted-foreground shrink-0">{formatBytes(doc.fileSizeBytes ?? 0)}</span>
+                        <Button type="button" variant="ghost" size="icon" className="text-destructive hover:text-destructive size-6 shrink-0" onClick={() => setDeleteDocTarget(doc)} aria-label="Dosyayı sil">
+                          <Trash2 className="size-3" />
+                        </Button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </section>
+
+            {/* Public Audit Response Link */}
+            <section className="bg-card space-y-3 rounded-lg border p-4 shadow-sm">
+              <h2 className="flex items-center gap-2 text-sm font-semibold">
+                <Link2 className="size-4 text-blue-600" />
+                Response Link
+              </h2>
+              {responseLinksLoading ? (
+                <p className="text-muted-foreground text-sm">Yükleniyor…</p>
+              ) : activeLink ? (
+                <div className="space-y-2">
+                  <div className="bg-muted/40 flex items-center gap-2 rounded-md border p-2">
+                    <code className="min-w-0 flex-1 truncate text-xs">{responseLinkUrl(activeLink.token)}</code>
+                    <Button type="button" variant="ghost" size="icon" className="size-6 shrink-0" onClick={() => void copyResponseLink(activeLink.token)} aria-label="Kopyala">
+                      <Copy className="size-3.5" />
+                    </Button>
+                  </div>
+                  <p className="text-muted-foreground text-xs">
+                    {activeLink.expiresAt ? `Son kullanma: ${formatDetailDate(activeLink.expiresAt)}` : "Süresiz"}
+                    {activeLink.createdByName ? ` · ${activeLink.createdByName} tarafından oluşturuldu` : ""}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" variant="outline" size="sm" disabled={linkActionLoading} onClick={() => void linkAction(activeLink.id, "revoke")}>
+                      <Ban className="mr-1.5 size-3.5" />
+                      Revoke
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-muted-foreground text-sm">Bu denetim için aktif bir response link yok.</p>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Son kullanma (isteğe bağlı)</Label>
+                      <DatePicker value={expiryInput} onChange={setExpiryInput} placeholder="dd.mm.yyyy" />
+                    </div>
+                    <Button type="button" size="sm" disabled={linkActionLoading} onClick={() => void createResponseLink()}>
+                      {linkActionLoading ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <Link2 className="mr-1.5 size-3.5" />}
+                      Create / Copy Response Link
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {responseLinks.filter((l) => !l.isActive).length > 0 && (
+                <div className="space-y-1.5 border-t pt-2">
+                  <p className="text-muted-foreground text-xs font-medium">Geçmiş bağlantılar</p>
+                  <ul className="space-y-1">
+                    {responseLinks.filter((l) => !l.isActive).map((l) => (
+                      <li key={l.id} className="flex items-center justify-between gap-2 rounded-md border px-2 py-1.5 text-xs">
+                        <span className="text-muted-foreground min-w-0 truncate">
+                          {l.revokedAt ? `İptal: ${formatDetailDate(l.revokedAt)}` : l.isExpired ? "Süresi doldu" : "—"}
+                        </span>
+                        <Button type="button" variant="ghost" size="sm" className="h-6 shrink-0 px-2 text-xs" disabled={linkActionLoading} onClick={() => void linkAction(l.id, "reactivate")}>
+                          <RefreshCw className="mr-1 size-3" />
+                          Reactivate
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </section>
+
+            {/* Auditee Notes — Public Audit Response Link (veya kendi hesabı) üzerinden gönderilen notlar */}
+            <section className="bg-card space-y-3 rounded-lg border p-4 shadow-sm">
+              <h2 className="flex items-center gap-2 text-sm font-semibold">
+                <MessageSquare className="size-4 text-violet-600" />
+                Auditee Notes ({auditeeNotes.length})
+              </h2>
+              {auditeeNotesLoading ? (
+                <p className="text-muted-foreground text-sm">Yükleniyor…</p>
+              ) : auditeeNotes.length === 0 ? (
+                <p className="text-muted-foreground text-sm">Henüz auditee notu yok.</p>
+              ) : (
+                <ul className="max-h-72 space-y-2 overflow-y-auto">
+                  {auditeeNotes.map((n) => (
+                    <li key={n.id} className="bg-background/60 rounded-md border p-2.5 text-xs">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="min-w-0 flex-1 whitespace-pre-wrap">{n.note}</p>
+                        <Button type="button" variant="ghost" size="icon" className="text-destructive hover:text-destructive size-5 shrink-0" onClick={() => setDeleteNoteTarget(n)} aria-label="Notu sil">
+                          <Trash2 className="size-3" />
+                        </Button>
+                      </div>
+                      <p className="text-muted-foreground mt-1">
+                        {n.submitterName ?? "—"}
+                        {n.submitterEmail ? ` (${n.submitterEmail})` : ""} · {formatDetailDate(n.submittedAt)}
+                        {n.viaLink ? " · via Response Link" : ""}
+                      </p>
                     </li>
                   ))}
                 </ul>
@@ -1112,6 +1387,19 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
                 </SelectContent>
               </Select>
             </div>
+            {isSacaOrSafaAuditCategory(detail?.categoryName) && (
+              <div className="space-y-2">
+                <Label>Finding Category</Label>
+                <Select value={findingCategoryInput} onValueChange={setFindingCategoryInput}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {FINDING_CATEGORY_VALUES.map((c) => (
+                      <SelectItem key={c} value={c}>{findingCategoryLabels[c]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Açıklama / Bulgu *</Label>
               <Textarea value={findingExplanation} onChange={(e) => setFindingExplanation(e.target.value)} placeholder="Bulguyu açıklayın…" className="min-h-[90px]" />
@@ -1189,6 +1477,21 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={!!deleteNoteTarget} onOpenChange={(o) => !o && setDeleteNoteTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Not silinsin mi?</DialogTitle>
+          </DialogHeader>
+          <p className="text-muted-foreground text-sm">Bu auditee notu kalıcı olarak silinecek. Bu işlem geri alınamaz.</p>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setDeleteNoteTarget(null)}>Vazgeç</Button>
+            <Button type="button" variant="destructive" disabled={deletingNote} onClick={() => void confirmDeleteNote()}>
+              {deletingNote ? "Siliniyor…" : "Sil"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </TooltipProvider>
   )
 }
@@ -1202,8 +1505,13 @@ function InfoField({ label, value }: { label: string; value: string }) {
   )
 }
 
+/** Türkçe karakter/case-insensitive karşılaştırma için normalize eder (Ü/Ç/Ö/Ğ/Ş/İ/I dahil). */
+function normalizeSearchText(s: string): string {
+  return s.toLocaleLowerCase("tr-TR").trim()
+}
+
 /** Auditee Group/Department çoklu seçimi — EmployeeMultiSelect ile aynı desen, string listesi için. */
-function DepartmentMultiSelect({
+export function DepartmentMultiSelect({
   id,
   label,
   options,
@@ -1217,12 +1525,23 @@ function DepartmentMultiSelect({
   onChange: (names: string[]) => void
 }) {
   const [open, setOpen] = React.useState(false)
+  const [query, setQuery] = React.useState("")
   const summary = selected.length === 0 ? "Departman/Grup seçin… (isteğe bağlı)" : selected.join(", ")
 
   const toggle = (name: string) => {
     if (selected.includes(name)) onChange(selected.filter((x) => x !== name))
     else onChange([...selected, name])
   }
+
+  const filteredOptions = React.useMemo(() => {
+    const q = normalizeSearchText(query)
+    if (!q) return options
+    return options.filter((name) => normalizeSearchText(name).includes(q))
+  }, [options, query])
+
+  React.useEffect(() => {
+    if (!open) setQuery("")
+  }, [open])
 
   return (
     <div className="space-y-2">
@@ -1243,19 +1562,43 @@ function DepartmentMultiSelect({
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-          {/* Native overflow scroll — Popover + Radix ScrollArea'da fare tekerleği kaydırması sorunluydu. */}
-          <div className="max-h-[min(240px,40vh)] overflow-y-auto overscroll-contain">
-            <div className="flex flex-col gap-0.5 p-2">
-              {options.length === 0 ? (
-                <p className="text-muted-foreground px-2 py-3 text-center text-sm">Kayıtlı departman yok.</p>
-              ) : (
-                options.map((name) => (
-                  <label key={name} className="hover:bg-muted/80 flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5">
-                    <Checkbox checked={selected.includes(name)} onCheckedChange={() => toggle(name)} />
-                    <span className="text-sm leading-none">{name}</span>
-                  </label>
-                ))
-              )}
+          <div className="flex flex-col gap-0">
+            {options.length > 6 ? (
+              <div className="relative border-b px-2 py-1.5">
+                <Search className="text-muted-foreground pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2" />
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Ara…"
+                  className="h-8 border-0 pl-7 shadow-none focus-visible:ring-0"
+                  autoFocus
+                />
+              </div>
+            ) : null}
+            {/* Native overflow scroll + manuel onWheel: bu bileşen Dialog içinde açıldığında
+                Dialog'un scroll-lock'u (react-remove-scroll) global wheel event'ini
+                preventDefault ediyor; scrollTop'u elle güncelleyerek fare tekerleği
+                kaydırmasını garantiye alıyoruz. */}
+            <div
+              className="max-h-[min(240px,40vh)] overflow-y-auto overscroll-contain"
+              onWheel={(e) => {
+                e.currentTarget.scrollTop += e.deltaY
+              }}
+            >
+              <div className="flex flex-col gap-0.5 p-2">
+                {options.length === 0 ? (
+                  <p className="text-muted-foreground px-2 py-3 text-center text-sm">Kayıtlı departman yok.</p>
+                ) : filteredOptions.length === 0 ? (
+                  <p className="text-muted-foreground px-2 py-3 text-center text-sm">No users found</p>
+                ) : (
+                  filteredOptions.map((name) => (
+                    <label key={name} className="hover:bg-muted/80 flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5">
+                      <Checkbox checked={selected.includes(name)} onCheckedChange={() => toggle(name)} />
+                      <span className="text-sm leading-none">{name}</span>
+                    </label>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         </PopoverContent>

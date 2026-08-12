@@ -46,6 +46,7 @@ import { cn } from "@/lib/utils"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { uploadAuditSessionAttachmentsDirect } from "@/lib/client-audit-session-attachment-upload"
+import { FINDING_CATEGORY_VALUES, findingCategoryLabels, isSacaOrSafaField } from "@/lib/finding-category"
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -63,6 +64,8 @@ type FindingInfo = {
   id: number
   findingCode: string
   findingLevel: string
+  /** CAT1 | CAT2 | CAT3 — yalnızca SACA/SAFA denetimlerinde dolu, diğerlerinde null. */
+  findingCategory: string | null
   status: string
 }
 
@@ -201,7 +204,12 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
     open: boolean
     itemId: number
     selectedLevel: string
-  }>({ open: false, itemId: 0, selectedLevel: "Level1" })
+    /** CAT1 | CAT2 | CAT3 — yalnızca SACA/SAFA denetimlerinde kullanılır. */
+    selectedCategory: string
+  }>({ open: false, itemId: 0, selectedLevel: "Level1", selectedCategory: "CAT1" })
+
+  // SACA/SAFA denetimlerinde Finding Category (CAT1/CAT2/CAT3) seçilebilir
+  const isSacaOrSafaAudit = isSacaOrSafaField(entry?.field)
 
   // ─── Load entry ──────────────────────────────────────────────────────────
 
@@ -302,6 +310,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
     notes: string,
     findingLevel: string,
     auditeeNotes?: string,
+    findingCategory?: string | null,
   ) => {
     const sid = sessionIdRef.current
     if (!sid) return
@@ -318,6 +327,8 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
           result: result || null,
           notes: notes || null,
           findingLevel,
+          // Sunucu SACA/SAFA dışındaki audit type'larda bu değeri zaten null'a zorlar.
+          findingCategory: findingCategory ?? null,
           ...(auditeeNotes !== undefined ? { auditeeNotes: auditeeNotes || null } : {}),
         }),
       })
@@ -350,22 +361,27 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
 
     if (newResult === "U") {
       // Open finding level dialog
-      setFindingDialog({ open: true, itemId, selectedLevel: st.finding?.findingLevel ?? "Level1" })
+      setFindingDialog({
+        open: true,
+        itemId,
+        selectedLevel: st.finding?.findingLevel ?? "Level1",
+        selectedCategory: st.finding?.findingCategory ?? "CAT1",
+      })
       return
     }
 
     patchState(itemId, { result: newResult, dirty: true })
-    void saveItem(itemId, newResult, st.notes, st.finding?.findingLevel ?? "Level1")
+    void saveItem(itemId, newResult, st.notes, st.finding?.findingLevel ?? "Level1", undefined, st.finding?.findingCategory ?? null)
   }
 
   // ─── Finding level dialog confirm ─────────────────────────────────────────
 
   const confirmFindingLevel = () => {
-    const { itemId, selectedLevel } = findingDialog
+    const { itemId, selectedLevel, selectedCategory } = findingDialog
     const st = getState(itemId)
     setFindingDialog((p) => ({ ...p, open: false }))
     patchState(itemId, { result: "U", dirty: true })
-    void saveItem(itemId, "U", st.notes, selectedLevel)
+    void saveItem(itemId, "U", st.notes, selectedLevel, undefined, isSacaOrSafaAudit ? selectedCategory : null)
   }
 
   // ─── Notes save ───────────────────────────────────────────────────────────
@@ -373,13 +389,13 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
   const saveNotes = (itemId: number) => {
     const st = getState(itemId)
     if (!st.dirty) return
-    void saveItem(itemId, st.result, st.notes, st.finding?.findingLevel ?? "Level1", st.auditeeNotes)
+    void saveItem(itemId, st.result, st.notes, st.finding?.findingLevel ?? "Level1", st.auditeeNotes, st.finding?.findingCategory ?? null)
   }
 
   const saveAuditeeNotes = (itemId: number) => {
     const st = getState(itemId)
     if (!st.dirtyAuditee) return
-    void saveItem(itemId, st.result, st.notes, st.finding?.findingLevel ?? "Level1", st.auditeeNotes)
+    void saveItem(itemId, st.result, st.notes, st.finding?.findingLevel ?? "Level1", st.auditeeNotes, st.finding?.findingCategory ?? null)
   }
 
   // ─── Close finding (by auditee) ───────────────────────────────────────────
@@ -732,7 +748,9 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
                               !isFindingClosed && finding.findingLevel === "Level2" && "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-400",
                               !isFindingClosed && finding.findingLevel === "Observation" && "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400",
                             )}>
-                              {finding.findingCode} {isFindingClosed && "✓"}
+                              {finding.findingCode}
+                              {finding.findingCategory ? ` · ${findingCategoryLabels[finding.findingCategory as keyof typeof findingCategoryLabels] ?? finding.findingCategory}` : ""}
+                              {isFindingClosed && " ✓"}
                             </Badge>
                           )}
                         </div>
@@ -787,6 +805,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
                             {finding.findingLevel === "Level1" && "— Level 1"}
                             {finding.findingLevel === "Level2" && "— Level 2"}
                             {finding.findingLevel === "Observation" && "— Gözlem"}
+                            {finding.findingCategory && ` · ${findingCategoryLabels[finding.findingCategory as keyof typeof findingCategoryLabels] ?? finding.findingCategory}`}
                           </span>
                           {isFindingClosed && <span className="text-emerald-600 dark:text-emerald-400">— Kapatıldı</span>}
                         </div>
@@ -932,6 +951,28 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
               </button>
             ))}
           </div>
+          {isSacaOrSafaAudit && (
+            <div className="space-y-2 pb-1">
+              <p className="text-xs font-medium text-muted-foreground">Finding Category</p>
+              <div className="flex gap-2">
+                {FINDING_CATEGORY_VALUES.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setFindingDialog((p) => ({ ...p, selectedCategory: cat }))}
+                    className={cn(
+                      "flex-1 rounded-lg border-2 px-3 py-2 text-center text-sm font-semibold transition-colors",
+                      findingDialog.selectedCategory === cat
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:bg-muted/50"
+                    )}
+                  >
+                    {findingCategoryLabels[cat]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <DialogFooter className="gap-2">
             <Button
               type="button"

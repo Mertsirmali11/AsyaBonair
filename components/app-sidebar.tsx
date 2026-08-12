@@ -17,6 +17,7 @@ import {
   IconDashboard,
   IconFileDescription,
   IconInbox,
+  IconLayoutKanban,
   IconLogout,
   IconMail,
   IconMessage,
@@ -104,6 +105,7 @@ export function AppSidebar({
 
   const NAV_AFTER_CONTROLLED_DOCS: NavItem[] = [
     { title: t.nav.tasksActions, url: "/tasks", icon: IconChecklist },
+    { title: t.nav.planner, url: "/planner", icon: IconLayoutKanban },
     { title: t.nav.performanceReports, url: "/compliance/performance-reports", icon: IconChartBar },
     { title: t.nav.aiReportCreator, url: "/ai-reports", icon: IconRobot },
     { title: t.nav.leaveRequests, url: "/leave-requests", icon: IconCalendarOff },

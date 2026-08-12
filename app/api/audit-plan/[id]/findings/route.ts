@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { canAccessAuditPlan } from "@/lib/audit-plan-access"
+import { normalizeFindingCategory } from "@/lib/finding-category"
 import { prisma } from "@/lib/prisma-server"
 
 export const runtime = "nodejs"
@@ -48,6 +49,7 @@ export async function GET(_req: Request, ctx: Ctx) {
       id: f.id,
       findingCode: f.findingCode,
       findingLevel: f.findingLevel,
+      findingCategory: f.findingCategory,
       explanation: f.explanation,
       status: f.status,
       dueDate: f.dueDate ? f.dueDate.toISOString() : null,
@@ -91,6 +93,7 @@ export async function POST(req: Request, ctx: Ctx) {
 
   const body = (await req.json().catch(() => null)) as {
     findingLevel?: string
+    findingCategory?: string | null
     explanation?: string
     reference?: string
     assignedToId?: number | null
@@ -100,6 +103,9 @@ export async function POST(req: Request, ctx: Ctx) {
   if (!VALID_LEVELS.includes(findingLevel)) {
     return NextResponse.json({ error: "Invalid findingLevel" }, { status: 400 })
   }
+
+  // SACA/SAFA dışındaki audit type'larda gelen değer ne olursa olsun null'a zorlanır.
+  const findingCategory = normalizeFindingCategory(body?.findingCategory, entry.auditCategoryType.name)
 
   const explanation = typeof body?.explanation === "string" ? body.explanation.trim() : ""
   if (!explanation) {
@@ -140,6 +146,7 @@ export async function POST(req: Request, ctx: Ctx) {
       findingCode,
       auditPlanEntryId: entry.id,
       findingLevel,
+      findingCategory,
       explanation,
       reference,
       field,

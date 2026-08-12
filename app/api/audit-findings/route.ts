@@ -61,6 +61,7 @@ export async function GET(req: NextRequest) {
     return {
       id: f.id,
       findingCode: f.findingCode,
+      findingCategory: f.findingCategory,
       auditNumber: f.auditNumber,
       initializedOn: f.initializedOn.toISOString(),
       field: f.field,

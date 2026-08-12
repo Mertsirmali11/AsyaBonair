@@ -76,7 +76,7 @@ export async function GET(_req: Request, ctx: Ctx) {
             include: {
               checklistItem: true,
               attachments: true,
-              finding: { select: { id: true, findingCode: true, findingLevel: true, status: true } },
+              finding: { select: { id: true, findingCode: true, findingLevel: true, findingCategory: true, status: true } },
             },
           },
         },
@@ -110,7 +110,12 @@ export async function GET(_req: Request, ctx: Ctx) {
             notes: si?.notes ?? null,
             auditeeNotes: si?.auditeeNotes ?? null,
             finding: si?.finding
-              ? { findingCode: si.finding.findingCode, findingLevel: si.finding.findingLevel, status: si.finding.status }
+              ? {
+                  findingCode: si.finding.findingCode,
+                  findingLevel: si.finding.findingLevel,
+                  findingCategory: si.finding.findingCategory,
+                  status: si.finding.status,
+                }
               : null,
             attachments: (si?.attachments ?? []).map((att) => ({
               fileName: att.fileName,
@@ -137,6 +142,7 @@ export async function GET(_req: Request, ctx: Ctx) {
   const findings = findingRows.map((f) => ({
     findingCode: f.findingCode,
     findingLevel: f.findingLevel,
+    findingCategory: f.findingCategory,
     explanation: f.explanation,
     reference: f.reference,
     field: f.field,

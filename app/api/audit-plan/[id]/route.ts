@@ -3,6 +3,7 @@ import { auth } from "@/auth"
 import { canAccessAuditPlan } from "@/lib/audit-plan-access"
 import { defaultChecklistNumber } from "@/lib/audit-checklist-helpers"
 import { dbDateToDdMmYyyy, parseDdMmYyyyToUtcDate } from "@/lib/correspondence-date"
+import { revokeActiveResponseLinksForEntry } from "@/lib/audit-response-link"
 import { prisma } from "@/lib/prisma-server"
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -194,6 +195,17 @@ export async function PATCH(req: Request, ctx: Ctx) {
         if (d) statusData.datePostponed = d
       }
       const updated = await prisma.auditPlanEntry.update({ where: { id }, data: statusData })
+
+      // Completed olduğunda bu denetime bağlı aktif Public Audit Response Link'ler otomatik
+      // devre dışı kalır (Reopen bunu geri açmaz — reaktivasyon yetkili kullanıcının açık işlemidir).
+      // Ana durum güncellemesini asla etkilememesi için sessizce başarısız olabilir.
+      if (newStatus === "Completed" && newStatus !== existing.status) {
+        try {
+          await revokeActiveResponseLinksForEntry(id)
+        } catch {
+          // Link iptali başarısız olsa bile durum güncellemesi geçerli kalır
+        }
+      }
 
       // Geçmiş / Audit History — durum değişikliği kaydı (Full Report'taki kapanış bilgisi için de kullanılır).
       // Ana durum güncellemesini asla etkilememesi için sessizce başarısız olabilir.

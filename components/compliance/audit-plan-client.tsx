@@ -93,6 +93,12 @@ import {
   downloadInitialReportPdf,
   type AuditPlanReportData,
 } from "@/lib/audit-plan-report-download"
+import {
+  FINDING_CATEGORY_VALUES,
+  findingCategoryLabels,
+  findingCategoryStyles,
+  isSacaOrSafaAuditCategory,
+} from "@/lib/finding-category"
 import { cn } from "@/lib/utils"
 
 type CalisanLite = { id: number; isim: string | null; soyisim: string | null }
@@ -136,12 +142,17 @@ export type AuditPlanDocumentRow = {
   fileSizeBytes: number | null
   uploadedByName: string | null
   createdAt: string
+  /** "auditor" | "auditee" — null (eski kayıt) "auditor" olarak ele alınır. */
+  source: string | null
+  submitterName: string | null
 }
 
 export type AuditPlanFindingRow = {
   id: number
   findingCode: string
   findingLevel: string
+  /** CAT1 | CAT2 | CAT3 — yalnızca SACA/SAFA denetimlerinde dolu, diğerlerinde null. */
+  findingCategory: string | null
   explanation: string
   status: string
   dueDate: string | null
@@ -235,6 +246,11 @@ export function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
+/** Türkçe karakter/case-insensitive karşılaştırma için normalize eder (Ü/Ç/Ö/Ğ/Ş/İ/I dahil). */
+function normalizeSearchText(s: string): string {
+  return s.toLocaleLowerCase("tr-TR").trim()
+}
+
 export function EmployeeMultiSelect({
   id,
   label,
@@ -251,6 +267,7 @@ export function EmployeeMultiSelect({
   placeholder?: string
 }) {
   const [open, setOpen] = React.useState(false)
+  const [query, setQuery] = React.useState("")
   const summary =
     selectedIds.length === 0
       ? placeholder
@@ -265,6 +282,16 @@ export function EmployeeMultiSelect({
       onChange([...selectedIds, calisanId])
     }
   }
+
+  const filteredOptions = React.useMemo(() => {
+    const q = normalizeSearchText(query)
+    if (!q) return options
+    return options.filter((o) => normalizeSearchText(o.label).includes(q))
+  }, [options, query])
+
+  React.useEffect(() => {
+    if (!open) setQuery("")
+  }, [open])
 
   return (
     <div className="space-y-2">
@@ -288,28 +315,51 @@ export function EmployeeMultiSelect({
           className="w-[var(--radix-popover-trigger-width)] p-0"
           align="start"
         >
-          {/* Native overflow scroll — Radix ScrollArea + Popover içinde fare tekerleği
-              kaydırması güvenilir çalışmıyordu; klavye navigasyonu ve seçili kişiler korunur. */}
-          <div className="max-h-[min(240px,40vh)] overflow-y-auto overscroll-contain">
-            <div className="flex flex-col gap-0.5 p-2">
-              {options.length === 0 ? (
-                <p className="text-muted-foreground px-2 py-3 text-center text-sm">
-                  Çalışan listesi yüklenemedi.
-                </p>
-              ) : (
-                options.map((opt) => (
-                  <label
-                    key={opt.id}
-                    className="hover:bg-muted/80 flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5"
-                  >
-                    <Checkbox
-                      checked={selectedIds.includes(opt.id)}
-                      onCheckedChange={() => toggle(opt.id)}
-                    />
-                    <span className="text-sm leading-none">{opt.label}</span>
-                  </label>
-                ))
-              )}
+          <div className="flex flex-col gap-0">
+            <div className="relative border-b px-2 py-1.5">
+              <Search className="text-muted-foreground pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Ara… (isim / soyisim)"
+                className="h-8 border-0 pl-7 shadow-none focus-visible:ring-0"
+                autoFocus
+              />
+            </div>
+            {/* Native overflow scroll + manuel onWheel: bu bileşen Dialog içinde açıldığında
+                Dialog'un scroll-lock'u (react-remove-scroll) global wheel event'ini
+                preventDefault ediyor; scrollTop'u elle güncelleyerek fare tekerleği
+                kaydırmasını garantiye alıyoruz. Klavye navigasyonu ve seçili kişiler korunur. */}
+            <div
+              className="max-h-[min(240px,40vh)] overflow-y-auto overscroll-contain"
+              onWheel={(e) => {
+                e.currentTarget.scrollTop += e.deltaY
+              }}
+            >
+              <div className="flex flex-col gap-0.5 p-2">
+                {options.length === 0 ? (
+                  <p className="text-muted-foreground px-2 py-3 text-center text-sm">
+                    Çalışan listesi yüklenemedi.
+                  </p>
+                ) : filteredOptions.length === 0 ? (
+                  <p className="text-muted-foreground px-2 py-3 text-center text-sm">
+                    No users found
+                  </p>
+                ) : (
+                  filteredOptions.map((opt) => (
+                    <label
+                      key={opt.id}
+                      className="hover:bg-muted/80 flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5"
+                    >
+                      <Checkbox
+                        checked={selectedIds.includes(opt.id)}
+                        onCheckedChange={() => toggle(opt.id)}
+                      />
+                      <span className="text-sm leading-none">{opt.label}</span>
+                    </label>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         </PopoverContent>
@@ -452,6 +502,8 @@ export function AuditPlanClient() {
   const [findingsLoading, setFindingsLoading] = React.useState(false)
   const [findingDialogOpen, setFindingDialogOpen] = React.useState(false)
   const [findingLevelInput, setFindingLevelInput] = React.useState("Level1")
+  /** CAT1 | CAT2 | CAT3 — yalnızca SACA/SAFA denetimlerinde gösterilir/gönderilir. */
+  const [findingCategoryInput, setFindingCategoryInput] = React.useState("CAT1")
   const [findingExplanation, setFindingExplanation] = React.useState("")
   const [findingReference, setFindingReference] = React.useState("")
   const [findingAssignedToId, setFindingAssignedToId] = React.useState<number | undefined>(undefined)
@@ -504,6 +556,7 @@ export function AuditPlanClient() {
 
   const openFindingDialog = () => {
     setFindingLevelInput("Level1")
+    setFindingCategoryInput("CAT1")
     setFindingExplanation("")
     setFindingReference("")
     setFindingAssignedToId(undefined)
@@ -523,6 +576,8 @@ export function AuditPlanClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           findingLevel: findingLevelInput,
+          // Sunucu SACA/SAFA dışındaki audit type'larda bu değeri zaten null'a zorlar.
+          findingCategory: isSacaOrSafaAuditCategory(detail?.categoryName) ? findingCategoryInput : null,
           explanation: findingExplanation.trim(),
           reference: findingReference.trim() || null,
           assignedToId: findingAssignedToId ?? null,
@@ -1958,6 +2013,17 @@ export function AuditPlanClient() {
                                 <span className={cn("rounded-full border px-1.5 py-0.5 text-[11px] font-medium", lvl.cls)}>
                                   {lvl.label}
                                 </span>
+                                {f.findingCategory && (
+                                  <span
+                                    className={cn(
+                                      "rounded-full border px-1.5 py-0.5 text-[11px] font-medium",
+                                      findingCategoryStyles[f.findingCategory as keyof typeof findingCategoryStyles] ??
+                                        findingCategoryStyles.CAT1
+                                    )}
+                                  >
+                                    {findingCategoryLabels[f.findingCategory as keyof typeof findingCategoryLabels] ?? f.findingCategory}
+                                  </span>
+                                )}
                                 <span className="text-muted-foreground min-w-0 flex-1 truncate">{f.explanation}</span>
                                 {f.assignedTo?.name && (
                                   <span className="text-muted-foreground text-xs shrink-0">{f.assignedTo.name}</span>
@@ -2305,6 +2371,21 @@ export function AuditPlanClient() {
                 </SelectContent>
               </Select>
             </div>
+            {isSacaOrSafaAuditCategory(detail?.categoryName) && (
+              <div className="space-y-2">
+                <Label>Finding Category</Label>
+                <Select value={findingCategoryInput} onValueChange={setFindingCategoryInput}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FINDING_CATEGORY_VALUES.map((c) => (
+                      <SelectItem key={c} value={c}>{findingCategoryLabels[c]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Açıklama / Bulgu *</Label>
               <Textarea

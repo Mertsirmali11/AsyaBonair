@@ -50,6 +50,7 @@ import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { normalizeDepartmentKey } from "@/lib/department-access"
 import { uploadAuditFindingFilesDirect } from "@/lib/client-audit-finding-file-upload"
+import { findingCategoryLabels, findingCategoryStyles } from "@/lib/finding-category"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
@@ -87,6 +88,8 @@ type Extension = {
 type FindingDetail = {
   id: number
   findingCode: string
+  /** CAT1 | CAT2 | CAT3 — yalnızca SACA/SAFA denetimlerinde dolu, diğerlerinde null. */
+  findingCategory: string | null
   explanation: string
   reference: string | null
   field: string | null
@@ -536,6 +539,17 @@ export function FindingDetailClient({
               <h1 className="text-2xl font-semibold tracking-tight">{finding.findingCode}</h1>
               <p className="text-muted-foreground text-sm">{finding.auditNumber ?? "—"} · {finding.field ?? "—"}</p>
             </div>
+            {finding.findingCategory && (
+              <Badge
+                variant="outline"
+                className={cn(
+                  "ml-1",
+                  findingCategoryStyles[finding.findingCategory as keyof typeof findingCategoryStyles]
+                )}
+              >
+                {findingCategoryLabels[finding.findingCategory as keyof typeof findingCategoryLabels] ?? finding.findingCategory}
+              </Badge>
+            )}
             <Badge className={cn(
               "ml-1",
               isOpen ? "bg-blue-600 text-white" : "bg-teal-600 text-white"

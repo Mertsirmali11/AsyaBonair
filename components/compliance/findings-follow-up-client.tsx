@@ -51,11 +51,14 @@ import {
 } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
+import { findingCategoryLabels, findingCategoryStyles } from "@/lib/finding-category"
 import { cn } from "@/lib/utils"
 
 type FindingRow = {
   id: number
   findingCode: string
+  /** CAT1 | CAT2 | CAT3 — yalnızca SACA/SAFA denetimlerinde dolu, diğerlerinde null. */
+  findingCategory: string | null
   auditNumber: string | null
   initializedOn: string
   field: string | null
@@ -91,6 +94,7 @@ export function FindingsFollowUpClient() {
   const [loading, setLoading] = React.useState(true)
   const [showClosed, setShowClosed] = React.useState(true)
   const [fieldFilter, setFieldFilter] = React.useState("All")
+  const [categoryFilter, setCategoryFilter] = React.useState("All")
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -125,13 +129,20 @@ export function FindingsFollowUpClient() {
     return ["All", ...Array.from(set).sort()]
   }, [rows])
 
+  // Bulunan Finding Category değerleri (yalnızca SACA/SAFA bulgularında dolu)
+  const categories = React.useMemo(() => {
+    const set = new Set(rows.map((r) => r.findingCategory ?? "").filter(Boolean))
+    return ["All", ...Array.from(set).sort()]
+  }, [rows])
+
   const filtered = React.useMemo(() => {
     return rows.filter((r) => {
       if (!showClosed && r.status === "Closed") return false
       if (fieldFilter !== "All" && r.field !== fieldFilter) return false
+      if (categoryFilter !== "All" && r.findingCategory !== categoryFilter) return false
       return true
     })
-  }, [rows, showClosed, fieldFilter])
+  }, [rows, showClosed, fieldFilter, categoryFilter])
 
   const summaryCards = [
     {
@@ -248,16 +259,32 @@ export function FindingsFollowUpClient() {
               Show Closed
             </label>
           </div>
-          <Select value={fieldFilter} onValueChange={setFieldFilter}>
-            <SelectTrigger className="w-44 h-8 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {fields.map((f) => (
-                <SelectItem key={f} value={f}>{f}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex flex-wrap items-center gap-2">
+            {categories.length > 1 && (
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger className="w-36 h-8 text-sm">
+                  <SelectValue placeholder="Finding Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c === "All" ? "All Categories" : findingCategoryLabels[c as keyof typeof findingCategoryLabels] ?? c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Select value={fieldFilter} onValueChange={setFieldFilter}>
+              <SelectTrigger className="w-44 h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {fields.map((f) => (
+                  <SelectItem key={f} value={f}>{f}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {/* Table */}
@@ -268,6 +295,7 @@ export function FindingsFollowUpClient() {
                 <TableRow className="bg-muted/50 hover:bg-muted/50">
                   <TableHead className="w-12 px-2" />
                   <TableHead className="whitespace-nowrap font-semibold">Follow UP Code</TableHead>
+                  <TableHead className="whitespace-nowrap font-semibold">Category</TableHead>
                   <TableHead className="whitespace-nowrap font-semibold">Audit Number</TableHead>
                   <TableHead className="whitespace-nowrap font-semibold">Initialized On</TableHead>
                   <TableHead className="font-semibold">Field</TableHead>
@@ -279,13 +307,13 @@ export function FindingsFollowUpClient() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-muted-foreground h-32 text-center">
+                    <TableCell colSpan={9} className="text-muted-foreground h-32 text-center">
                       Yükleniyor…
                     </TableCell>
                   </TableRow>
                 ) : filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-muted-foreground h-32 text-center">
+                    <TableCell colSpan={9} className="text-muted-foreground h-32 text-center">
                       {rows.length === 0 ? "Henüz bulgu yok." : "Filtre ile eşleşen kayıt yok."}
                     </TableCell>
                   </TableRow>
@@ -330,6 +358,21 @@ export function FindingsFollowUpClient() {
                         </Link>
                         {row.isOverdue && row.status === "Open" && (
                           <AlertTriangle className="inline ml-1 size-3.5 text-red-500" />
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {row.findingCategory ? (
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "text-[11px]",
+                              findingCategoryStyles[row.findingCategory as keyof typeof findingCategoryStyles]
+                            )}
+                          >
+                            {findingCategoryLabels[row.findingCategory as keyof typeof findingCategoryLabels] ?? row.findingCategory}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
                       <TableCell className="text-sm">

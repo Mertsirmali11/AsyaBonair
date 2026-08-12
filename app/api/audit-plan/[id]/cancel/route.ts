@@ -57,6 +57,12 @@ export async function POST(req: Request, ctx: Ctx) {
       where: { id: entryId },
       data: { status: "Cancelled", cancellationReason: reason },
     }),
+    // Cancelled olduğunda bu denetime bağlı aktif Public Audit Response Link'ler otomatik
+    // devre dışı kalır (Reopen bunu geri açmaz — reaktivasyon yetkili kullanıcının açık işlemidir).
+    prisma.auditResponseLink.updateMany({
+      where: { auditPlanEntryId: entryId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    }),
     prisma.auditPlanEntryHistory.create({
       data: {
         auditPlanEntryId: entryId,

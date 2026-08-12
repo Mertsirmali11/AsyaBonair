@@ -3,6 +3,7 @@
 import { jsPDF } from "jspdf"
 import autoTable from "jspdf-autotable"
 import { sanitizeFilenamePart } from "@/lib/audit-checklist-export-lines"
+import { findingCategoryLabels } from "@/lib/finding-category"
 
 // ─── Types (mirrors GET /api/audit-plan/[id]/report response) ────────────────
 
@@ -40,13 +41,14 @@ export type AuditPlanReportData = {
       result: string | null
       notes: string | null
       auditeeNotes: string | null
-      finding: { findingCode: string; findingLevel: string; status: string } | null
+      finding: { findingCode: string; findingLevel: string; findingCategory: string | null; status: string } | null
       attachments: { fileName: string; uploadedBy: string; fileSizeBytes: number | null; uploadedAt: string }[]
     }[]
   }[]
   findings: {
     findingCode: string
     findingLevel: string
+    findingCategory: string | null
     explanation: string
     reference: string | null
     field: string | null
@@ -91,6 +93,12 @@ const findingLevelLabels: Record<string, string> = {
   Level1: "Level 1",
   Level2: "Level 2",
   Observation: "Gözlem",
+}
+
+/** SACA/SAFA denetimlerinde dolu olur; diğerlerinde null — boşsa "—" döner. */
+function findingCategoryLabel(category: string | null): string {
+  if (!category) return "—"
+  return (findingCategoryLabels as Record<string, string>)[category] ?? category
 }
 
 function fmtDate(iso: string | null): string {
@@ -224,17 +232,18 @@ export function downloadInitialReportPdf(data: AuditPlanReportData): void {
     y = sectionTitle(doc, `Bulgular (${data.findings.length})`, y, margin)
     autoTable(doc, {
       startY: y,
-      head: [["Kod", "Seviye", "Açıklama", "Sorumlu", "Durum"]],
+      head: [["Kod", "Seviye", "Kategori", "Açıklama", "Sorumlu", "Durum"]],
       body: data.findings.map((f) => [
         f.findingCode,
         findingLevelLabels[f.findingLevel] ?? f.findingLevel,
+        findingCategoryLabel(f.findingCategory),
         f.explanation,
         f.assignedTo?.name ?? "—",
         f.status === "Closed" ? "Kapalı" : "Açık",
       ]),
       styles: { fontSize: 8, cellPadding: 2, overflow: "linebreak" },
       headStyles: { fillColor: [26, 54, 93], textColor: 255, fontStyle: "bold" },
-      columnStyles: { 2: { cellWidth: 70 } },
+      columnStyles: { 3: { cellWidth: 65 } },
       margin: { left: margin, right: margin },
     })
     y = lastAutoTableY(doc) + 8
@@ -313,7 +322,9 @@ export function downloadFullReportPdf(data: AuditPlanReportData): void {
         it.label,
         it.result ? (resultLabels[it.result] ?? it.result) : "—",
         [it.notes, it.auditeeNotes ? `Denetlenen: ${it.auditeeNotes}` : ""].filter(Boolean).join("\n") || "—",
-        it.finding ? `${it.finding.findingCode} (${findingLevelLabels[it.finding.findingLevel] ?? it.finding.findingLevel})` : "—",
+        it.finding
+          ? `${it.finding.findingCode} (${findingLevelLabels[it.finding.findingLevel] ?? it.finding.findingLevel}${it.finding.findingCategory ? ` · ${findingCategoryLabel(it.finding.findingCategory)}` : ""})`
+          : "—",
       ])
 
     if (body.length === 0) {
@@ -361,10 +372,11 @@ export function downloadFullReportPdf(data: AuditPlanReportData): void {
   if (data.findings.length > 0) {
     autoTable(doc, {
       startY: y,
-      head: [["Kod", "Seviye", "Kaynak", "Açıklama", "Sorumlu / Departman", "Vade", "Durum", "CPA"]],
+      head: [["Kod", "Seviye", "Kategori", "Kaynak", "Açıklama", "Sorumlu / Departman", "Vade", "Durum", "CPA"]],
       body: data.findings.map((f) => [
         f.findingCode,
         findingLevelLabels[f.findingLevel] ?? f.findingLevel,
+        findingCategoryLabel(f.findingCategory),
         f.isManual ? "Manuel" : "Checklist",
         f.explanation,
         f.assignedTo ? `${f.assignedTo.name ?? "—"}${f.assignedTo.department ? ` (${f.assignedTo.department})` : ""}` : "—",
@@ -380,8 +392,8 @@ export function downloadFullReportPdf(data: AuditPlanReportData): void {
       styles: { fontSize: 7, cellPadding: 1.8, overflow: "linebreak" },
       headStyles: { fillColor: [26, 54, 93], textColor: 255, fontStyle: "bold" },
       columnStyles: {
-        3: { cellWidth: 40 },
-        7: { cellWidth: 38 },
+        4: { cellWidth: 36 },
+        8: { cellWidth: 34 },
       },
       margin: { left: margin, right: margin },
     })
