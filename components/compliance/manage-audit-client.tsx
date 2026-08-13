@@ -19,6 +19,7 @@ import {
   Link2,
   Loader2,
   MessageSquare,
+  Paperclip,
   Pencil,
   Plus,
   RefreshCw,
@@ -83,6 +84,12 @@ import {
   statusStyles,
 } from "@/components/compliance/audit-plan-client"
 import { uploadAuditPlanDocumentsDirect } from "@/lib/client-audit-plan-document-upload"
+import { uploadAuditFindingFilesDirect } from "@/lib/client-audit-finding-file-upload"
+import {
+  FINDING_FILE_ACCEPT_HTML,
+  FINDING_FILE_TYPES_USER_MESSAGE,
+  isAllowedFindingFile,
+} from "@/lib/allowed-document-uploads"
 import { parseDdMmYyyyToUtcDate } from "@/lib/correspondence-date"
 import {
   FINDING_CATEGORY_VALUES,
@@ -356,6 +363,9 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
   const [findingAssignedToId, setFindingAssignedToId] = React.useState<number | undefined>(undefined)
   const [findingAssignees, setFindingAssignees] = React.useState<{ id: number; label: string }[]>([])
   const [creatingFinding, setCreatingFinding] = React.useState(false)
+  /** Add Finding dialogunda "Kaydet"e basılmadan önce seçilen dosyalar — finding oluşunca
+   * kendi ID'siyle yüklenir (upload endpoint'i finding'in zaten var olmasını şart koşuyor). */
+  const [findingPendingFiles, setFindingPendingFiles] = React.useState<File[]>([])
 
   const reloadFindings = React.useCallback(async () => {
     setFindingsLoading(true)
@@ -399,7 +409,27 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
     setFindingExplanation("")
     setFindingReference("")
     setFindingAssignedToId(undefined)
+    setFindingPendingFiles([])
     setFindingDialogOpen(true)
+  }
+
+  const addFindingPendingFiles = (fileList: FileList) => {
+    const incoming = Array.from(fileList)
+    const accepted: File[] = []
+    for (const f of incoming) {
+      if (isAllowedFindingFile(f)) {
+        accepted.push(f)
+      } else {
+        toast.error(`İzin verilmeyen dosya türü: ${f.name} (${FINDING_FILE_TYPES_USER_MESSAGE} kabul edilir).`)
+      }
+    }
+    if (accepted.length > 0) {
+      setFindingPendingFiles((prev) => [...prev, ...accepted])
+    }
+  }
+
+  const removeFindingPendingFile = (index: number) => {
+    setFindingPendingFiles((prev) => prev.filter((_, i) => i !== index))
   }
 
   const submitFinding = async () => {
@@ -424,7 +454,25 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || "Bulgu kaydedilemedi.")
       toast.success(`Bulgu eklendi (${data.findingCode ?? ""}).`)
+
+      // Finding oluştu — dosyalar seçildiyse şimdi kendi Finding ID'siyle yükle. Bu adım
+      // başarısız olsa bile finding zaten kaydedilmiş olduğu için akışı bozma.
+      if (findingPendingFiles.length > 0 && data.id) {
+        try {
+          const uploaded = await uploadAuditFindingFilesDirect(data.id, findingPendingFiles)
+          const fileRes = await fetch(`/api/audit-findings/${data.id}/files`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ files: uploaded }),
+          })
+          if (!fileRes.ok) throw new Error()
+        } catch {
+          toast.error("Bulgu oluşturuldu ancak dosyalar yüklenemedi. Bulgu Detayı'ndan tekrar deneyebilirsiniz.")
+        }
+      }
+
       setFindingDialogOpen(false)
+      setFindingPendingFiles([])
       await Promise.all([reloadFindings(), reloadHistory()])
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Bulgu kaydedilemedi.")
@@ -1721,6 +1769,52 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
             <div className="space-y-2">
               <Label>Sorumlu Kişi (İsteğe Bağlı)</Label>
               <EmployeeCombobox options={findingAssignees} value={findingAssignedToId} onChange={setFindingAssignedToId} placeholder="Personel seçin…" />
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label className="flex items-center gap-1.5">
+                  <Paperclip className="size-3.5 text-muted-foreground" />
+                  Finding Files / Ekler (İsteğe Bağlı)
+                </Label>
+                <label
+                  htmlFor="add-finding-file-input"
+                  className="border-input bg-background hover:bg-accent hover:text-accent-foreground inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md border px-2 text-xs font-medium shadow-xs"
+                >
+                  <Plus className="size-3.5" />
+                  Add File
+                </label>
+                <input
+                  id="add-finding-file-input"
+                  type="file"
+                  multiple
+                  accept={FINDING_FILE_ACCEPT_HTML}
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files?.length) addFindingPendingFiles(e.target.files)
+                    e.target.value = ""
+                  }}
+                />
+              </div>
+              {findingPendingFiles.length > 0 && (
+                <ul className="space-y-1.5">
+                  {findingPendingFiles.map((f, i) => (
+                    <li key={`${f.name}-${i}`} className="bg-background/60 flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs">
+                      <span className="min-w-0 flex-1 truncate" title={f.name}>{f.name}</span>
+                      <span className="text-muted-foreground shrink-0">{formatBytes(f.size)}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive size-6 shrink-0"
+                        onClick={() => removeFindingPendingFile(i)}
+                        aria-label="Dosyayı kaldır"
+                      >
+                        <XCircle className="size-3.5" />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
           <DialogFooter className="gap-2 sm:justify-end">

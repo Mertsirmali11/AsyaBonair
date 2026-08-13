@@ -38,6 +38,17 @@ export async function DELETE(_req: Request, ctx: Ctx) {
     return NextResponse.json({ error: "Assignment not found" }, { status: 404 })
   }
 
+  // Bu checklist'e ait AKTİF oturumu arşivle (fiziksel silme YOK — eski cevaplar/finding'ler
+  // audit trail olarak kalır) ki checklist tekrar atandığında yeni/temiz bir oturum başlasın.
+  try {
+    await prisma.auditSession.updateMany({
+      where: { auditPlanEntryId, auditChecklistId, archivedAt: null },
+      data: { archivedAt: new Date() },
+    })
+  } catch {
+    // Arşivleme başarısız olsa bile checklist kaldırma işlemi geçerli kalır
+  }
+
   try {
     const actorEmail = session.user?.email
     const actor = actorEmail

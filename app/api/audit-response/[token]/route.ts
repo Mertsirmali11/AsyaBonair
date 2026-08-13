@@ -60,7 +60,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     // Bu denetime bağlı checklist oturum(lar)ı — auditor'un cevabı/sonucu (result/notes)
     // HİÇBİR ZAMAN döndürülmez, yalnızca soru metni ve bu link'in KENDİ gönderimleri.
     prisma.auditSession.findMany({
-      where: { auditPlanEntryId: entry.id },
+      where: { auditPlanEntryId: entry.id, archivedAt: null },
       select: {
         id: true,
         checklist: { select: { title: true, checklistNumber: true } },

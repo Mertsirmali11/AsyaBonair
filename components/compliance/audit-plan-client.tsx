@@ -701,7 +701,9 @@ export function AuditPlanClient() {
     }
   }
 
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false)
+  // Satır ⋮ menüsünden veya Detay panelindeki "Sil" butonundan tetiklenebilir — ikisi de
+  // aynı hedef state'i (id + gösterim için auditNumber) set eder, aynı onay dialogunu kullanır.
+  const [deleteTarget, setDeleteTarget] = React.useState<{ id: string; auditNumber: string } | null>(null)
   const [deleteSubmitting, setDeleteSubmitting] = React.useState(false)
 
   const [assignOpen, setAssignOpen] = React.useState(false)
@@ -1060,10 +1062,10 @@ export function AuditPlanClient() {
   }
 
   const handleConfirmDelete = async () => {
-    if (!detail) return
+    if (!deleteTarget) return
     setDeleteSubmitting(true)
     try {
-      const res = await fetch(`/api/audit-plan/${detail.id}`, { method: "DELETE" })
+      const res = await fetch(`/api/audit-plan/${deleteTarget.id}`, { method: "DELETE" })
       const errJson = await res.json().catch(() => ({}))
       if (!res.ok) {
         const msg =
@@ -1072,8 +1074,8 @@ export function AuditPlanClient() {
         return
       }
       toast.success("Kayıt silindi.")
-      setDeleteConfirmOpen(false)
-      setDetailEntryId(null)
+      setDeleteTarget(null)
+      if (detailEntryId === deleteTarget.id) setDetailEntryId(null)
       await refreshRows()
     } catch {
       toast.error("Bağlantı hatası.")
@@ -1622,6 +1624,14 @@ export function AuditPlanClient() {
                                 Cancelled
                               </DropdownMenuItem>
                             )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={() => setDeleteTarget({ id: row.id, auditNumber: row.auditNumber })}
+                            >
+                              <Trash2 className="mr-2 size-4" />
+                              Delete
+                            </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -1851,7 +1861,7 @@ export function AuditPlanClient() {
                     size="sm"
                     variant="destructive"
                     className="gap-1.5"
-                    onClick={() => setDeleteConfirmOpen(true)}
+                    onClick={() => detail && setDeleteTarget({ id: detail.id, auditNumber: detail.auditNumber })}
                   >
                     <Trash2 className="size-4" />
                     Sil
@@ -2359,21 +2369,21 @@ export function AuditPlanClient() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+      <Dialog open={!!deleteTarget} onOpenChange={(o) => !deleteSubmitting && !o && setDeleteTarget(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Denetim kaydını sil?</DialogTitle>
+            <DialogTitle>Denetimi Sil</DialogTitle>
           </DialogHeader>
           <p className="text-muted-foreground text-sm">
-            {detail
-              ? `“${detail.auditNumber}” kalıcı olarak silinecek. Bu işlem geri alınamaz.`
+            {deleteTarget
+              ? `“${deleteTarget.auditNumber}” numaralı denetim silinecek. Bu işlem geri alınamaz.`
               : ""}
           </p>
           <DialogFooter className="gap-2 sm:justify-end">
             <Button
               type="button"
               variant="outline"
-              onClick={() => setDeleteConfirmOpen(false)}
+              onClick={() => setDeleteTarget(null)}
               disabled={deleteSubmitting}
             >
               Vazgeç
@@ -2384,7 +2394,7 @@ export function AuditPlanClient() {
               disabled={deleteSubmitting}
               onClick={handleConfirmDelete}
             >
-              {deleteSubmitting ? "Siliniyor…" : "Sil"}
+              {deleteSubmitting ? "Siliniyor…" : "Denetimi Sil"}
             </Button>
           </DialogFooter>
         </DialogContent>

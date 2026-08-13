@@ -1170,6 +1170,12 @@ model AuditSession {
   auditorComment   String?   @db.Text @map("auditor_comment")
   /// Denetlenen genel yorumu / itirazı (oturum bazında)
   auditeeComment   String?   @db.Text @map("auditee_comment")
+  /// Doluysa bu session artık AKTİF DEĞİL — checklist denetimden kaldırıldığında (Remove)
+  /// işaretlenir. Fiziksel olarak SİLİNMEZ (audit trail: eski cevaplar, oluşan Finding'ler
+  /// kalıcı kalır); yalnızca "yeni checklist ataması" ve "aktif oturum" aramalarında hariç
+  /// tutulur. Aynı checklist tekrar atandığında bu satır yerine YENİ, boş bir AuditSession
+  /// oluşturulur — böylece eski cevaplar geri gelmez.
+  archivedAt       DateTime? @map("archived_at")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
@@ -1180,6 +1186,7 @@ model AuditSession {
 
   @@index([auditPlanEntryId])
   @@index([auditChecklistId])
+  @@index([archivedAt])
   @@map("audit_sessions")
 }
 
