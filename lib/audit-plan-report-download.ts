@@ -41,13 +41,13 @@ export type AuditPlanReportData = {
       result: string | null
       notes: string | null
       auditeeNotes: string | null
-      finding: { findingCode: string; findingLevel: string; findingCategory: string | null; status: string } | null
+      finding: { findingCode: string; findingLevel: string | null; findingCategory: string | null; status: string } | null
       attachments: { fileName: string; uploadedBy: string; fileSizeBytes: number | null; uploadedAt: string }[]
     }[]
   }[]
   findings: {
     findingCode: string
-    findingLevel: string
+    findingLevel: string | null
     findingCategory: string | null
     explanation: string
     reference: string | null
@@ -99,6 +99,12 @@ const findingLevelLabels: Record<string, string> = {
 function findingCategoryLabel(category: string | null): string {
   if (!category) return "—"
   return (findingCategoryLabels as Record<string, string>)[category] ?? category
+}
+
+/** SACA/SAFA DIŞINDAKİ audit type'larında dolu olur; SACA/SAFA'da null — boşsa "—" döner. */
+function findingLevelLabel(level: string | null): string {
+  if (!level) return "—"
+  return findingLevelLabels[level] ?? level
 }
 
 function fmtDate(iso: string | null): string {
@@ -235,7 +241,7 @@ export function downloadInitialReportPdf(data: AuditPlanReportData): void {
       head: [["Kod", "Seviye", "Kategori", "Açıklama", "Sorumlu", "Durum"]],
       body: data.findings.map((f) => [
         f.findingCode,
-        findingLevelLabels[f.findingLevel] ?? f.findingLevel,
+        findingLevelLabel(f.findingLevel),
         findingCategoryLabel(f.findingCategory),
         f.explanation,
         f.assignedTo?.name ?? "—",
@@ -323,7 +329,7 @@ export function downloadFullReportPdf(data: AuditPlanReportData): void {
         it.result ? (resultLabels[it.result] ?? it.result) : "—",
         [it.notes, it.auditeeNotes ? `Denetlenen: ${it.auditeeNotes}` : ""].filter(Boolean).join("\n") || "—",
         it.finding
-          ? `${it.finding.findingCode} (${findingLevelLabels[it.finding.findingLevel] ?? it.finding.findingLevel}${it.finding.findingCategory ? ` · ${findingCategoryLabel(it.finding.findingCategory)}` : ""})`
+          ? `${it.finding.findingCode} (${findingLevelLabel(it.finding.findingLevel)}${it.finding.findingCategory ? ` · ${findingCategoryLabel(it.finding.findingCategory)}` : ""})`
           : "—",
       ])
 
@@ -375,7 +381,7 @@ export function downloadFullReportPdf(data: AuditPlanReportData): void {
       head: [["Kod", "Seviye", "Kategori", "Kaynak", "Açıklama", "Sorumlu / Departman", "Vade", "Durum", "CPA"]],
       body: data.findings.map((f) => [
         f.findingCode,
-        findingLevelLabels[f.findingLevel] ?? f.findingLevel,
+        findingLevelLabel(f.findingLevel),
         findingCategoryLabel(f.findingCategory),
         f.isManual ? "Manuel" : "Checklist",
         f.explanation,

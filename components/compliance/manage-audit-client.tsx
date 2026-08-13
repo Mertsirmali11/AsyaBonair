@@ -361,6 +361,10 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
   const [findingExplanation, setFindingExplanation] = React.useState("")
   const [findingReference, setFindingReference] = React.useState("")
   const [findingAssignedToId, setFindingAssignedToId] = React.useState<number | undefined>(undefined)
+  /** dd.mm.yyyy — yalnızca SACA/SAFA denetimlerinde gösterilir/zorunludur (Level olmadığı için
+   * otomatik vade hesaplanamaz). Diğer audit type'larında mevcut Level tabanlı otomatik
+   * hesaplama aynen kullanılmaya devam eder, bu alan gösterilmez. */
+  const [findingDueDateInput, setFindingDueDateInput] = React.useState("")
   const [findingAssignees, setFindingAssignees] = React.useState<{ id: number; label: string }[]>([])
   const [creatingFinding, setCreatingFinding] = React.useState(false)
   /** Add Finding dialogunda "Kaydet"e basılmadan önce seçilen dosyalar — finding oluşunca
@@ -409,6 +413,7 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
     setFindingExplanation("")
     setFindingReference("")
     setFindingAssignedToId(undefined)
+    setFindingDueDateInput("")
     setFindingPendingFiles([])
     setFindingDialogOpen(true)
   }
@@ -437,18 +442,33 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
       toast.error("Açıklama zorunludur.")
       return
     }
+    const isSacaSafa = isSacaOrSafaAuditCategory(detail?.categoryName)
+    let dueDateIso: string | null = null
+    if (isSacaSafa) {
+      // SACA/SAFA'da Level olmadığı için otomatik vade hesaplanamaz — Due Date manuel ve
+      // zorunludur (ortak DatePicker/date-input mask sistemi ile aynı doğrulama).
+      const parsed = findingDueDateInput.trim() ? parseDdMmYyyyToUtcDate(findingDueDateInput.trim()) : null
+      if (!parsed) {
+        toast.error("Geçerli bir Due Date giriniz (gg.aa.yyyy).")
+        return
+      }
+      dueDateIso = parsed.toISOString()
+    }
     setCreatingFinding(true)
     try {
       const res = await fetch(`/api/audit-plan/${entryId}/findings`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          findingLevel: findingLevelInput,
+          // SACA/SAFA'da Level artık gönderilmez (kaldırıldı) — sunucu zaten yok sayar, ama
+          // istemcide de göndermeyerek "eski/default bir Level" izlenimini bırakmıyoruz.
+          findingLevel: isSacaSafa ? undefined : findingLevelInput,
           // Sunucu SACA/SAFA dışındaki audit type'larda bu değeri zaten null'a zorlar.
-          findingCategory: isSacaOrSafaAuditCategory(detail?.categoryName) ? findingCategoryInput : null,
+          findingCategory: isSacaSafa ? findingCategoryInput : null,
           explanation: findingExplanation.trim(),
           reference: findingReference.trim() || null,
           assignedToId: findingAssignedToId ?? null,
+          ...(isSacaSafa ? { dueDate: dueDateIso } : {}),
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -616,14 +636,17 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
       toast.error("Açıklama zorunludur.")
       return
     }
+    const isSacaSafaEdit = isSacaOrSafaAuditCategory(detail?.categoryName)
     setSavingEditFinding(true)
     try {
       const res = await fetch(`/api/audit-findings/${editFindingTarget.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          findingLevel: editFindingLevel,
-          findingCategory: isSacaOrSafaAuditCategory(detail?.categoryName) ? editFindingCategory : null,
+          // SACA/SAFA'da Level artık düzenlenemez — sunucu zaten yok sayar, istemcide de
+          // göndermeyerek eski/varsayılan bir değerin yanlışlıkla yazılmasını önlüyoruz.
+          findingLevel: isSacaSafaEdit ? undefined : editFindingLevel,
+          findingCategory: isSacaSafaEdit ? editFindingCategory : null,
           explanation: editFindingExplanation.trim(),
           reference: editFindingReference.trim() || null,
           assignedToId: editFindingAssignedToId ?? null,
@@ -1289,12 +1312,16 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
               ) : (
                 <ul className="space-y-1.5">
                   {findings.filter((f): f is AuditPlanFindingRow => !!f && f.id != null).map((f) => {
-                    const lvl = findingLevelStyles[f.findingLevel] ?? findingLevelStyles.Level1
+                    // SACA/SAFA bulgularında findingLevel null'dur (tek sınıflandırma
+                    // Category'dir) — bu durumda Level rozeti hiç gösterilmez.
+                    const lvl = f.findingLevel ? (findingLevelStyles[f.findingLevel] ?? findingLevelStyles.Level1) : null
                     return (
                       <li key={f.id} className="flex items-center gap-1.5">
                         <Link href={`/compliance/findings-follow-up/${f.id}`} className="bg-background/60 hover:bg-background flex min-w-0 flex-1 flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors">
                           <span className="font-mono text-xs font-semibold">{f.findingCode}</span>
-                          <span className={cn("rounded-full border px-1.5 py-0.5 text-[11px] font-medium", lvl.cls)}>{lvl.label}</span>
+                          {lvl && (
+                            <span className={cn("rounded-full border px-1.5 py-0.5 text-[11px] font-medium", lvl.cls)}>{lvl.label}</span>
+                          )}
                           {f.findingCategory && (
                             <span
                               className={cn(
@@ -1734,20 +1761,25 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-1">
-            <div className="space-y-2">
-              <Label>Bulgu Seviyesi</Label>
-              <Select value={findingLevelInput} onValueChange={setFindingLevelInput}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Level1">Level 1</SelectItem>
-                  <SelectItem value="Level2">Level 2</SelectItem>
-                  <SelectItem value="Observation">Gözlem (Observation)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {/* SACA/SAFA denetimlerinde tek sınıflandırma Finding Category'dir — Bulgu
+                Seviyesi (Level) hiç gösterilmez. Diğer audit type'larında (Internal, vb.)
+                mevcut Level davranışı aynen korunur. */}
+            {!isSacaOrSafaAuditCategory(detail?.categoryName) && (
+              <div className="space-y-2">
+                <Label>Bulgu Seviyesi</Label>
+                <Select value={findingLevelInput} onValueChange={setFindingLevelInput}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Level1">Level 1</SelectItem>
+                    <SelectItem value="Level2">Level 2</SelectItem>
+                    <SelectItem value="Observation">Gözlem (Observation)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {isSacaOrSafaAuditCategory(detail?.categoryName) && (
               <div className="space-y-2">
-                <Label>Finding Category</Label>
+                <Label>Finding Category *</Label>
                 <Select value={findingCategoryInput} onValueChange={setFindingCategoryInput}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -1770,6 +1802,12 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
               <Label>Sorumlu Kişi (İsteğe Bağlı)</Label>
               <EmployeeCombobox options={findingAssignees} value={findingAssignedToId} onChange={setFindingAssignedToId} placeholder="Personel seçin…" />
             </div>
+            {isSacaOrSafaAuditCategory(detail?.categoryName) && (
+              <div className="space-y-2">
+                <Label>Due Date *</Label>
+                <DatePicker value={findingDueDateInput} onChange={setFindingDueDateInput} placeholder="dd.mm.yyyy" />
+              </div>
+            )}
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <Label className="flex items-center gap-1.5">
@@ -1834,20 +1872,22 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-1">
-            <div className="space-y-2">
-              <Label>Bulgu Seviyesi</Label>
-              <Select value={editFindingLevel} onValueChange={setEditFindingLevel}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Level1">Level 1</SelectItem>
-                  <SelectItem value="Level2">Level 2</SelectItem>
-                  <SelectItem value="Observation">Gözlem (Observation)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {!isSacaOrSafaAuditCategory(detail?.categoryName) && (
+              <div className="space-y-2">
+                <Label>Bulgu Seviyesi</Label>
+                <Select value={editFindingLevel} onValueChange={setEditFindingLevel}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Level1">Level 1</SelectItem>
+                    <SelectItem value="Level2">Level 2</SelectItem>
+                    <SelectItem value="Observation">Gözlem (Observation)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {isSacaOrSafaAuditCategory(detail?.categoryName) && (
               <div className="space-y-2">
-                <Label>Finding Category</Label>
+                <Label>Finding Category *</Label>
                 <Select value={editFindingCategory} onValueChange={setEditFindingCategory}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>

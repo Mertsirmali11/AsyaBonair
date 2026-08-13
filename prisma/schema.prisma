@@ -1245,10 +1245,14 @@ model AuditFinding {
   auditSessionItemId Int?      @unique @map("audit_session_item_id")
   /// Denetim Planı "Bulgu Ekle" ile checklist/session'dan bağımsız oluşturulan bulgularda dolu.
   auditPlanEntryId   Int?      @map("audit_plan_entry_id")
-  /// Level1 | Level2 | Observation
-  findingLevel       String    @default("Level1") @db.VarChar(20) @map("finding_level")
-  /// CAT1 | CAT2 | CAT3 — yalnızca SACA/SAFA denetimlerinde kullanılır, diğerlerinde null.
-  /// Mevcut findingLevel (Level1/Level2/Observation) workflow'undan bağımsız, ek sınıflandırma.
+  /// Level1 | Level2 | Observation — YALNIZCA SACA/SAFA DIŞINDAKİ audit type'larında dolu
+  /// (ör. Internal Audit). SACA/SAFA denetimlerinde bu alan artık kullanılmaz, her zaman
+  /// null kaydedilir — o denetim tipinde tek sınıflandırma findingCategory'dir (bkz. altı).
+  /// Eski SACA/SAFA kayıtlarında (bu ayrım öncesi oluşturulmuş) geriye dönük uyumluluk için
+  /// tarihsel Level değeri silinmeden bırakılmıştır, ama artık okunmaz/kullanılmaz.
+  findingLevel       String?   @db.VarChar(20) @map("finding_level")
+  /// CAT1 | CAT2 | CAT3 — SACA/SAFA denetimlerinde ZORUNLU ve TEK sınıflandırma; diğer audit
+  /// type'larında (ör. Internal) her zaman null — orada tek sınıflandırma findingLevel'dır.
   findingCategory    String?   @db.VarChar(10) @map("finding_category")
   /// Bulgunun açıklaması / gözlem
   explanation        String    @db.Text

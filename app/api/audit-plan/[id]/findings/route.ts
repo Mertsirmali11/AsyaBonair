@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { canAccessAuditPlan } from "@/lib/audit-plan-access"
-import { normalizeFindingCategory } from "@/lib/finding-category"
+import { isSacaOrSafaAuditCategory, normalizeFindingCategory } from "@/lib/finding-category"
 import { prisma } from "@/lib/prisma-server"
 
 export const runtime = "nodejs"
@@ -98,15 +98,28 @@ export async function POST(req: Request, ctx: Ctx) {
     explanation?: string
     reference?: string
     assignedToId?: number | null
+    dueDate?: string | null
   } | null
 
-  const findingLevel = typeof body?.findingLevel === "string" ? body.findingLevel : "Level1"
-  if (!VALID_LEVELS.includes(findingLevel)) {
-    return NextResponse.json({ error: "Invalid findingLevel" }, { status: 400 })
+  const isSacaSafa = isSacaOrSafaAuditCategory(entry.auditCategoryType.name)
+
+  // SACA/SAFA denetimlerinde tek sınıflandırma findingCategory'dir — findingLevel gönderilse
+  // bile YOK SAYILIR, hiçbir default/eski Level değeri kaydedilmez. Diğer audit type'larında
+  // (Internal, External, vb.) mevcut Level davranışı aynen korunur.
+  let findingLevel: string | null = null
+  if (!isSacaSafa) {
+    findingLevel = typeof body?.findingLevel === "string" ? body.findingLevel : "Level1"
+    if (!VALID_LEVELS.includes(findingLevel)) {
+      return NextResponse.json({ error: "Invalid findingLevel" }, { status: 400 })
+    }
   }
 
-  // SACA/SAFA dışındaki audit type'larda gelen değer ne olursa olsun null'a zorlanır.
+  // SACA/SAFA'da findingCategory ZORUNLU (server-side); diğer audit type'larda gelen değer
+  // ne olursa olsun null'a zorlanır (normalizeFindingCategory zaten bunu yapıyor).
   const findingCategory = normalizeFindingCategory(body?.findingCategory, entry.auditCategoryType.name)
+  if (isSacaSafa && !findingCategory) {
+    return NextResponse.json({ error: "Finding Category zorunludur" }, { status: 400 })
+  }
 
   const explanation = typeof body?.explanation === "string" ? body.explanation.trim() : ""
   if (!explanation) {
@@ -124,9 +137,22 @@ export async function POST(req: Request, ctx: Ctx) {
   const field = sub ? `${cat} — ${sub}` : cat
   const auditNumber = entry.auditNumberPrefix ? `${entry.auditNumberPrefix}-${entry.id}` : `AP-${entry.id}`
 
-  // Aynı vade tarihi mantığı: Level1 +10 gün, Level2 +90 gün, Observation süresiz
+  // SACA/SAFA'da Level olmadığı için otomatik vade hesaplaması YAPILAMAZ — Due Date kullanıcı
+  // tarafından manuel girilir ve ZORUNLUDUR. Diğer audit type'larında mevcut davranış aynen
+  // korunur: Level1 +10 gün, Level2 +90 gün, Observation süresiz (manuel dueDate gönderilse
+  // bile o audit type'larında yok sayılır — mevcut Level tabanlı davranış bozulmaz).
   let dueDate: Date | null = null
-  if (findingLevel === "Level1") {
+  if (isSacaSafa) {
+    const raw = typeof body?.dueDate === "string" ? body.dueDate.trim() : ""
+    if (!raw) {
+      return NextResponse.json({ error: "Due Date zorunludur" }, { status: 400 })
+    }
+    const parsed = new Date(raw)
+    if (Number.isNaN(parsed.getTime())) {
+      return NextResponse.json({ error: "Geçersiz Due Date" }, { status: 400 })
+    }
+    dueDate = parsed
+  } else if (findingLevel === "Level1") {
     dueDate = new Date()
     dueDate.setDate(dueDate.getDate() + 10)
   } else if (findingLevel === "Level2") {

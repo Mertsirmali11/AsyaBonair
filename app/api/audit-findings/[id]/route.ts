@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import { resolveFindingAuditeeAccess } from "@/lib/audit-finding-auditee-access"
-import { normalizeFindingCategory } from "@/lib/finding-category"
+import { isSacaOrSafaAuditCategory, normalizeFindingCategory } from "@/lib/finding-category"
 import { prisma } from "@/lib/prisma-server"
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -161,13 +161,27 @@ export async function PATCH(req: Request, ctx: Ctx) {
       changedLabels.push("sorumlu kişi")
     }
   }
-  if (typeof b.findingLevel === "string" && VALID_LEVELS.includes(b.findingLevel) && b.findingLevel !== existing.findingLevel) {
+  // SACA/SAFA denetimlerine bağlı bulgularda Level artık kullanılmıyor — istemci eski/varsayılan
+  // bir Level göndermeye çalışsa bile (ör. eski UI, doğrudan API çağrısı) sessizce YOK SAYILIR;
+  // yalnızca frontend'de gizlemek yeterli değil. Diğer audit type'larında davranış değişmedi.
+  const categoryName = await resolveFindingCategoryName(id)
+  const isSacaSafa = isSacaOrSafaAuditCategory(categoryName)
+  if (
+    !isSacaSafa &&
+    typeof b.findingLevel === "string" &&
+    VALID_LEVELS.includes(b.findingLevel) &&
+    b.findingLevel !== existing.findingLevel
+  ) {
     data.findingLevel = b.findingLevel
     changedLabels.push("seviye")
   }
   if (b.findingCategory !== undefined) {
-    const categoryName = await resolveFindingCategoryName(id)
     const v = normalizeFindingCategory(b.findingCategory, categoryName)
+    // SACA/SAFA'da Category zorunlu — geçersiz/boş bir değerle mevcut kategoriyi sessizce
+    // null'a düşürmeyiz, isteği reddederiz.
+    if (isSacaSafa && !v) {
+      return NextResponse.json({ error: "Finding Category zorunludur" }, { status: 400 })
+    }
     if (v !== existing.findingCategory) {
       data.findingCategory = v
       changedLabels.push("kategori")

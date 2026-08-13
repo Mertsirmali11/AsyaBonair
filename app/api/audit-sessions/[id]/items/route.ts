@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { requireAuditPlanSession } from "@/lib/audit-plan-session"
-import { normalizeFindingCategory } from "@/lib/finding-category"
+import { isSacaOrSafaAuditCategory, normalizeFindingCategory } from "@/lib/finding-category"
 import { prisma } from "@/lib/prisma-server"
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -44,11 +44,9 @@ export async function PUT(req: Request, ctx: Ctx) {
   const result = typeof b.result === "string" ? b.result : null
   const notes = typeof b.notes === "string" ? b.notes.trim() : null
   const auditeeNotes = typeof b.auditeeNotes === "string" ? b.auditeeNotes.trim() : null
-  // findingLevel: Level1 | Level2 | Observation (required when result=U, optional otherwise)
-  const findingLevel =
-    typeof b.findingLevel === "string" ? b.findingLevel : "Level1"
-  // findingCategory: CAT1 | CAT2 | CAT3 — yalnızca SACA/SAFA denetimlerinde; diğerlerinde
-  // aşağıda entry'nin kategorisi bilindikten sonra null'a zorlanır.
+  // Ham değerler — SACA/SAFA olup olmadığı (entry fetch edilene kadar) bilinmediği için
+  // asıl doğrulama aşağıda, session/entry yüklendikten sonra yapılır.
+  const rawFindingLevel = typeof b.findingLevel === "string" ? b.findingLevel : "Level1"
   const rawFindingCategory = b.findingCategory
 
   if (!Number.isInteger(auditChecklistItemId) || auditChecklistItemId < 1)
@@ -57,10 +55,6 @@ export async function PUT(req: Request, ctx: Ctx) {
   const validResults = ["S", "U", "NA", "OBS", null]
   if (!validResults.includes(result))
     return NextResponse.json({ error: "Invalid result. Use S, U, NA, OBS or null" }, { status: 400 })
-
-  const validLevels = ["Level1", "Level2", "Observation"]
-  if (!validLevels.includes(findingLevel))
-    return NextResponse.json({ error: "Invalid findingLevel" }, { status: 400 })
 
   // Verify session exists and get context
   const auditSession = await prisma.auditSession.findUnique({
@@ -77,7 +71,25 @@ export async function PUT(req: Request, ctx: Ctx) {
   })
   if (!auditSession) return NextResponse.json({ error: "Session not found" }, { status: 404 })
 
+  const isSacaSafa = isSacaOrSafaAuditCategory(auditSession.entry.auditCategoryType.name)
+
+  // SACA/SAFA denetimlerinde tek sınıflandırma findingCategory'dir — findingLevel istemciden
+  // ne gelirse gelsin YOK SAYILIR, hiçbir default/eski Level değeri kaydedilmez. Diğer audit
+  // type'larında (Internal, External, vb.) mevcut Level davranışı aynen korunur.
+  let findingLevel: string | null = null
+  if (!isSacaSafa) {
+    findingLevel = rawFindingLevel
+    const validLevels = ["Level1", "Level2", "Observation"]
+    if (!validLevels.includes(findingLevel))
+      return NextResponse.json({ error: "Invalid findingLevel" }, { status: 400 })
+  }
+
   const findingCategory = normalizeFindingCategory(rawFindingCategory, auditSession.entry.auditCategoryType.name)
+  // SACA/SAFA'da bir madde Unsatisfactory işaretlenirken (bulgu oluşacak/güncellenecek)
+  // findingCategory ZORUNLU — server-side (yalnızca UI'da gizlemek yeterli değil).
+  if (isSacaSafa && result === "U" && !findingCategory) {
+    return NextResponse.json({ error: "Finding Category zorunludur" }, { status: 400 })
+  }
 
   // Verify checklist item belongs to the session's checklist
   const clItem = await prisma.auditChecklistItem.findFirst({
