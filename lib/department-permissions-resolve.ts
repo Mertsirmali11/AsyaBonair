@@ -35,8 +35,20 @@ export async function getResolvedDepartmentPermissionsForUser(
       select: { permissionKey: true, allowed: true },
     })
   } catch (e) {
-    if (!isMissingTableError(e)) throw e
-    rows = []
+    if (!isMissingTableError(e)) {
+      // Bu fonksiyon (workspace)/layout.tsx tarafından HER sayfa yüklemesinde,
+      // koşulsuz olarak çağrılıyor. Geçici bir DB bağlantı sorunu (connection
+      // pool doluluğu, timeout vb. — ör. P2024) burada yakalanmazsa tüm
+      // uygulama kabuğu (sidebar dahil) Next.js'in generic "Application
+      // error" sayfasına düşer — hiçbir error.tsx bunu önleyemez, çünkü hata
+      // layout.tsx'in KENDİSİNDEN geliyor. Geçici bir hata durumunda "izin
+      // yok" varsayımıyla devam etmek (bir sonraki sayfa yüklemesinde normale
+      // döner), tüm uygulamayı çökertmekten kesinlikle daha güvenli.
+      console.error("[getResolvedDepartmentPermissionsForUser] DB error, izinler boş dönüyor:", e)
+      rows = []
+    } else {
+      rows = []
+    }
   }
   const byKey = new Map(rows.map((r) => [r.permissionKey, r.allowed]))
   const hint = departman
