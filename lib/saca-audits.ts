@@ -2,7 +2,6 @@ import "server-only"
 
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma-server"
-import { findingLevelToSacaCategory } from "@/lib/saca-ratio"
 
 export type SacaAuditRow = {
   id: number
@@ -65,7 +64,7 @@ export async function fetchSacaAuditRows(filters?: SacaAuditFilters): Promise<Sa
       auditSubCategoryType: { select: { name: true } },
       sessions: {
         select: {
-          findings: { select: { findingLevel: true } },
+          findings: { select: { findingCategory: true } },
         },
       },
     },
@@ -77,10 +76,14 @@ export async function fetchSacaAuditRows(filters?: SacaAuditFilters): Promise<Sa
     let cat3Count = 0
     for (const session of entry.sessions) {
       for (const finding of session.findings) {
-        const cat = findingLevelToSacaCategory(finding.findingLevel)
-        if (cat === "cat1") cat1Count += 1
-        else if (cat === "cat2") cat2Count += 1
-        else if (cat === "cat3") cat3Count += 1
+        // SACA denetimlerinde tek sınıflandırma artık findingCategory (CAT1/2/3) — eskiden
+        // findingLevel'dan türetiliyordu (bkz. lib/saca-ratio.ts: findingLevelToSacaCategory,
+        // hâlâ eski/tarihsel referans için mevcut ama artık burada kullanılmıyor). Eski
+        // kayıtlar migration ile (20260813180000_saca_safa_finding_category_only) aynı
+        // eşlemeyle geriye dönük dolduruldu, bu yüzden skor geçmişe dönük değişmedi.
+        if (finding.findingCategory === "CAT1") cat1Count += 1
+        else if (finding.findingCategory === "CAT2") cat2Count += 1
+        else if (finding.findingCategory === "CAT3") cat3Count += 1
       }
     }
     return {

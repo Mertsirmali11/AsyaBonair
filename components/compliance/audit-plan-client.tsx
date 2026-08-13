@@ -151,7 +151,9 @@ export type AuditPlanDocumentRow = {
 export type AuditPlanFindingRow = {
   id: number
   findingCode: string
-  findingLevel: string
+  /** Level1 | Level2 | Observation — yalnızca SACA/SAFA DIŞINDAKİ audit type'larında dolu;
+   * SACA/SAFA'da tek sınıflandırma findingCategory'dir, bu alan null'dur. */
+  findingLevel: string | null
   /** CAT1 | CAT2 | CAT3 — yalnızca SACA/SAFA denetimlerinde dolu, diğerlerinde null. */
   findingCategory: string | null
   explanation: string
@@ -508,6 +510,8 @@ export function AuditPlanClient() {
   const [findingExplanation, setFindingExplanation] = React.useState("")
   const [findingReference, setFindingReference] = React.useState("")
   const [findingAssignedToId, setFindingAssignedToId] = React.useState<number | undefined>(undefined)
+  /** dd.mm.yyyy — yalnızca SACA/SAFA denetimlerinde gösterilir/zorunludur (bkz. manage-audit-client.tsx). */
+  const [findingDueDateInput, setFindingDueDateInput] = React.useState("")
   const [findingAssignees, setFindingAssignees] = React.useState<{ id: number; label: string }[]>([])
   const [creatingFinding, setCreatingFinding] = React.useState(false)
 
@@ -561,6 +565,7 @@ export function AuditPlanClient() {
     setFindingExplanation("")
     setFindingReference("")
     setFindingAssignedToId(undefined)
+    setFindingDueDateInput("")
     setFindingDialogOpen(true)
   }
 
@@ -570,18 +575,31 @@ export function AuditPlanClient() {
       toast.error("Açıklama zorunludur.")
       return
     }
+    const isSacaSafa = isSacaOrSafaAuditCategory(detail?.categoryName)
+    let dueDateIso: string | null = null
+    if (isSacaSafa) {
+      // SACA/SAFA'da Level olmadığı için otomatik vade hesaplanamaz — Due Date manuel ve
+      // zorunludur (ortak DatePicker/date-input mask sistemi ile aynı doğrulama).
+      const parsed = findingDueDateInput.trim() ? parseDdMmYyyyToUtcDate(findingDueDateInput.trim()) : null
+      if (!parsed) {
+        toast.error("Geçerli bir Due Date giriniz (gg.aa.yyyy).")
+        return
+      }
+      dueDateIso = parsed.toISOString()
+    }
     setCreatingFinding(true)
     try {
       const res = await fetch(`/api/audit-plan/${detailEntryId}/findings`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          findingLevel: findingLevelInput,
-          // Sunucu SACA/SAFA dışındaki audit type'larda bu değeri zaten null'a zorlar.
-          findingCategory: isSacaOrSafaAuditCategory(detail?.categoryName) ? findingCategoryInput : null,
+          // SACA/SAFA'da Level artık gönderilmez — sunucu zaten yok sayar.
+          findingLevel: isSacaSafa ? undefined : findingLevelInput,
+          findingCategory: isSacaSafa ? findingCategoryInput : null,
           explanation: findingExplanation.trim(),
           reference: findingReference.trim() || null,
           assignedToId: findingAssignedToId ?? null,
+          ...(isSacaSafa ? { dueDate: dueDateIso } : {}),
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -2044,7 +2062,8 @@ export function AuditPlanClient() {
                       {findings
                         .filter((f): f is AuditPlanFindingRow => !!f && f.id != null)
                         .map((f) => {
-                          const lvl = findingLevelStyles[f.findingLevel] ?? findingLevelStyles.Level1
+                          // SACA/SAFA bulgularında findingLevel null'dur — Level rozeti gösterilmez.
+                          const lvl = f.findingLevel ? (findingLevelStyles[f.findingLevel] ?? findingLevelStyles.Level1) : null
                           return (
                             <li key={f.id}>
                               <Link
@@ -2052,9 +2071,11 @@ export function AuditPlanClient() {
                                 className="hover:bg-background flex flex-wrap items-center gap-2 rounded-md border bg-background/60 px-3 py-2 text-sm transition-colors"
                               >
                                 <span className="font-mono text-xs font-semibold">{f.findingCode}</span>
-                                <span className={cn("rounded-full border px-1.5 py-0.5 text-[11px] font-medium", lvl.cls)}>
-                                  {lvl.label}
-                                </span>
+                                {lvl && (
+                                  <span className={cn("rounded-full border px-1.5 py-0.5 text-[11px] font-medium", lvl.cls)}>
+                                    {lvl.label}
+                                  </span>
+                                )}
                                 {f.findingCategory && (
                                   <span
                                     className={cn(
@@ -2410,22 +2431,24 @@ export function AuditPlanClient() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-1">
-            <div className="space-y-2">
-              <Label>Bulgu Seviyesi</Label>
-              <Select value={findingLevelInput} onValueChange={setFindingLevelInput}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Level1">Level 1</SelectItem>
-                  <SelectItem value="Level2">Level 2</SelectItem>
-                  <SelectItem value="Observation">Gözlem (Observation)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {!isSacaOrSafaAuditCategory(detail?.categoryName) && (
+              <div className="space-y-2">
+                <Label>Bulgu Seviyesi</Label>
+                <Select value={findingLevelInput} onValueChange={setFindingLevelInput}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Level1">Level 1</SelectItem>
+                    <SelectItem value="Level2">Level 2</SelectItem>
+                    <SelectItem value="Observation">Gözlem (Observation)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {isSacaOrSafaAuditCategory(detail?.categoryName) && (
               <div className="space-y-2">
-                <Label>Finding Category</Label>
+                <Label>Finding Category *</Label>
                 <Select value={findingCategoryInput} onValueChange={setFindingCategoryInput}>
                   <SelectTrigger>
                     <SelectValue />
@@ -2464,6 +2487,12 @@ export function AuditPlanClient() {
                 placeholder="Personel seçin…"
               />
             </div>
+            {isSacaOrSafaAuditCategory(detail?.categoryName) && (
+              <div className="space-y-2">
+                <Label>Due Date *</Label>
+                <DatePicker value={findingDueDateInput} onChange={setFindingDueDateInput} placeholder="dd.mm.yyyy" />
+              </div>
+            )}
           </div>
           <DialogFooter className="gap-2 sm:justify-end">
             <Button type="button" variant="outline" onClick={() => setFindingDialogOpen(false)} disabled={creatingFinding}>

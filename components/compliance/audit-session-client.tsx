@@ -64,7 +64,9 @@ type ChecklistItem = {
 type FindingInfo = {
   id: number
   findingCode: string
-  findingLevel: string
+  /** Level1 | Level2 | Observation — SACA/SAFA denetimlerinde null (tek sınıflandırma
+   * findingCategory'dir). */
+  findingLevel: string | null
   /** CAT1 | CAT2 | CAT3 — yalnızca SACA/SAFA denetimlerinde dolu, diğerlerinde null. */
   findingCategory: string | null
   status: string
@@ -309,7 +311,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
     itemId: number,
     result: string,
     notes: string,
-    findingLevel: string,
+    findingLevel: string | null,
     auditeeNotes?: string,
     findingCategory?: string | null,
   ) => {
@@ -355,6 +357,12 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
 
   // ─── Result click ─────────────────────────────────────────────────────────
 
+  // SACA/SAFA denetimlerinde findingLevel hiç kullanılmaz (tek sınıflandırma Category'dir) —
+  // "Level1" gibi eski/varsayılan bir değerin yanlışlıkla kaydedilmemesi için bu audit
+  // type'larında her zaman null gönderilir; diğerlerinde mevcut Level davranışı korunur.
+  const fallbackFindingLevel = (current: string | null | undefined): string | null =>
+    isSacaOrSafaAudit ? null : (current ?? "Level1")
+
   const handleResultClick = (itemId: number, r: ResultKey) => {
     if (!sessionData || sessionData.status === "Completed") return
     const st = getState(itemId)
@@ -372,7 +380,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
     }
 
     patchState(itemId, { result: newResult, dirty: true })
-    void saveItem(itemId, newResult, st.notes, st.finding?.findingLevel ?? "Level1", undefined, st.finding?.findingCategory ?? null)
+    void saveItem(itemId, newResult, st.notes, fallbackFindingLevel(st.finding?.findingLevel), undefined, st.finding?.findingCategory ?? null)
   }
 
   // ─── Finding level dialog confirm ─────────────────────────────────────────
@@ -382,7 +390,8 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
     const st = getState(itemId)
     setFindingDialog((p) => ({ ...p, open: false }))
     patchState(itemId, { result: "U", dirty: true })
-    void saveItem(itemId, "U", st.notes, selectedLevel, undefined, isSacaOrSafaAudit ? selectedCategory : null)
+    // SACA/SAFA'da Level hiç gönderilmez — dialogda seçilen selectedLevel yok sayılır.
+    void saveItem(itemId, "U", st.notes, isSacaOrSafaAudit ? null : selectedLevel, undefined, isSacaOrSafaAudit ? selectedCategory : null)
   }
 
   // ─── Notes save ───────────────────────────────────────────────────────────
@@ -390,13 +399,13 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
   const saveNotes = (itemId: number) => {
     const st = getState(itemId)
     if (!st.dirty) return
-    void saveItem(itemId, st.result, st.notes, st.finding?.findingLevel ?? "Level1", st.auditeeNotes, st.finding?.findingCategory ?? null)
+    void saveItem(itemId, st.result, st.notes, fallbackFindingLevel(st.finding?.findingLevel), st.auditeeNotes, st.finding?.findingCategory ?? null)
   }
 
   const saveAuditeeNotes = (itemId: number) => {
     const st = getState(itemId)
     if (!st.dirtyAuditee) return
-    void saveItem(itemId, st.result, st.notes, st.finding?.findingLevel ?? "Level1", st.auditeeNotes, st.finding?.findingCategory ?? null)
+    void saveItem(itemId, st.result, st.notes, fallbackFindingLevel(st.finding?.findingLevel), st.auditeeNotes, st.finding?.findingCategory ?? null)
   }
 
   // ─── Close finding (by auditee) ───────────────────────────────────────────
@@ -969,30 +978,35 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <XCircle className="size-4 text-red-600" />
-              Bulgu Seviyesi Seçin
+              {isSacaOrSafaAudit ? "Finding Category Seçin" : "Bulgu Seviyesi Seçin"}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 py-1">
-            {FINDING_LEVELS.map((lvl) => (
-              <button
-                key={lvl.value}
-                type="button"
-                onClick={() => setFindingDialog((p) => ({ ...p, selectedLevel: lvl.value }))}
-                className={cn(
-                  "w-full rounded-lg border-2 px-4 py-3 text-left transition-colors",
-                  findingDialog.selectedLevel === lvl.value
-                    ? "border-primary bg-primary/5"
-                    : "border-border hover:bg-muted/50"
-                )}
-              >
-                <div className={cn("font-semibold text-sm", lvl.color)}>{lvl.label}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">{lvl.desc}</div>
-              </button>
-            ))}
-          </div>
+          {/* SACA/SAFA denetimlerinde tek sınıflandırma Finding Category'dir — Bulgu Seviyesi
+              (Level) hiç gösterilmez, seçilmez, kaydedilmez. Diğer audit type'larında (ör.
+              Internal Audit) mevcut Level davranışı aynen korunur. */}
+          {!isSacaOrSafaAudit && (
+            <div className="space-y-3 py-1">
+              {FINDING_LEVELS.map((lvl) => (
+                <button
+                  key={lvl.value}
+                  type="button"
+                  onClick={() => setFindingDialog((p) => ({ ...p, selectedLevel: lvl.value }))}
+                  className={cn(
+                    "w-full rounded-lg border-2 px-4 py-3 text-left transition-colors",
+                    findingDialog.selectedLevel === lvl.value
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:bg-muted/50"
+                  )}
+                >
+                  <div className={cn("font-semibold text-sm", lvl.color)}>{lvl.label}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{lvl.desc}</div>
+                </button>
+              ))}
+            </div>
+          )}
           {isSacaOrSafaAudit && (
             <div className="space-y-2 pb-1">
-              <p className="text-xs font-medium text-muted-foreground">Finding Category</p>
+              <p className="text-xs font-medium text-muted-foreground">Finding Category *</p>
               <div className="flex gap-2">
                 {FINDING_CATEGORY_VALUES.map((cat) => (
                   <button

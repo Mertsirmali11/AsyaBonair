@@ -93,8 +93,9 @@ type Extension = {
 type FindingDetail = {
   id: number
   findingCode: string
-  /** Level1 | Level2 | Observation */
-  findingLevel: string
+  /** Level1 | Level2 | Observation — SACA/SAFA denetimlerinde null (tek sınıflandırma
+   * findingCategory'dir). */
+  findingLevel: string | null
   /** CAT1 | CAT2 | CAT3 — yalnızca SACA/SAFA denetimlerinde dolu, diğerlerinde null. */
   findingCategory: string | null
   explanation: string
@@ -382,7 +383,9 @@ export function FindingDetailClient({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          findingLevel: editLevel,
+          // SACA/SAFA'da Level artık düzenlenemez — sunucu zaten yok sayar, istemcide de
+          // göndermeyerek eski/varsayılan bir değerin yanlışlıkla yazılmasını önlüyoruz.
+          findingLevel: isSacaSafa ? undefined : editLevel,
           findingCategory: isSacaSafa ? editCategory : null,
           explanation: editExplanation.trim(),
           reference: editReference.trim() || null,
@@ -631,12 +634,14 @@ export function FindingDetailClient({
               <h1 className="text-2xl font-semibold tracking-tight">{finding.findingCode}</h1>
               <p className="text-muted-foreground text-sm">{finding.auditNumber ?? "—"} · {finding.field ?? "—"}</p>
             </div>
-            <Badge
-              variant="outline"
-              className={cn("ml-1", (findingLevelStyles[finding.findingLevel] ?? findingLevelStyles.Level1).cls)}
-            >
-              {(findingLevelStyles[finding.findingLevel] ?? findingLevelStyles.Level1).label}
-            </Badge>
+            {finding.findingLevel && (
+              <Badge
+                variant="outline"
+                className={cn("ml-1", (findingLevelStyles[finding.findingLevel] ?? findingLevelStyles.Level1).cls)}
+              >
+                {(findingLevelStyles[finding.findingLevel] ?? findingLevelStyles.Level1).label}
+              </Badge>
+            )}
             {finding.findingCategory && (
               <Badge
                 variant="outline"
@@ -1007,20 +1012,23 @@ export function FindingDetailClient({
           </DialogHeader>
           <div className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>Finding Level</Label>
-                <Select value={editLevel} onValueChange={setEditLevel}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Level1">Level 1</SelectItem>
-                    <SelectItem value="Level2">Level 2</SelectItem>
-                    <SelectItem value="Observation">Gözlem (Observation)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {/* SACA/SAFA'da tek sınıflandırma Finding Category'dir — Level hiç gösterilmez. */}
+              {!(finding && isSacaOrSafaAuditCategory(finding.session?.entry.auditCategoryType.name)) && (
+                <div className="space-y-1.5">
+                  <Label>Finding Level</Label>
+                  <Select value={editLevel} onValueChange={setEditLevel}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Level1">Level 1</SelectItem>
+                      <SelectItem value="Level2">Level 2</SelectItem>
+                      <SelectItem value="Observation">Gözlem (Observation)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               {finding && isSacaOrSafaAuditCategory(finding.session?.entry.auditCategoryType.name) && (
                 <div className="space-y-1.5">
-                  <Label>Finding Category</Label>
+                  <Label>Finding Category *</Label>
                   <Select value={editCategory} onValueChange={setEditCategory}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
