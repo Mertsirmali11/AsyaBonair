@@ -83,6 +83,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { AuditCategoryCombobox } from "@/components/compliance/audit-category-combobox"
+import { PostponeAuditDialog } from "@/components/compliance/postpone-audit-dialog"
 import { EmployeeCombobox } from "@/components/employee-combobox"
 import type { AuditChecklistListRow } from "@/components/compliance/audit-checklists-client"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
@@ -764,20 +765,51 @@ export function AuditPlanClient() {
     void refreshRows()
   }, [refreshRows])
 
-  const updateStatus = React.useCallback(async (rowId: string, status: string) => {
+  const updateStatus = React.useCallback(async (rowId: string, status: string, extra?: Record<string, unknown>) => {
     try {
       const res = await fetch(`/api/audit-plan/${rowId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ statusOnly: true, status }),
+        body: JSON.stringify({ statusOnly: true, status, ...extra }),
       })
-      if (!res.ok) { toast.error("Durum güncellenemedi."); return }
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(typeof data.error === "string" && data.error.trim() ? data.error.trim() : "Durum güncellenemedi.")
+        return false
+      }
       toast.success(`Durum: ${status}`)
       await refreshRows()
+      return true
     } catch {
       toast.error("Bağlantı hatası.")
+      return false
     }
   }, [refreshRows])
+
+  // ─── Postponed (Postponed Date modal zorunlu) — hem tablo satırı aksiyonundan hem de
+  // Manage Audit'in kendi "Postponed" düğmesinden AYNI shared dialog kullanılır ─────────
+  const [postponeTargetId, setPostponeTargetId] = React.useState<string | null>(null)
+  const [postponing, setPostponing] = React.useState(false)
+  const postponeTargetRow = React.useMemo(
+    () => rows.find((r) => r.id === postponeTargetId) ?? null,
+    [rows, postponeTargetId]
+  )
+
+  const openPostponeDialog = (rowId: string) => setPostponeTargetId(rowId)
+
+  const confirmPostponeRow = async (postponedDate: string, reason: string) => {
+    if (!postponeTargetId) return
+    setPostponing(true)
+    try {
+      const ok = await updateStatus(postponeTargetId, "Postponed", {
+        datePostponed: postponedDate,
+        postponementReason: reason || undefined,
+      })
+      if (ok) setPostponeTargetId(null)
+    } finally {
+      setPostponing(false)
+    }
+  }
 
   React.useEffect(() => {
     if (!detailEntryId) {
@@ -1573,7 +1605,7 @@ export function AuditPlanClient() {
                               </DropdownMenuItem>
                             )}
                             {row.status !== "Postponed" && (
-                              <DropdownMenuItem onClick={() => void updateStatus(row.id, "Postponed")}>
+                              <DropdownMenuItem onClick={() => openPostponeDialog(row.id)}>
                                 <CalendarRange className="mr-2 size-4 text-sky-600" />
                                 Postponed
                               </DropdownMenuItem>
@@ -2240,6 +2272,16 @@ export function AuditPlanClient() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Postpone Audit ───────────────────────────────────────────────────────── */}
+      <PostponeAuditDialog
+        open={!!postponeTargetId}
+        onOpenChange={(o) => !o && setPostponeTargetId(null)}
+        plannedDate={postponeTargetRow?.datePlanned ?? ""}
+        initialPostponedDate={postponeTargetRow?.datePostponed}
+        loading={postponing}
+        onConfirm={confirmPostponeRow}
+      />
 
       {/* ── Cancelled onayı (iptal nedeni zorunlu) ─────────────────────────── */}
       <Dialog open={!!cancelTargetId} onOpenChange={(o) => !cancelling && !o && setCancelTargetId(null)}>

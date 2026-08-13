@@ -187,13 +187,24 @@ export async function PATCH(req: Request, ctx: Ctx) {
     if (!validStatuses.includes(newStatus)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 })
     }
+
+    // Postponed Date zorunlu — "Postponed" durumuna geçerken denetlenen tarafın hangi tarihe
+    // ertelendiği her zaman kaydedilmeli (bkz. PostponeAuditDialog).
+    let postponedDate: Date | null = null
+    if (newStatus === "Postponed") {
+      const raw = typeof b.datePostponed === "string" ? b.datePostponed.trim() : ""
+      postponedDate = raw ? parseDdMmYyyyToUtcDate(raw) : null
+      if (!postponedDate) {
+        return NextResponse.json({ error: "Postponed Date zorunludur (dd.mm.yyyy)." }, { status: 400 })
+      }
+    }
+    const postponementReason =
+      typeof b.postponementReason === "string" ? b.postponementReason.trim() : ""
+
     try {
       const statusData: Record<string, unknown> = { status: newStatus }
       if (newStatus === "Initialized") statusData.initializedDate = new Date()
-      if (newStatus === "Postponed" && typeof b.datePostponed === "string") {
-        const d = parseDdMmYyyyToUtcDate(b.datePostponed)
-        if (d) statusData.datePostponed = d
-      }
+      if (newStatus === "Postponed" && postponedDate) statusData.datePostponed = postponedDate
       const updated = await prisma.auditPlanEntry.update({ where: { id }, data: statusData })
 
       // Completed olduğunda bu denetime bağlı aktif Public Audit Response Link'ler otomatik
@@ -215,9 +226,14 @@ export async function PATCH(req: Request, ctx: Ctx) {
           const actor = actorEmail
             ? await prisma.calisan.findFirst({
                 where: { email: { equals: actorEmail, mode: "insensitive" } },
-                select: { id: true },
+                select: { id: true, isim: true, soyisim: true },
               })
             : null
+          const actorName = actor ? [actor.isim, actor.soyisim].filter(Boolean).join(" ").trim() || "Bilinmeyen kullanıcı" : "Bilinmeyen kullanıcı"
+          const note =
+            newStatus === "Postponed" && postponedDate
+              ? `Audit postponed to ${dbDateToDdMmYyyy(postponedDate)} by ${actorName}.${postponementReason ? ` Reason: ${postponementReason}` : ""}`
+              : null
           await prisma.auditPlanEntryHistory.create({
             data: {
               auditPlanEntryId: id,
@@ -225,6 +241,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
               eventType: "STATUS_CHANGED",
               statusFrom: existing.status,
               statusTo: newStatus,
+              note,
             },
           })
         } catch {
@@ -290,6 +307,57 @@ export async function PATCH(req: Request, ctx: Ctx) {
             statusFrom: oldDateStr,
             statusTo: newDateStr,
             note: `Initialized Date "${oldDateStr ?? "—"}" → "${newDateStr ?? "—"}" olarak ${actorName} tarafından değiştirildi.`,
+          },
+        })
+      } catch {
+        // Geçmiş kaydı başarısız olsa bile tarih güncellemesi geçerli kalır
+      }
+    }
+
+    return NextResponse.json(mapEntry({ ...updated, auditees: [] } as EntryWithPeople))
+  }
+
+  // Postponed Date'in yetkili kullanıcı tarafından status değişikliğinden BAĞIMSIZ olarak
+  // sonradan değiştirilmesi (Manage Audit — General Audit Information, Initialized Date ile
+  // aynı desen). Eski ve yeni tarih history'de ayrı ayrı tutulur.
+  if (b.postponedDateOnly === true) {
+    const raw = typeof b.datePostponed === "string" ? b.datePostponed.trim() : ""
+    const newDate = raw ? parseDdMmYyyyToUtcDate(raw) : null
+    if (raw && !newDate) {
+      return NextResponse.json({ error: "Invalid postponed date (use dd.mm.yyyy)" }, { status: 400 })
+    }
+
+    const oldDateStr = existing.datePostponed ? dbDateToDdMmYyyy(existing.datePostponed) : null
+    const newDateStr = newDate ? dbDateToDdMmYyyy(newDate) : null
+
+    const updated = await prisma.auditPlanEntry.update({
+      where: { id },
+      data: { datePostponed: newDate },
+      include: {
+        auditCategoryType: { select: { name: true } },
+        auditSubCategoryType: { select: { name: true } },
+        auditors: { include: { calisan: { select: { isim: true, soyisim: true } } } },
+      },
+    })
+
+    if (oldDateStr !== newDateStr) {
+      try {
+        const actorEmail = session.user?.email
+        const actor = actorEmail
+          ? await prisma.calisan.findFirst({
+              where: { email: { equals: actorEmail, mode: "insensitive" } },
+              select: { id: true, isim: true, soyisim: true },
+            })
+          : null
+        const actorName = actor ? [actor.isim, actor.soyisim].filter(Boolean).join(" ").trim() || "Bilinmeyen kullanıcı" : "Bilinmeyen kullanıcı"
+        await prisma.auditPlanEntryHistory.create({
+          data: {
+            auditPlanEntryId: id,
+            actorId: actor?.id ?? null,
+            eventType: "POSTPONED_DATE_CHANGED",
+            statusFrom: oldDateStr,
+            statusTo: newDateStr,
+            note: `Postponed Date "${oldDateStr ?? "—"}" → "${newDateStr ?? "—"}" olarak ${actorName} tarafından değiştirildi.`,
           },
         })
       } catch {

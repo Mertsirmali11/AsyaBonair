@@ -54,6 +54,8 @@ import { normalizeDepartmentKey } from "@/lib/department-access"
 import { uploadAuditFindingFilesDirect } from "@/lib/client-audit-finding-file-upload"
 import { findingCategoryLabels, findingCategoryStyles, isSacaOrSafaAuditCategory, FINDING_CATEGORY_VALUES } from "@/lib/finding-category"
 import { findingLevelStyles } from "@/components/compliance/audit-plan-client"
+import { DatePicker } from "@/components/ui/date-picker"
+import { dbDateToDdMmYyyy, parseDdMmYyyyToUtcDate } from "@/lib/correspondence-date"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
@@ -354,7 +356,7 @@ export function FindingDetailClient({
     setEditExplanation(finding.explanation)
     setEditReference(finding.reference || "")
     setEditAssignedToId(finding.assignedTo ? String(finding.assignedTo.id) : "")
-    setEditDueDate(finding.dueDate ? finding.dueDate.slice(0, 10) : "")
+    setEditDueDate(finding.dueDate ? dbDateToDdMmYyyy(finding.dueDate) : "")
     setEditOpen(true)
   }
 
@@ -363,6 +365,15 @@ export function FindingDetailClient({
     if (!editExplanation.trim()) {
       toast.error("Açıklama zorunludur.")
       return
+    }
+    let dueDateIso: string | null = null
+    if (editDueDate.trim()) {
+      const parsed = parseDdMmYyyyToUtcDate(editDueDate.trim())
+      if (!parsed) {
+        toast.error("Geçerli bir vade tarihi giriniz (dd.mm.yyyy).")
+        return
+      }
+      dueDateIso = parsed.toISOString()
     }
     setSavingEdit(true)
     try {
@@ -376,7 +387,7 @@ export function FindingDetailClient({
           explanation: editExplanation.trim(),
           reference: editReference.trim() || null,
           assignedToId: editAssignedToId ? Number(editAssignedToId) : null,
-          dueDate: editDueDate || null,
+          dueDate: dueDateIso,
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -1046,7 +1057,7 @@ export function FindingDetailClient({
               </div>
               <div className="space-y-1.5">
                 <Label>Due Date</Label>
-                <Input type="date" value={editDueDate} onChange={(e) => setEditDueDate(e.target.value)} />
+                <DatePicker value={editDueDate} onChange={setEditDueDate} placeholder="dd.mm.yyyy" />
               </div>
             </div>
           </div>

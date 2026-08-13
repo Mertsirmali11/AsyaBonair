@@ -16,6 +16,27 @@ export function dbDateToDdMmYyyy(iso: string | Date): string {
   return `${day}.${month}.${year}`
 }
 
+/**
+ * Reusable input mask for every manual `dd.MM.yyyy` date field in the app (Audit Plan,
+ * Correspondence, Planner, User Management, …) — the single shared `DatePicker` component
+ * (components/ui/date-picker.tsx) calls this on every keystroke/paste so the user only ever
+ * types digits; dots are inserted automatically at the right positions. Strips everything
+ * that isn't a digit, caps at 8 digits (ddMMyyyy), then re-groups progressively:
+ * "2" -> "27" -> "27.0" -> "27.08" -> "27.08.2" -> "27.08.2026". Works identically whether
+ * the digits came from typing or from a paste of either "27082026" or "27.08.2026".
+ */
+export function formatDateInputMask(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 8)
+  if (digits.length <= 2) return digits
+  if (digits.length <= 4) return `${digits.slice(0, 2)}.${digits.slice(2)}`
+  return `${digits.slice(0, 2)}.${digits.slice(2, 4)}.${digits.slice(4)}`
+}
+
+/** True once the user has typed all 8 digits of a `dd.MM.yyyy` value (mask-complete, not necessarily a valid calendar date). */
+export function isDateInputComplete(masked: string): boolean {
+  return masked.replace(/\D/g, "").length === 8
+}
+
 /** Parse `dd.MM.yyyy` to UTC midnight `Date` for `@db.Date` fields. */
 export function parseDdMmYyyyToUtcDate(s: string): Date | null {
   const parts = s.trim().split(".")

@@ -66,6 +66,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { AuditCategoryCombobox } from "@/components/compliance/audit-category-combobox"
+import { PostponeAuditDialog } from "@/components/compliance/postpone-audit-dialog"
 import { EmployeeCombobox } from "@/components/employee-combobox"
 import type { AuditChecklistListRow } from "@/components/compliance/audit-checklists-client"
 import {
@@ -738,13 +739,13 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
   // ─── Status hızlı işlemleri ─────────────────────────────────────────────────
   const [changingStatus, setChangingStatus] = React.useState(false)
 
-  const updateStatus = async (status: string) => {
+  const updateStatus = async (status: string, extra?: Record<string, unknown>) => {
     setChangingStatus(true)
     try {
       const res = await fetch(`/api/audit-plan/${entryId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ statusOnly: true, status }),
+        body: JSON.stringify({ statusOnly: true, status, ...extra }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -753,16 +754,56 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
             ? data.error.trim()
             : "Audit could not be completed. Please try again or contact the system administrator."
         )
-        return
+        return false
       }
       toast.success(status === "Completed" ? "Audit successfully completed." : `Durum: ${status}`)
       // Completed olduğunda sunucu aktif response link'leri otomatik iptal eder —
       // paneli güncel göstermek için burada da yeniden yükle.
       await Promise.all([silentRefetch(), reloadHistory(), reloadResponseLinks()])
+      return true
     } catch {
       toast.error("Audit could not be completed. Please try again or contact the system administrator.")
+      return false
     } finally {
       setChangingStatus(false)
+    }
+  }
+
+  // ─── Postponed (Postponed Date modal zorunlu) ────────────────────────────────
+  const [postponeDialogOpen, setPostponeDialogOpen] = React.useState(false)
+
+  const confirmPostpone = async (postponedDate: string, reason: string) => {
+    const ok = await updateStatus("Postponed", {
+      datePostponed: postponedDate,
+      postponementReason: reason || undefined,
+    })
+    if (ok) setPostponeDialogOpen(false)
+  }
+
+  // ─── Postponed Date (manuel, status'tan bağımsız olarak da değiştirilebilir) ──
+  const [postponedDateInput, setPostponedDateInput] = React.useState("")
+  const [savingPostponedDate, setSavingPostponedDate] = React.useState(false)
+
+  React.useEffect(() => {
+    if (detail) setPostponedDateInput(detail.datePostponed ?? "")
+  }, [detail])
+
+  const savePostponedDate = async () => {
+    setSavingPostponedDate(true)
+    try {
+      const res = await fetch(`/api/audit-plan/${entryId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ postponedDateOnly: true, datePostponed: postponedDateInput || "" }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Kaydedilemedi.")
+      toast.success("Postponed Date güncellendi.")
+      await Promise.all([silentRefetch(), reloadHistory()])
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Kaydedilemedi.")
+    } finally {
+      setSavingPostponedDate(false)
     }
   }
 
@@ -1114,7 +1155,15 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
                 <InfoField label="Audit Type / Category" value={detail.subCategoryName ? `${detail.categoryName} — ${detail.subCategoryName}` : detail.categoryName} />
                 <InfoField label="Field / Department" value={detail.field} />
                 <InfoField label="Planned Date" value={detail.datePlanned} />
-                <InfoField label="Postponed Date" value={detail.datePostponed ?? "—"} />
+                <div className="space-y-1">
+                  <p className="text-muted-foreground text-xs font-medium">Postponed Date</p>
+                  <div className="flex items-center gap-2">
+                    <DatePicker value={postponedDateInput} onChange={setPostponedDateInput} placeholder="dd.mm.yyyy" />
+                    <Button type="button" size="sm" variant="outline" disabled={savingPostponedDate || postponedDateInput === (detail.datePostponed ?? "")} onClick={() => void savePostponedDate()}>
+                      {savingPostponedDate ? <Loader2 className="size-3.5 animate-spin" /> : "Kaydet"}
+                    </Button>
+                  </div>
+                </div>
                 <div className="space-y-1">
                   <p className="text-muted-foreground text-xs font-medium">Initialized Date</p>
                   <div className="flex items-center gap-2">
@@ -1491,7 +1540,7 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
                     size="sm"
                     variant={detail.status === s ? "default" : "outline"}
                     disabled={changingStatus || detail.status === s}
-                    onClick={() => void updateStatus(s)}
+                    onClick={() => (s === "Postponed" ? setPostponeDialogOpen(true) : void updateStatus(s))}
                   >
                     {s}
                   </Button>
@@ -1760,6 +1809,16 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Postpone Audit ───────────────────────────────────────────────────────── */}
+      <PostponeAuditDialog
+        open={postponeDialogOpen}
+        onOpenChange={setPostponeDialogOpen}
+        plannedDate={detail.datePlanned}
+        initialPostponedDate={detail.datePostponed}
+        loading={changingStatus}
+        onConfirm={confirmPostpone}
+      />
 
       {/* ── Reject Auditee Response ─────────────────────────────────────────────── */}
       <Dialog open={!!rejectSubmissionTarget} onOpenChange={(o) => !o && setRejectSubmissionTarget(null)}>
