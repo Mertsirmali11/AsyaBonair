@@ -45,6 +45,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { ErrorBoundary } from "@/components/error-boundary"
 import { uploadAuditSessionAttachmentsDirect } from "@/lib/client-audit-session-attachment-upload"
 import { FINDING_CATEGORY_VALUES, findingCategoryLabels, isSacaOrSafaField } from "@/lib/finding-category"
 
@@ -461,13 +462,28 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
           )
           if (!res.ok) { toast.error(`${ref.fileName} kaydedilemedi.`); continue }
           const parsed = await parseJson(res)
-          if (!parsed || typeof parsed !== "object" || !("id" in parsed)) {
+          // Yalnızca "id" alanını değil, render'ın okuduğu her alanı burada normalize
+          // ediyoruz — sunucu yanıtı beklenmedik bir şekle sahip olsa bile (eksik alan,
+          // yanlış tip vb.) state'e her zaman geçerli bir Attachment objesi yazılır;
+          // render aşamasında undefined/null erişimi nedeniyle çökme oluşmaz.
+          const raw = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null
+          const parsedId = raw && typeof raw.id === "number" ? raw.id : null
+          if (!raw || parsedId === null) {
             toast.error(`${ref.fileName} yüklendi ama sunucu yanıtı okunamadı. Sayfayı yenileyin.`)
             continue
           }
-          uploaded.push(parsed as Attachment)
-        } catch {
-          toast.error(`${ref.fileName} kaydedilemedi.`)
+          const normalized: Attachment = {
+            id: parsedId,
+            fileName: typeof raw.fileName === "string" && raw.fileName ? raw.fileName : ref.fileName,
+            storagePath: typeof raw.storagePath === "string" ? raw.storagePath : ref.path,
+            mimeType: typeof raw.mimeType === "string" ? raw.mimeType : null,
+            fileSizeBytes: typeof raw.fileSizeBytes === "number" ? raw.fileSizeBytes : null,
+            uploadedBy: typeof raw.uploadedBy === "string" ? raw.uploadedBy : "auditor",
+            uploadedAt: typeof raw.uploadedAt === "string" ? raw.uploadedAt : new Date().toISOString(),
+          }
+          uploaded.push(normalized)
+        } catch (err) {
+          toast.error(`${ref.fileName} kaydedilemedi: ${err instanceof Error ? err.message : "bilinmeyen hata"}.`)
         }
       }
       if (uploaded.length > 0) {
@@ -695,8 +711,16 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
           </div>
         )}
 
-        {/* Question list */}
+        {/* Question list — ErrorBoundary ile sarmalı: bu bloktaki beklenmeyen bir render
+            hatası (örn. bir dosya yüklemesi sonrası state güncellemesinde bozuk/eksik veri)
+            yalnızca bu alt ağacı etkiler; başlık, ilerleme çubuğu ve "Denetimi Tamamla"
+            butonu çalışmaya devam eder — sayfa beyaz ekrana düşmez, manuel yenileme
+            gerekmez. "Yeniden Dene" checklist'i sıfırdan yeniden yükler. */}
         {sessionData && items.length > 0 && (
+          <ErrorBoundary
+            label="Checklist"
+            onReset={() => { if (selectedChecklistId) void startSession(selectedChecklistId) }}
+          >
           <div className="rounded-xl border bg-card shadow-sm divide-y overflow-hidden">
             {items.map((item) => {
 
@@ -925,6 +949,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
               )
             })}
           </div>
+          </ErrorBoundary>
         )}
 
       </div>
