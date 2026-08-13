@@ -141,6 +141,8 @@ model Calisan {
   auditFindingHistoryActions AuditFindingHistory[] @relation("AuditFindingHistoryActor")
   auditResponseLinksCreated AuditResponseLink[] @relation("AuditResponseLinkCreator")
   auditResponseNotesSubmitted AuditResponseNote[] @relation("AuditResponseNoteSubmitter")
+  auditeeChecklistSubmissionsSubmitted AuditeeChecklistSubmission[] @relation("AuditeeChecklistSubmissionSubmitter")
+  auditeeChecklistSubmissionsReviewed AuditeeChecklistSubmission[] @relation("AuditeeChecklistSubmissionReviewer")
   plannerPlansCreated PlannerPlan[] @relation("PlannerPlanCreator")
   plannerPlanMemberships PlannerPlanMember[] @relation("PlannerPlanMemberCalisan")
   plannerTasksCreated PlannerTask[] @relation("PlannerTaskCreator")
@@ -1017,6 +1019,7 @@ model AuditResponseLink {
   creator   Calisan?             @relation("AuditResponseLinkCreator", fields: [createdBy], references: [id], onDelete: SetNull)
   notes     AuditResponseNote[]
   documents AuditPlanDocument[]
+  checklistSubmissions AuditeeChecklistSubmission[]
 
   @@index([auditPlanEntryId])
   @@map("audit_response_links")
@@ -1198,6 +1201,9 @@ model AuditSessionItem {
   checklistItem AuditChecklistItem @relation(fields: [auditChecklistItemId], references: [id], onDelete: Restrict)
   finding       AuditFinding?
   attachments   AuditSessionItemAttachment[]
+  /// Public Audit Response Link üzerinden denetlenenin bu soruya gönderdiği cevap/not/dosya
+  /// gönderimleri — append-only, resmi result/notes alanlarını asla otomatik değiştirmez.
+  auditeeSubmissions AuditeeChecklistSubmission[]
 
   @@unique([auditSessionId, auditChecklistItemId])
   @@index([auditSessionId])
@@ -1247,6 +1253,10 @@ model AuditFinding {
   dueDate            DateTime? @map("due_date") @db.Date
   status             String    @default("Open") @db.VarChar(50) // Open | Closed
   assignedToId       Int?      @map("assigned_to_id")
+  /// Doluysa bulgu silinmiş sayılır (soft delete) — hard delete YAPILMAZ, kendi
+  /// AuditFindingHistory kaydı kaybolmasın diye. Tüm liste/okuma sorguları bu alanı
+  /// null olarak filtreler; findingCode benzersizliği bu satırlarda da korunur.
+  deletedAt          DateTime? @map("deleted_at")
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
@@ -1364,6 +1374,60 @@ model AuditFindingExtension {
 
   @@index([auditFindingId])
   @@map("audit_finding_extensions")
+}
+
+/// Public Audit Response Link üzerinden denetlenenin bir checklist maddesine gönderdiği
+/// cevap — resmi AuditSessionItem.result/notes alanlarının ÜZERİNE YAZILMAZ, ayrı tutulur.
+/// Reddedilirse denetlenen yeni bir submission gönderebilir (append-only geçmiş; her
+/// gönderim kendi review durumunu taşır — Manage Audit'te tüm geçmiş görülebilir).
+model AuditeeChecklistSubmission {
+  id                   Int       @id @default(autoincrement())
+  auditSessionItemId   Int       @map("audit_session_item_id")
+  /// Hangi response link üzerinden gönderildi — link iptal/silinse bile SetNull ile kalır.
+  responseLinkId       Int?      @map("response_link_id")
+  /// Denetlenenin soruya verdiği cevap (serbest metin — checklist türünden bağımsız,
+  /// auditörün S/U/NA/OBS sınıflandırmasından ayrı).
+  auditeeResponse      String?   @db.Text @map("auditee_response")
+  auditeeNote          String?   @db.Text @map("auditee_note")
+  /// Bonjour hesabı olan bir denetlenen kendi oturumuyla gönderdiyse dolu.
+  submittedByCalisanId Int?      @map("submitted_by_calisan_id")
+  submitterName        String?   @db.VarChar(200) @map("submitter_name")
+  submitterEmail       String?   @db.VarChar(200) @map("submitter_email")
+  /// Pending | Accepted | Rejected
+  reviewStatus         String    @default("Pending") @db.VarChar(20) @map("review_status")
+  reviewedById         Int?      @map("reviewed_by_id")
+  reviewedAt           DateTime? @map("reviewed_at")
+  /// Reddetme gerekçesi — public linkte denetlenene gösterilir.
+  reviewNote           String?   @db.Text @map("review_note")
+  submittedAt          DateTime  @default(now()) @map("submitted_at")
+
+  sessionItem  AuditSessionItem   @relation(fields: [auditSessionItemId], references: [id], onDelete: Cascade)
+  responseLink AuditResponseLink? @relation(fields: [responseLinkId], references: [id], onDelete: SetNull)
+  submittedBy  Calisan?           @relation("AuditeeChecklistSubmissionSubmitter", fields: [submittedByCalisanId], references: [id], onDelete: SetNull)
+  reviewedBy   Calisan?           @relation("AuditeeChecklistSubmissionReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  files        AuditeeChecklistSubmissionFile[]
+
+  @@index([auditSessionItemId])
+  @@index([responseLinkId])
+  @@index([reviewStatus])
+  @@map("audit_checklist_auditee_submissions")
+}
+
+/// Bir auditee checklist submission'ına eklenen dosyalar — Audit ID + Checklist Item ID +
+/// Submission ID ile ilişkilidir, genel Audit Files (AuditPlanDocument) ile karışmaz.
+model AuditeeChecklistSubmissionFile {
+  id            Int      @id @default(autoincrement())
+  submissionId  Int      @map("submission_id")
+  fileName      String   @db.VarChar(500) @map("file_name")
+  storagePath   String   @db.Text @map("storage_path")
+  mimeType      String?  @db.VarChar(200) @map("mime_type")
+  fileSizeBytes Int?     @map("file_size_bytes")
+  uploadedAt    DateTime @default(now()) @map("uploaded_at")
+
+  submission AuditeeChecklistSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
+  @@map("audit_checklist_auditee_submission_files")
 }
 
 /// Denetim satırına atanmış checklist şablonu

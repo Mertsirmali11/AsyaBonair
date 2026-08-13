@@ -131,7 +131,7 @@ export async function GET(_req: Request, ctx: Ctx) {
 
   // Tüm finding'ler (checklist üzerinden otomatik + manuel), en güncel CPA cevabıyla
   const findingRows = await prisma.auditFinding.findMany({
-    where: { OR: [{ auditPlanEntryId: entryId }, { session: { auditPlanEntryId: entryId } }] },
+    where: { deletedAt: null, OR: [{ auditPlanEntryId: entryId }, { session: { auditPlanEntryId: entryId } }] },
     orderBy: { createdAt: "asc" },
     include: {
       assignedTo: { select: { isim: true, soyisim: true, departman: true } },

@@ -36,6 +36,7 @@ export async function GET(_req: Request, ctx: Ctx) {
 
   const findings = await prisma.auditFinding.findMany({
     where: {
+      deletedAt: null,
       OR: [{ auditPlanEntryId: entryId }, { session: { auditPlanEntryId: entryId } }],
     },
     orderBy: { createdAt: "desc" },

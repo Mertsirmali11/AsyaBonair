@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   if (!isAdmin && !calisan) return NextResponse.json([], { status: 200 })
 
   const findings = await prisma.auditFinding.findMany({
-    where: isAdmin ? {} : { assignedToId: calisan!.id },
+    where: isAdmin ? { deletedAt: null } : { deletedAt: null, assignedToId: calisan!.id },
     orderBy: { createdAt: "desc" },
     include: {
       assignedTo: { select: { id: true, isim: true, soyisim: true } },

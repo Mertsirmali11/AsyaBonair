@@ -39,7 +39,7 @@ export async function POST(_req: Request, ctx: Ctx) {
       manualEntry: { select: { auditeeDepartments: { select: { departmentName: true } } } },
     },
   })
-  if (!finding) return NextResponse.json({ error: "Not found" }, { status: 404 })
+  if (!finding || finding.deletedAt) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   // Alıcılar: önce doğrudan sorumlu kişi; kişi yoksa (veya e-postası yoksa) sorumlu
   // departman/grup üyelerine (finding.assignedTo.departman VEYA denetimin Auditee Group'u) gönderilir.

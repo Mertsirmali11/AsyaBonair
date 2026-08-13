@@ -40,7 +40,7 @@ export async function GET(_req: Request, ctx: Ctx) {
   const field = sub ? `${cat} — ${sub}` : cat
   const auditNumber = entry.auditNumberPrefix ? `${entry.auditNumberPrefix}-${entry.id}` : `AP-${entry.id}`
 
-  const [notes, files] = await Promise.all([
+  const [notes, files, sessions] = await Promise.all([
     prisma.auditResponseNote.findMany({
       where: { auditPlanEntryId: entry.id },
       orderBy: { submittedAt: "desc" },
@@ -56,6 +56,37 @@ export async function GET(_req: Request, ctx: Ctx) {
       where: { auditPlanEntryId: entry.id, source: "auditee" },
       orderBy: { createdAt: "desc" },
       select: { id: true, fileName: true, fileSizeBytes: true, submitterName: true, createdAt: true },
+    }),
+    // Bu denetime bağlı checklist oturum(lar)ı — auditor'un cevabı/sonucu (result/notes)
+    // HİÇBİR ZAMAN döndürülmez, yalnızca soru metni ve bu link'in KENDİ gönderimleri.
+    prisma.auditSession.findMany({
+      where: { auditPlanEntryId: entry.id },
+      select: {
+        id: true,
+        checklist: { select: { title: true, checklistNumber: true } },
+        items: {
+          orderBy: { checklistItem: { sortOrder: "asc" } },
+          select: {
+            id: true,
+            checklistItem: {
+              select: { label: true, reference: true, section: true, isHeading: true, sortOrder: true },
+            },
+            auditeeSubmissions: {
+              where: { responseLinkId: validation.link.id },
+              orderBy: { submittedAt: "desc" },
+              select: {
+                id: true,
+                auditeeResponse: true,
+                auditeeNote: true,
+                reviewStatus: true,
+                reviewNote: true,
+                submittedAt: true,
+                files: { select: { id: true, fileName: true, fileSizeBytes: true } },
+              },
+            },
+          },
+        },
+      },
     }),
   ])
 
@@ -82,5 +113,29 @@ export async function GET(_req: Request, ctx: Ctx) {
       submitterName: f.submitterName,
       createdAt: f.createdAt.toISOString(),
     })),
+    checklistSessions: sessions
+      .filter((s) => s.items.length > 0)
+      .map((s) => ({
+        sessionId: s.id,
+        checklistTitle: s.checklist.title,
+        checklistNumber: s.checklist.checklistNumber,
+        items: s.items
+          .filter((it) => !it.checklistItem.isHeading)
+          .map((it) => ({
+            sessionItemId: it.id,
+            label: it.checklistItem.label,
+            reference: it.checklistItem.reference,
+            section: it.checklistItem.section,
+            submissions: it.auditeeSubmissions.map((sub) => ({
+              id: sub.id,
+              auditeeResponse: sub.auditeeResponse,
+              auditeeNote: sub.auditeeNote,
+              reviewStatus: sub.reviewStatus,
+              reviewNote: sub.reviewNote,
+              submittedAt: sub.submittedAt.toISOString(),
+              files: sub.files.map((f) => ({ id: f.id, fileName: f.fileName, fileSizeBytes: f.fileSizeBytes })),
+            })),
+          })),
+      })),
   })
 }

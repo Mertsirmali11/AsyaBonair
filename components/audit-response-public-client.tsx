@@ -3,14 +3,27 @@
 import * as React from "react"
 import Image from "next/image"
 import { toast } from "sonner"
-import { AlertTriangle, FileText, Loader2, Paperclip, Send, Upload, X } from "lucide-react"
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ClipboardList,
+  FileText,
+  Loader2,
+  Paperclip,
+  Send,
+  Upload,
+  X,
+  XCircle,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FINDING_FILE_ACCEPT_HTML, FINDING_FILE_TYPES_USER_MESSAGE } from "@/lib/allowed-document-uploads"
 import { uploadAuditResponseFilesDirect } from "@/lib/client-audit-response-upload"
+import { uploadAuditResponseChecklistFilesDirect } from "@/lib/client-audit-response-checklist-upload"
 import { cn } from "@/lib/utils"
 
 type AuditSummary = {
@@ -23,10 +36,39 @@ type AuditSummary = {
 type NoteRow = { id: number; note: string; submitterName: string | null; submittedAt: string }
 type FileRow = { id: number; fileName: string; fileSizeBytes: number | null; submitterName: string | null; createdAt: string }
 
+type ChecklistSubmissionRow = {
+  id: number
+  auditeeResponse: string | null
+  auditeeNote: string | null
+  reviewStatus: string
+  reviewNote: string | null
+  submittedAt: string
+  files: { id: number; fileName: string; fileSizeBytes: number | null }[]
+}
+type ChecklistItemRow = {
+  sessionItemId: number
+  label: string
+  reference: string | null
+  section: string | null
+  submissions: ChecklistSubmissionRow[]
+}
+type ChecklistSessionRow = {
+  sessionId: number
+  checklistTitle: string
+  checklistNumber: string | null
+  items: ChecklistItemRow[]
+}
+
 type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; entry: AuditSummary; notes: NoteRow[]; files: FileRow[] }
+  | {
+      status: "ready"
+      entry: AuditSummary
+      notes: NoteRow[]
+      files: FileRow[]
+      checklistSessions: ChecklistSessionRow[]
+    }
 
 function formatDate(iso: string): string {
   try {
@@ -69,19 +111,38 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
   const [fileError, setFileError] = React.useState<string | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
+  // Checklist — soru başına cevap/not/dosya formu (sessionItemId -> form state)
+  type ChecklistFormState = { response: string; note: string; files: File[] }
+  const [checklistForms, setChecklistForms] = React.useState<Record<number, ChecklistFormState>>({})
+  const [checklistSubmitting, setChecklistSubmitting] = React.useState<Record<number, boolean>>({})
+  const [checklistErrors, setChecklistErrors] = React.useState<Record<number, string>>({})
+
+  const getChecklistForm = (sessionItemId: number): ChecklistFormState =>
+    checklistForms[sessionItemId] ?? { response: "", note: "", files: [] }
+
+  const updateChecklistForm = (sessionItemId: number, patch: Partial<ChecklistFormState>) => {
+    setChecklistForms((prev) => ({ ...prev, [sessionItemId]: { ...getChecklistForm(sessionItemId), ...patch } }))
+  }
+
   const load = React.useCallback(async () => {
     setState({ status: "loading" })
     try {
       const res = await fetch(`/api/audit-response/${token}`, { cache: "no-store" })
       const data = (await parseJson(res)) as
-        | { ok: true; entry: AuditSummary; notes: NoteRow[]; files: FileRow[] }
+        | { ok: true; entry: AuditSummary; notes: NoteRow[]; files: FileRow[]; checklistSessions?: ChecklistSessionRow[] }
         | { ok: false; message?: string }
         | null
       if (!res.ok || !data || data.ok !== true) {
         setState({ status: "error", message: (data && "message" in data && data.message) || "Bu bağlantı kullanılamıyor." })
         return
       }
-      setState({ status: "ready", entry: data.entry, notes: data.notes, files: data.files })
+      setState({
+        status: "ready",
+        entry: data.entry,
+        notes: data.notes,
+        files: data.files,
+        checklistSessions: data.checklistSessions ?? [],
+      })
     } catch {
       setState({ status: "error", message: "Bağlantı hatası. Lütfen internet bağlantınızı kontrol edip tekrar deneyin." })
     }
@@ -198,6 +259,84 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
     } finally {
       setUploadingFiles(false)
     }
+  }
+
+  const submitChecklistItem = async (sessionItemId: number) => {
+    setChecklistErrors((prev) => ({ ...prev, [sessionItemId]: "" }))
+    if (!nameOk) {
+      setChecklistErrors((prev) => ({ ...prev, [sessionItemId]: "İsim zorunludur (yukarıdaki 'Your Details' bölümü)." }))
+      return
+    }
+    const form = getChecklistForm(sessionItemId)
+    if (!form.response.trim() && !form.note.trim() && form.files.length === 0) {
+      setChecklistErrors((prev) => ({ ...prev, [sessionItemId]: "Cevap, not veya dosyalardan en az biri girilmelidir." }))
+      return
+    }
+    setChecklistSubmitting((prev) => ({ ...prev, [sessionItemId]: true }))
+    try {
+      const uploaded =
+        form.files.length > 0
+          ? await uploadAuditResponseChecklistFilesDirect(token, sessionItemId, form.files)
+          : []
+      const res = await fetch(`/api/audit-response/${token}/checklist/${sessionItemId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          auditeeResponse: form.response.trim() || undefined,
+          auditeeNote: form.note.trim() || undefined,
+          submitterName: submitterName.trim(),
+          submitterEmail: submitterEmail.trim() || undefined,
+          files: uploaded.map((u) => ({ path: u.path, fileName: u.fileName, mimeType: u.mimeType, sizeBytes: u.sizeBytes })),
+        }),
+      })
+      const data = (await parseJson(res)) as { error?: string; submission?: ChecklistSubmissionRow } | null
+      if (!res.ok || !data || !data.submission) {
+        throw new Error((data && data.error) || "Gönderilemedi. Lütfen tekrar deneyin.")
+      }
+      toast.success("Cevabınız gönderildi. Denetçi onayı bekleniyor.")
+      updateChecklistForm(sessionItemId, { response: "", note: "", files: [] })
+      if (state.status === "ready") {
+        setState({
+          ...state,
+          checklistSessions: state.checklistSessions.map((s) => ({
+            ...s,
+            items: s.items.map((it) =>
+              it.sessionItemId === sessionItemId
+                ? { ...it, submissions: [data.submission!, ...it.submissions] }
+                : it
+            ),
+          })),
+        })
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Gönderilemedi. Lütfen tekrar deneyin."
+      setChecklistErrors((prev) => ({ ...prev, [sessionItemId]: message }))
+      toast.error(message)
+    } finally {
+      setChecklistSubmitting((prev) => ({ ...prev, [sessionItemId]: false }))
+    }
+  }
+
+  const reviewStatusBadge = (status: string) => {
+    if (status === "Accepted") {
+      return (
+        <Badge className="gap-1 bg-teal-600 text-white hover:bg-teal-600">
+          <CheckCircle2 className="size-3" /> Accepted
+        </Badge>
+      )
+    }
+    if (status === "Rejected") {
+      return (
+        <Badge variant="destructive" className="gap-1">
+          <XCircle className="size-3" /> Revision Requested
+        </Badge>
+      )
+    }
+    return (
+      <Badge variant="outline" className="gap-1">
+        <Loader2 className="size-3" /> Pending Review
+      </Badge>
+    )
   }
 
   return (
@@ -379,6 +518,140 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
                 )}
               </CardContent>
             </Card>
+
+            {state.checklistSessions.map((session) => (
+              <Card key={session.sessionId} className="shadow-sm">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <ClipboardList className="size-4" />
+                    {session.checklistTitle}
+                    {session.checklistNumber && (
+                      <span className="text-muted-foreground font-mono text-xs font-normal">({session.checklistNumber})</span>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {session.items.map((item) => {
+                    const form = getChecklistForm(item.sessionItemId)
+                    const submitting = !!checklistSubmitting[item.sessionItemId]
+                    const error = checklistErrors[item.sessionItemId]
+                    const latest = item.submissions[0]
+                    return (
+                      <div key={item.sessionItemId} className="space-y-2.5 rounded-lg border p-3">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium">{item.label}</p>
+                            {(item.section || item.reference) && (
+                              <p className="text-muted-foreground text-xs mt-0.5">
+                                {item.section ?? ""}{item.section && item.reference ? " · " : ""}{item.reference ?? ""}
+                              </p>
+                            )}
+                          </div>
+                          {latest && reviewStatusBadge(latest.reviewStatus)}
+                        </div>
+
+                        {latest && latest.reviewStatus === "Rejected" && latest.reviewNote && (
+                          <p className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
+                            {latest.reviewNote}
+                          </p>
+                        )}
+
+                        {item.submissions.length > 0 && (
+                          <ul className="space-y-1.5 border-t pt-2">
+                            {item.submissions.map((sub) => (
+                              <li key={sub.id} className="rounded-md bg-muted/30 px-2.5 py-1.5 text-xs">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-muted-foreground">{formatDate(sub.submittedAt)}</span>
+                                  {reviewStatusBadge(sub.reviewStatus)}
+                                </div>
+                                {sub.auditeeResponse && <p className="mt-1 whitespace-pre-wrap">{sub.auditeeResponse}</p>}
+                                {sub.auditeeNote && <p className="mt-1 whitespace-pre-wrap text-muted-foreground">{sub.auditeeNote}</p>}
+                                {sub.files.length > 0 && (
+                                  <p className="mt-1 text-muted-foreground">
+                                    {sub.files.map((f) => f.fileName).join(", ")}
+                                  </p>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+
+                        <div className="space-y-2">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Auditee Response</Label>
+                            <Textarea
+                              value={form.response}
+                              onChange={(e) => updateChecklistForm(item.sessionItemId, { response: e.target.value })}
+                              placeholder="Cevabınızı yazın…"
+                              className="min-h-[70px] text-sm"
+                              disabled={submitting}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Auditee Note</Label>
+                            <Textarea
+                              value={form.note}
+                              onChange={(e) => updateChecklistForm(item.sessionItemId, { note: e.target.value })}
+                              placeholder="Ek not (isteğe bağlı)…"
+                              className="min-h-[50px] text-sm"
+                              disabled={submitting}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Attachment</Label>
+                            <input
+                              type="file"
+                              multiple
+                              accept={FINDING_FILE_ACCEPT_HTML}
+                              disabled={submitting}
+                              className="block w-full text-xs text-muted-foreground file:mr-2 file:rounded-md file:border file:bg-background file:px-2 file:py-1 file:text-xs"
+                              onChange={(e) =>
+                                updateChecklistForm(item.sessionItemId, {
+                                  files: [...form.files, ...Array.from(e.target.files ?? [])],
+                                })
+                              }
+                            />
+                            {form.files.length > 0 && (
+                              <ul className="space-y-1">
+                                {form.files.map((f, i) => (
+                                  <li key={`${f.name}-${i}`} className="flex items-center justify-between gap-2 rounded-md border px-2 py-1 text-xs">
+                                    <span className="min-w-0 truncate">{f.name}</span>
+                                    <button
+                                      type="button"
+                                      disabled={submitting}
+                                      onClick={() =>
+                                        updateChecklistForm(item.sessionItemId, {
+                                          files: form.files.filter((_, j) => j !== i),
+                                        })
+                                      }
+                                      className="text-muted-foreground hover:text-destructive"
+                                    >
+                                      <X className="size-3" />
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                          {error && <p className="text-xs text-destructive">{error}</p>}
+                          <div className="flex justify-end">
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={submitting}
+                              onClick={() => void submitChecklistItem(item.sessionItemId)}
+                            >
+                              {submitting ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <Send className="mr-1.5 size-3.5" />}
+                              Submit
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </CardContent>
+              </Card>
+            ))}
           </div>
         )}
       </div>

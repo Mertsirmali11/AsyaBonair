@@ -33,8 +33,8 @@ export async function POST(req: Request, ctx: Ctx) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  const finding = await prisma.auditFinding.findUnique({ where: { id: findingId }, select: { id: true } })
-  if (!finding) return NextResponse.json({ error: "Not found" }, { status: 404 })
+  const finding = await prisma.auditFinding.findUnique({ where: { id: findingId }, select: { id: true, deletedAt: true } })
+  if (!finding || finding.deletedAt) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   const body = (await req.json().catch(() => null)) as { files?: { name: string; size: number }[] } | null
   const files = Array.isArray(body?.files) ? body!.files : []

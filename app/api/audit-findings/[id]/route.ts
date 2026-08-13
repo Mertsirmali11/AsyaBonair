@@ -2,9 +2,25 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import { resolveFindingAuditeeAccess } from "@/lib/audit-finding-auditee-access"
+import { normalizeFindingCategory } from "@/lib/finding-category"
 import { prisma } from "@/lib/prisma-server"
 
 type Ctx = { params: Promise<{ id: string }> }
+
+const VALID_LEVELS = ["Level1", "Level2", "Observation"]
+
+function calisanName(c: { isim: string | null; soyisim: string | null } | null): string {
+  if (!c) return "Bilinmeyen kullanıcı"
+  return [c.isim, c.soyisim].filter(Boolean).join(" ").trim() || "Bilinmeyen kullanıcı"
+}
+
+async function resolveActor(email: string | null | undefined) {
+  if (!email) return null
+  return prisma.calisan.findFirst({
+    where: { email: { equals: email, mode: "insensitive" } },
+    select: { id: true, isim: true, soyisim: true },
+  })
+}
 
 export async function GET(_req: Request, ctx: Ctx) {
   const id = Number((await ctx.params).id)
@@ -62,7 +78,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     },
   })
 
-  if (!finding) return NextResponse.json({ error: "Not found" }, { status: 404 })
+  if (!finding || finding.deletedAt) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   const { manualEntry, session: findingSession, ...rest } = finding
 
@@ -78,6 +94,22 @@ export async function GET(_req: Request, ctx: Ctx) {
   return NextResponse.json({ ...rest, session: normalizedSession })
 }
 
+/** Bu bulgunun bağlı olduğu denetimin audit category adı — SACA/SAFA normalize kontrolü için. */
+async function resolveFindingCategoryName(id: number): Promise<string | null> {
+  const finding = await prisma.auditFinding.findUnique({
+    where: { id },
+    select: {
+      session: { select: { entry: { select: { auditCategoryType: { select: { name: true } } } } } },
+      manualEntry: { select: { auditCategoryType: { select: { name: true } } } },
+    },
+  })
+  return (
+    finding?.session?.entry.auditCategoryType.name ??
+    finding?.manualEntry?.auditCategoryType.name ??
+    null
+  )
+}
+
 export async function PATCH(req: Request, ctx: Ctx) {
   const session = await requireAuditPlanSession()
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -86,20 +118,116 @@ export async function PATCH(req: Request, ctx: Ctx) {
   if (!Number.isInteger(id) || id < 1)
     return NextResponse.json({ error: "Invalid id" }, { status: 400 })
 
+  const existing = await prisma.auditFinding.findUnique({ where: { id } })
+  if (!existing || existing.deletedAt) return NextResponse.json({ error: "Not found" }, { status: 404 })
+
   let body: unknown
   try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }) }
 
   const b = body as Record<string, unknown>
 
   const data: Record<string, unknown> = {}
-  if (typeof b.status === "string") data.status = b.status
-  if (typeof b.explanation === "string") data.explanation = b.explanation.trim()
-  if (typeof b.reference === "string") data.reference = b.reference.trim() || null
-  if (typeof b.dueDate === "string") data.dueDate = b.dueDate ? new Date(b.dueDate) : null
+  const changedLabels: string[] = []
+
+  if (typeof b.status === "string" && b.status !== existing.status) {
+    data.status = b.status
+    changedLabels.push("durum")
+  }
+  if (typeof b.explanation === "string") {
+    const v = b.explanation.trim()
+    if (v && v !== existing.explanation) {
+      data.explanation = v
+      changedLabels.push("açıklama")
+    }
+  }
+  if (typeof b.reference === "string") {
+    const v = b.reference.trim() || null
+    if (v !== existing.reference) {
+      data.reference = v
+      changedLabels.push("referans")
+    }
+  }
+  if (typeof b.dueDate === "string") {
+    const v = b.dueDate ? new Date(b.dueDate) : null
+    if (v?.getTime() !== existing.dueDate?.getTime()) {
+      data.dueDate = v
+      changedLabels.push("vade tarihi")
+    }
+  }
   if (b.assignedToId !== undefined) {
-    data.assignedToId = b.assignedToId ? Number(b.assignedToId) : null
+    const v = b.assignedToId ? Number(b.assignedToId) : null
+    if (v !== existing.assignedToId) {
+      data.assignedToId = v
+      changedLabels.push("sorumlu kişi")
+    }
+  }
+  if (typeof b.findingLevel === "string" && VALID_LEVELS.includes(b.findingLevel) && b.findingLevel !== existing.findingLevel) {
+    data.findingLevel = b.findingLevel
+    changedLabels.push("seviye")
+  }
+  if (b.findingCategory !== undefined) {
+    const categoryName = await resolveFindingCategoryName(id)
+    const v = normalizeFindingCategory(b.findingCategory, categoryName)
+    if (v !== existing.findingCategory) {
+      data.findingCategory = v
+      changedLabels.push("kategori")
+    }
+  }
+
+  if (Object.keys(data).length === 0) {
+    return NextResponse.json(existing)
   }
 
   const updated = await prisma.auditFinding.update({ where: { id }, data })
+
+  try {
+    const actor = await resolveActor(session.user?.email)
+    await prisma.auditFindingHistory.create({
+      data: {
+        auditFindingId: id,
+        actorId: actor?.id ?? null,
+        eventType: "UPDATED",
+        note: `Finding updated by ${calisanName(actor)}${changedLabels.length ? ` (${changedLabels.join(", ")})` : ""}.`,
+      },
+    })
+  } catch {
+    // Geçmiş kaydı başarısız olsa bile güncelleme geçerli kalır
+  }
+
   return NextResponse.json(updated)
+}
+
+/**
+ * DELETE: bulguyu soft-delete eder (deletedAt) — hard delete YAPMAZ, kendi
+ * AuditFindingHistory kaydı kaybolmasın diye. Yalnızca Audit Plan admini kullanabilir.
+ */
+export async function DELETE(_req: Request, ctx: Ctx) {
+  const session = await requireAuditPlanSession()
+  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+
+  const id = Number((await ctx.params).id)
+  if (!Number.isInteger(id) || id < 1)
+    return NextResponse.json({ error: "Invalid id" }, { status: 400 })
+
+  const existing = await prisma.auditFinding.findUnique({ where: { id } })
+  if (!existing || existing.deletedAt) return NextResponse.json({ error: "Not found" }, { status: 404 })
+
+  const actor = await resolveActor(session.user?.email)
+
+  await prisma.auditFinding.update({ where: { id }, data: { deletedAt: new Date() } })
+
+  try {
+    await prisma.auditFindingHistory.create({
+      data: {
+        auditFindingId: id,
+        actorId: actor?.id ?? null,
+        eventType: "DELETED",
+        note: `Finding deleted by ${calisanName(actor)}.`,
+      },
+    })
+  } catch {
+    // Geçmiş kaydı başarısız olsa bile silme işlemi geçerli kalır
+  }
+
+  return NextResponse.json({ success: true })
 }

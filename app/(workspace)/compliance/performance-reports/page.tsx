@@ -54,7 +54,7 @@ export default async function PerformanceReportsPage() {
       },
     }),
     prisma.auditFinding.findMany({
-      where: { initializedOn: { gte: rangeStart, lt: rangeEnd } },
+      where: { deletedAt: null, initializedOn: { gte: rangeStart, lt: rangeEnd } },
       select: {
         id: true,
         initializedOn: true,

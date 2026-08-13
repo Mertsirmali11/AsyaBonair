@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
   AlertTriangle,
   ArrowLeft,
@@ -13,6 +14,7 @@ import {
   History as HistoryIcon,
   Loader2,
   Paperclip,
+  Pencil,
   Plus,
   Send,
   Trash2,
@@ -50,7 +52,8 @@ import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { normalizeDepartmentKey } from "@/lib/department-access"
 import { uploadAuditFindingFilesDirect } from "@/lib/client-audit-finding-file-upload"
-import { findingCategoryLabels, findingCategoryStyles } from "@/lib/finding-category"
+import { findingCategoryLabels, findingCategoryStyles, isSacaOrSafaAuditCategory, FINDING_CATEGORY_VALUES } from "@/lib/finding-category"
+import { findingLevelStyles } from "@/components/compliance/audit-plan-client"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
@@ -88,6 +91,8 @@ type Extension = {
 type FindingDetail = {
   id: number
   findingCode: string
+  /** Level1 | Level2 | Observation */
+  findingLevel: string
   /** CAT1 | CAT2 | CAT3 — yalnızca SACA/SAFA denetimlerinde dolu, diğerlerinde null. */
   findingCategory: string | null
   explanation: string
@@ -214,6 +219,21 @@ export function FindingDetailClient({
   const [assignedToId, setAssignedToId] = React.useState<string>("")
   const [assigning, setAssigning] = React.useState(false)
 
+  // Edit Finding state
+  const router = useRouter()
+  const [editOpen, setEditOpen] = React.useState(false)
+  const [editLevel, setEditLevel] = React.useState("Level1")
+  const [editCategory, setEditCategory] = React.useState<string>("CAT1")
+  const [editExplanation, setEditExplanation] = React.useState("")
+  const [editReference, setEditReference] = React.useState("")
+  const [editAssignedToId, setEditAssignedToId] = React.useState<string>("")
+  const [editDueDate, setEditDueDate] = React.useState("")
+  const [savingEdit, setSavingEdit] = React.useState(false)
+
+  // Delete Finding state
+  const [deleteFindingOpen, setDeleteFindingOpen] = React.useState(false)
+  const [deletingFinding, setDeletingFinding] = React.useState(false)
+
   // Reject dialog state
   const [rejectOpen, setRejectOpen] = React.useState(false)
   const [rejectTargetId, setRejectTargetId] = React.useState<number | null>(null)
@@ -324,6 +344,67 @@ export function FindingDetailClient({
       toast.error(e instanceof Error ? e.message : "Hatırlatma gönderilemedi.")
     } finally {
       setSendingReminder(false)
+    }
+  }
+
+  const openEditDialog = () => {
+    if (!finding) return
+    setEditLevel(finding.findingLevel || "Level1")
+    setEditCategory(finding.findingCategory || "CAT1")
+    setEditExplanation(finding.explanation)
+    setEditReference(finding.reference || "")
+    setEditAssignedToId(finding.assignedTo ? String(finding.assignedTo.id) : "")
+    setEditDueDate(finding.dueDate ? finding.dueDate.slice(0, 10) : "")
+    setEditOpen(true)
+  }
+
+  const submitEdit = async () => {
+    if (!finding) return
+    if (!editExplanation.trim()) {
+      toast.error("Açıklama zorunludur.")
+      return
+    }
+    setSavingEdit(true)
+    try {
+      const isSacaSafa = isSacaOrSafaAuditCategory(finding.session?.entry.auditCategoryType.name)
+      const res = await fetch(`/api/audit-findings/${findingId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          findingLevel: editLevel,
+          findingCategory: isSacaSafa ? editCategory : null,
+          explanation: editExplanation.trim(),
+          reference: editReference.trim() || null,
+          assignedToId: editAssignedToId ? Number(editAssignedToId) : null,
+          dueDate: editDueDate || null,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Bulgu güncellenemedi.")
+      toast.success("Bulgu güncellendi.")
+      setEditOpen(false)
+      await Promise.all([load(), loadFindingHistory()])
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Bulgu güncellenemedi.")
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
+  const confirmDeleteFinding = async () => {
+    setDeletingFinding(true)
+    try {
+      const res = await fetch(`/api/audit-findings/${findingId}`, { method: "DELETE" })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || "Bulgu silinemedi.")
+      }
+      toast.success("Bulgu silindi.")
+      router.push("/compliance/findings-follow-up")
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Bulgu silinemedi.")
+      setDeletingFinding(false)
+      setDeleteFindingOpen(false)
     }
   }
 
@@ -539,6 +620,12 @@ export function FindingDetailClient({
               <h1 className="text-2xl font-semibold tracking-tight">{finding.findingCode}</h1>
               <p className="text-muted-foreground text-sm">{finding.auditNumber ?? "—"} · {finding.field ?? "—"}</p>
             </div>
+            <Badge
+              variant="outline"
+              className={cn("ml-1", (findingLevelStyles[finding.findingLevel] ?? findingLevelStyles.Level1).cls)}
+            >
+              {(findingLevelStyles[finding.findingLevel] ?? findingLevelStyles.Level1).label}
+            </Badge>
             {finding.findingCategory && (
               <Badge
                 variant="outline"
@@ -558,6 +645,24 @@ export function FindingDetailClient({
             </Badge>
           </div>
           <div className="flex gap-2">
+            {isAdmin && (
+              <Button type="button" variant="outline" size="sm" onClick={openEditDialog}>
+                <Pencil className="mr-1.5 size-3.5" />
+                Edit
+              </Button>
+            )}
+            {isAdmin && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                onClick={() => setDeleteFindingOpen(true)}
+              >
+                <Trash2 className="mr-1.5 size-3.5" />
+                Delete
+              </Button>
+            )}
             {isAdmin ? (
               <Button type="button" variant="outline" size="sm" onClick={() => {
                 setAssignedToId(finding.assignedTo ? String(finding.assignedTo.id) : "")
@@ -882,6 +987,97 @@ export function FindingDetailClient({
           )}
         </div>
       </div>
+
+      {/* Edit Finding */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Bulguyu Düzenle</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Finding Level</Label>
+                <Select value={editLevel} onValueChange={setEditLevel}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Level1">Level 1</SelectItem>
+                    <SelectItem value="Level2">Level 2</SelectItem>
+                    <SelectItem value="Observation">Gözlem (Observation)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {finding && isSacaOrSafaAuditCategory(finding.session?.entry.auditCategoryType.name) && (
+                <div className="space-y-1.5">
+                  <Label>Finding Category</Label>
+                  <Select value={editCategory} onValueChange={setEditCategory}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {FINDING_CATEGORY_VALUES.map((c) => (
+                        <SelectItem key={c} value={c}>{findingCategoryLabels[c]}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label>Description / Açıklama *</Label>
+              <Textarea value={editExplanation} onChange={(e) => setEditExplanation(e.target.value)} className="min-h-[90px]" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Reference / Referans</Label>
+              <Input value={editReference} onChange={(e) => setEditReference(e.target.value)} />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Responsible Person</Label>
+                <Select value={editAssignedToId || "none"} onValueChange={(v) => setEditAssignedToId(v === "none" ? "" : v)}>
+                  <SelectTrigger><SelectValue placeholder="Atanmadı" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Atanmadı</SelectItem>
+                    {calisanlar.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {[c.isim, c.soyisim].filter(Boolean).join(" ")}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Due Date</Label>
+                <Input type="date" value={editDueDate} onChange={(e) => setEditDueDate(e.target.value)} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Vazgeç</Button>
+            <Button type="button" disabled={savingEdit} onClick={() => void submitEdit()}>
+              {savingEdit ? <Loader2 className="mr-1.5 size-4 animate-spin" /> : null}
+              Kaydet
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Finding onayı */}
+      <Dialog open={deleteFindingOpen} onOpenChange={(o) => !deletingFinding && setDeleteFindingOpen(o)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Bulguyu Sil</DialogTitle>
+          </DialogHeader>
+          <p className="text-muted-foreground text-sm">
+            Bu bulguyu silmek istediğinizden emin misiniz? Bu işlem geri alınamaz; bulgu artık listelerde görünmeyecek.
+          </p>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setDeleteFindingOpen(false)} disabled={deletingFinding}>Vazgeç</Button>
+            <Button type="button" variant="destructive" disabled={deletingFinding} onClick={() => void confirmDeleteFinding()}>
+              {deletingFinding ? <Loader2 className="mr-1.5 size-4 animate-spin" /> : null}
+              Sil
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Finding File onayı */}
       <Dialog open={!!deleteFileTarget} onOpenChange={(o) => !o && setDeleteFileTarget(null)}>

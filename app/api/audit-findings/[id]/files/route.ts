@@ -63,8 +63,8 @@ export async function POST(req: Request, ctx: Ctx) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  const finding = await prisma.auditFinding.findUnique({ where: { id: findingId }, select: { id: true } })
-  if (!finding) return NextResponse.json({ error: "Not found" }, { status: 404 })
+  const finding = await prisma.auditFinding.findUnique({ where: { id: findingId }, select: { id: true, deletedAt: true } })
+  if (!finding || finding.deletedAt) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   const uploader = authSession?.user?.email
     ? await prisma.calisan.findFirst({

@@ -147,6 +147,23 @@ export async function PUT(req: Request, ctx: Ctx) {
           ...(auditeeId ? { assignedToId: auditeeId } : {}),
         },
       })
+    } else if (existingFinding.deletedAt) {
+      // auditSessionItemId @unique olduğu için bu slot'ta zaten (soft-delete edilmiş) bir
+      // kayıt var — yeni satır INSERT etmek unique constraint'i ihlal eder. Bunun yerine
+      // aynı kaydı geri getiriyoruz (deletedAt temizlenir), sanki checklist maddesi
+      // yeniden Unsatisfactory işaretlendiğinde finding "yeniden oluşmuş" gibi davranır.
+      let dueDate: Date | null = null
+      if (findingLevel === "Level1") {
+        dueDate = new Date()
+        dueDate.setDate(dueDate.getDate() + 10)
+      } else if (findingLevel === "Level2") {
+        dueDate = new Date()
+        dueDate.setDate(dueDate.getDate() + 90)
+      }
+      await prisma.auditFinding.update({
+        where: { id: existingFinding.id },
+        data: { deletedAt: null, findingLevel, findingCategory, status: "Open", dueDate },
+      })
     } else if (existingFinding.findingLevel !== findingLevel) {
       // Update findingLevel and recalculate due date if level changed
       let dueDate: Date | null = null
@@ -173,7 +190,7 @@ export async function PUT(req: Request, ctx: Ctx) {
     const existingFinding = await prisma.auditFinding.findUnique({
       where: { auditSessionItemId: sessionItem.id },
     })
-    if (existingFinding && existingFinding.status === "Open") {
+    if (existingFinding && !existingFinding.deletedAt && existingFinding.status === "Open") {
       const responseCount = await prisma.auditFindingResponse.count({
         where: { auditFindingId: existingFinding.id },
       })
