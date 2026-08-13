@@ -435,10 +435,55 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
 
   // ─── File upload ──────────────────────────────────────────────────────────
 
+  // Attachment ≠ Answer: bir soruya dosya eklemek, o sorunun cevaplandığı anlamına
+  // GELMEZ. Ancak AuditSessionItemAttachment.auditSessionItemId, DB'de gerçek bir
+  // AuditSessionItem satırına referans vermek ZORUNDADIR (FK) — bu satır önceden
+  // yalnızca bir S/U/NA/OBS sonucu kaydedildiğinde (upsert ile) oluşturuluyordu, bu
+  // yüzden henüz hiçbir sonuç seçilmemiş bir soruya dosya eklemek "Önce bir sonuç
+  // seçin." hatasıyla engelleniyordu. Çözüm: result seçilmeden de mevcut PUT /items
+  // upsert'ini result:null ile çağırıp satırı (fake bir S/U/NA/OBS DEĞERİ olmadan,
+  // gerçekten result=null olarak) oluşturuyoruz — böylece attachment akışı, answer
+  // kaydetme akışıyla gereksiz yere iç içe geçmeden, yalnızca ihtiyaç duyduğu FK'yi
+  // şeffaf biçimde sağlıyor. Zaten bir id varsa (önceden herhangi bir sonuç/not
+  // kaydedilmişse) tekrar istek atılmaz.
+  // Bilinçli olarak useCallback ile memoize EDİLMEDİ: içeride doğrudan getState()
+  // çağrılıyor (saveItem'in aksine — o, notes/result gibi güncel değerleri parametre
+  // olarak çağıran taraftan alır). Memoize edilseydi ilk render'daki (boş) itemStates
+  // closure'ına kilitlenir, kullanıcının o an yazmış olduğu notu okuyamazdı.
+  const ensureSessionItemId = async (itemId: number): Promise<number | null> => {
+    const st = getState(itemId)
+    if (st.id) return st.id
+    const sid = sessionIdRef.current
+    if (!sid) return null
+    try {
+      const res = await fetch(`/api/audit-sessions/${sid}/items`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          auditChecklistItemId: itemId,
+          result: null,
+          notes: st.notes || null,
+          findingLevel: null,
+          findingCategory: null,
+          auditeeNotes: st.auditeeNotes || null,
+        }),
+      })
+      const data = await parseJson(res) as Record<string, unknown> | null
+      if (!res.ok || !data || typeof data.id !== "number") return null
+      // Yalnızca "id"yi ekliyoruz — kullanıcının o an yazıyor olabileceği
+      // notes/auditeeNotes/result gibi yerel state'e dokunmuyoruz (üzerine yazmaz).
+      patchState(itemId, { id: data.id })
+      return data.id
+    } catch {
+      return null
+    }
+  }
+
   const uploadFiles = async (itemId: number, files: FileList) => {
     const sid = sessionIdRef.current
-    const st = getState(itemId)
-    if (!st.id || !sid) { toast.error("Önce bir sonuç seçin."); return }
+    if (!sid) { toast.error("Oturum bulunamadı."); return }
+    const itemDbId = await ensureSessionItemId(itemId)
+    if (!itemDbId) { toast.error("Soru için oturum kaydı oluşturulamadı."); return }
     patchState(itemId, { uploading: true })
     const uploaded: Attachment[] = []
     try {
@@ -447,7 +492,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
       // dosyaları bu sınırı kolayca aşabiliyordu).
       let refs: Awaited<ReturnType<typeof uploadAuditSessionAttachmentsDirect>>
       try {
-        refs = await uploadAuditSessionAttachmentsDirect(sid, st.id, Array.from(files))
+        refs = await uploadAuditSessionAttachmentsDirect(sid, itemDbId, Array.from(files))
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Yükleme başarısız.")
         return
@@ -456,7 +501,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
       for (const ref of refs) {
         try {
           const res = await fetch(
-            `/api/audit-sessions/${sid}/items/${st.id}/attachments`,
+            `/api/audit-sessions/${sid}/items/${itemDbId}/attachments`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
