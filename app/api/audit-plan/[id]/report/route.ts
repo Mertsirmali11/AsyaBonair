@@ -70,7 +70,7 @@ export async function GET(_req: Request, ctx: Ctx) {
   const checklists = await Promise.all(
     entry.checklistAssignments.map(async (a) => {
       const sessionRow = await prisma.auditSession.findFirst({
-        where: { auditPlanEntryId: entryId, auditChecklistId: a.checklist.id },
+        where: { auditPlanEntryId: entryId, auditChecklistId: a.checklist.id, archivedAt: null },
         include: {
           items: {
             include: {

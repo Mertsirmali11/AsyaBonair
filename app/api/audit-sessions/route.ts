@@ -28,9 +28,10 @@ export async function POST(req: Request) {
   })
   if (!assignment) return NextResponse.json({ error: "Checklist not assigned to this audit" }, { status: 400 })
 
-  // Check if session already exists
+  // Check if an ACTIVE session already exists — archived (checklist kaldırılmış) session'lar
+  // burada hariç tutulur, aksi halde checklist tekrar atandığında eski cevaplar geri gelir.
   const existing = await prisma.auditSession.findFirst({
-    where: { auditPlanEntryId, auditChecklistId },
+    where: { auditPlanEntryId, auditChecklistId, archivedAt: null },
     include: {
       checklist: { include: { items: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] } } },
       items: {

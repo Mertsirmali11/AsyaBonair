@@ -560,6 +560,14 @@ export async function PATCH(req: Request, ctx: Ctx) {
   }
 }
 
+/**
+ * Denetim kaydını siler — ancak yalnızca "yanlışlıkla oluşturulmuş, henüz işlem
+ * yapılmamış" kayıtlar için gerçek (hard) silme yapılır. Checklist cevapları, bulgu,
+ * dosya veya denetlenen yanıtı gibi gerçek veri içeren kayıtlarda kontrolsüz hard-delete
+ * YAPILMAZ — sistemin zaten var olan "Cancelled" durumu bu modülün archive mekanizması
+ * olduğundan kullanıcı oraya yönlendirilir (yeni bir paralel soft-delete alanı icat
+ * edilmez). Completed denetimler hiçbir koşulda silinemez.
+ */
 export async function DELETE(_req: Request, ctx: Ctx) {
   const session = await requireAuditPlanAccess()
   if (!session) {
@@ -569,6 +577,53 @@ export async function DELETE(_req: Request, ctx: Ctx) {
   const id = Number((await ctx.params).id)
   if (!Number.isInteger(id) || id < 1) {
     return NextResponse.json({ error: "Invalid id" }, { status: 400 })
+  }
+
+  const entry = await prisma.auditPlanEntry.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      status: true,
+      _count: {
+        select: {
+          sessions: true,
+          documents: true,
+          responseNotes: true,
+          responseLinks: true,
+        },
+      },
+    },
+  })
+  if (!entry) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
+  }
+
+  if (entry.status === "Completed") {
+    return NextResponse.json(
+      { error: "Completed audits cannot be deleted. Please cancel/archive instead." },
+      { status: 409 }
+    )
+  }
+
+  const findingsCount = await prisma.auditFinding.count({
+    where: { deletedAt: null, OR: [{ auditPlanEntryId: id }, { session: { auditPlanEntryId: id } }] },
+  })
+
+  const hasData =
+    entry._count.sessions > 0 ||
+    findingsCount > 0 ||
+    entry._count.documents > 0 ||
+    entry._count.responseNotes > 0 ||
+    entry._count.responseLinks > 0
+
+  if (hasData) {
+    return NextResponse.json(
+      {
+        error:
+          "Bu denetimde checklist cevapları, bulgular, dosyalar veya denetlenen yanıtları bulunduğu için silinemez. Bunun yerine denetimi İptal Et (Cancelled) ile arşivleyin.",
+      },
+      { status: 409 }
+    )
   }
 
   try {

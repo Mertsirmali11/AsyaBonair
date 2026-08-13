@@ -611,6 +611,8 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
             <BreadcrumbSeparator />
             <BreadcrumbItem><BreadcrumbLink asChild><Link href="/compliance/audit-plan">Audit Plan</Link></BreadcrumbLink></BreadcrumbItem>
             <BreadcrumbSeparator />
+            <BreadcrumbItem><BreadcrumbLink asChild><Link href={`/compliance/audit-plan/${auditPlanEntryId}/manage`}>Manage Audit</Link></BreadcrumbLink></BreadcrumbItem>
+            <BreadcrumbSeparator />
             <BreadcrumbItem><BreadcrumbPage>Denetim Yürüt</BreadcrumbPage></BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
@@ -618,8 +620,10 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
         {/* Header */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex flex-wrap items-center gap-2">
+            {/* Manage Audit'ten girilen denetim oturumundan geri dönüş yine Manage Audit'e
+                gitmeli — eski davranışta doğrudan Audit Plan listesine dönüyordu. */}
             <Button type="button" variant="ghost" size="icon" className="size-9 shrink-0" asChild>
-              <Link href="/compliance/audit-plan"><ArrowLeft className="size-4" /></Link>
+              <Link href={`/compliance/audit-plan/${auditPlanEntryId}/manage`}><ArrowLeft className="size-4" /></Link>
             </Button>
             <div>
               <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
