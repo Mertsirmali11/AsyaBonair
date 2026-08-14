@@ -26,40 +26,8 @@ export function AppRouteLoading() {
   const router = useRouter()
   const [showManualRetry, setShowManualRetry] = React.useState(false)
 
-  // GEÇİCİ TEŞHİS LOGU — bu fallback'in mount olduğu her an, gerçek bir route
-  // segmenti Suspense'e düştüğü/yeniden RSC verisi beklediği andır. Root cause
-  // netleşince kaldırılacak. Not: console.trace() next.config.ts'in
-  // compiler.removeConsole'u tarafından prod'da SİLİNİR (yalnızca error/warn
-  // korunuyor) — bu yüzden stack, `new Error().stack` ile alınıp console.warn
-  // içine gömülüyor; böylece mount'u TAM OLARAK NEYİN tetiklediği (varsa) çağrı
-  // yığınından görülebilir.
-  React.useEffect(() => {
-    console.warn(
-      "[ROUTE-LOADING] mounted",
-      {
-        pathname: window.location.pathname,
-        href: window.location.href,
-        visibilityState: document.visibilityState,
-        hasFocus: document.hasFocus(),
-        ts: Date.now(),
-        isoTime: new Date().toISOString(),
-      },
-      new Error("[ROUTE-LOADING] mount stack").stack
-    )
-    return () => {
-      console.warn("[ROUTE-LOADING] unmounted", {
-        pathname: window.location.pathname,
-        href: window.location.href,
-        visibilityState: document.visibilityState,
-        ts: Date.now(),
-        isoTime: new Date().toISOString(),
-      })
-    }
-  }, [])
-
   React.useEffect(() => {
     const autoRetryTimer = window.setTimeout(() => {
-      console.warn("[ROUTE-LOADING] retry/refresh triggered (auto, 6s)", { pathname: window.location.pathname, ts: Date.now() })
       router.refresh()
     }, AUTO_RETRY_MS)
     const manualRetryTimer = window.setTimeout(() => {

@@ -186,74 +186,6 @@ function formatBytes(n: number | null): string {
 export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: number }) {
   const router = useRouter()
 
-  // ── GEÇİCİ TEŞHİS ENSTRÜMANTASYONU — kök nedeni doğrulamak için, kalıcı
-  // fix değil. Root cause netleşince kaldırılacak. Yalnızca console.warn
-  // (console.log DEĞİL — next.config.ts'teki compiler.removeConsole prod
-  // build'de console.log/info/debug'ı SİLİYOR, yalnızca error/warn kalıyor;
-  // bu loglar prod'da görünsün diye bilinçli olarak warn kullanıldı),
-  // hiçbir state/davranış değiştirmiyor.
-  //
-  // GÜNCELLEME (gerçek Preview testi sonrası): "native dosya seçici → popstate
-  // → ACTION_RESTORE" teorisi CANLI TESTLE ÇÜRÜTÜLDÜ — [ROUTE-LOADING]
-  // mounted/unmounted gözlemlendi ama [POPSTATE] HİÇ ateşlenmedi. Bu yüzden
-  // popstate artık ana hipotez olarak KULLANILMIYOR. Listener yine de
-  // kaldırılmadı — negatif kontrol olarak değerli (bir sonraki testte de
-  // popstate'in gerçekten hiç ateşlenmediğini teyit eder) ve [VISIBILITY]
-  // ile aynı yerde durması log okumasını kolaylaştırıyor. Asıl güncel
-  // hipotez artık [ROUTE-LOADING] mount'unun [VISIBILITY] hidden→visible
-  // ile aynı ana denk gelmesi — bunu kesinleştirmek için mount logu artık
-  // href + visibilityState + tam stack trace de taşıyor (app-route-loading.tsx).
-  React.useEffect(() => {
-    const onPopState = () => {
-      console.warn("[POPSTATE] fired", {
-        pathname: window.location.pathname,
-        href: window.location.href,
-        visibilityState: document.visibilityState,
-        hasFocus: document.hasFocus(),
-        ts: Date.now(),
-        isoTime: new Date().toISOString(),
-      })
-    }
-    const onVisibility = () => {
-      console.warn("[VISIBILITY] change", {
-        state: document.visibilityState,
-        href: window.location.href,
-        hasFocus: document.hasFocus(),
-        ts: Date.now(),
-        isoTime: new Date().toISOString(),
-      })
-    }
-    window.addEventListener("popstate", onPopState)
-    document.addEventListener("visibilitychange", onVisibility)
-    return () => {
-      window.removeEventListener("popstate", onPopState)
-      document.removeEventListener("visibilitychange", onVisibility)
-    }
-  }, [])
-
-  // GEÇİCİ TEŞHİS LOGU — AuditSessionClient'ın gerçekten unmount+remount olup
-  // olmadığını doğrudan kanıtlamak için. `[]` deps ile yalnızca mount/unmount'ta
-  // çalışır — bir remount olursa bu component'in TAMAMEN yeni bir instance'ı
-  // oluşturulduğu için bu effect de sıfırdan (yeni bir "mounted" logu ile) çalışır.
-  React.useEffect(() => {
-    console.warn("[AUDIT-SESSION] mounted", {
-      auditPlanEntryId,
-      href: window.location.href,
-      visibilityState: document.visibilityState,
-      ts: Date.now(),
-      isoTime: new Date().toISOString(),
-    })
-    return () => {
-      console.warn("[AUDIT-SESSION] unmounted", {
-        auditPlanEntryId,
-        href: window.location.href,
-        visibilityState: document.visibilityState,
-        ts: Date.now(),
-        isoTime: new Date().toISOString(),
-      })
-    }
-  }, [auditPlanEntryId])
-
   const [entry, setEntry] = React.useState<AuditEntryData | null>(null)
   const [sessionData, setSessionData] = React.useState<AuditSession | null>(null)
   const [selectedChecklistId, setSelectedChecklistId] = React.useState<number | null>(null)
@@ -286,49 +218,13 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
   // ─── Load entry ──────────────────────────────────────────────────────────
 
   const loadEntry = React.useCallback(async () => {
-    // GEÇİCİ TEŞHİS LOGU — bu fonksiyonun NE ZAMAN (yalnızca mount'ta mı, yoksa
-    // dosya yükleme sırasında da) çalıştığını ve gerçek HTTP yanıtının ne
-    // olduğunu (status/ok/content-type/parse başarısı) doğrudan kanıtlamak için.
-    console.warn("[LOAD-ENTRY] start", {
-      auditPlanEntryId,
-      href: window.location.href,
-      visibilityState: document.visibilityState,
-      ts: Date.now(),
-      isoTime: new Date().toISOString(),
-    })
     setLoading(true)
     try {
       const res = await fetch(`/api/audit-plan/${auditPlanEntryId}`, { cache: "no-store" })
       const data = await parseJson(res)
-      console.warn("[LOAD-ENTRY] response", {
-        auditPlanEntryId,
-        status: res.status,
-        ok: res.ok,
-        contentType: res.headers.get("content-type"),
-        parsedSuccessfully: data !== null,
-        ts: Date.now(),
-        isoTime: new Date().toISOString(),
-      })
-      if (!res.ok || !data) {
-        console.warn("[LOAD-ENTRY] failed", {
-          auditPlanEntryId,
-          reason: !res.ok ? "res.ok=false" : "data=null (parse failed or empty body)",
-          status: res.status,
-          ts: Date.now(),
-          isoTime: new Date().toISOString(),
-        })
-        toast.error("Denetim planı yüklenemedi.")
-        return
-      }
+      if (!res.ok || !data) { toast.error("Denetim planı yüklenemedi."); return }
       setEntry(data as AuditEntryData)
-    } catch (err) {
-      console.warn("[LOAD-ENTRY] failed", {
-        auditPlanEntryId,
-        reason: "exception",
-        error: err instanceof Error ? err.message : String(err),
-        ts: Date.now(),
-        isoTime: new Date().toISOString(),
-      })
+    } catch {
       toast.error("Yüklenemedi.")
     } finally {
       setLoading(false)
@@ -582,7 +478,6 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
     const promise = (async (): Promise<number | null> => {
       const sid = sessionIdRef.current
       if (!sid) return null
-      console.warn("[AUDIT-UPLOAD] ensure-item-start", { itemId, sid, ts: Date.now() })
       try {
         const res = await fetch(`/api/audit-sessions/${sid}/items`, {
           method: "PUT",
@@ -601,7 +496,6 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
         // Yalnızca "id"yi ekliyoruz — kullanıcının o an yazıyor olabileceği
         // notes/auditeeNotes/result gibi yerel state'e dokunmuyoruz (üzerine yazmaz).
         patchState(itemId, { id: data.id })
-        console.warn("[AUDIT-UPLOAD] ensure-item-success", { itemId, sessionItemId: data.id, ts: Date.now() })
         return data.id
       } catch {
         return null
@@ -624,21 +518,13 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
   const UPLOAD_TIMEOUT_MS = 30000
 
   const uploadFiles = async (itemId: number, files: FileList) => {
-    // KÖK NEDEN (refCount:0) — burada, HİÇBİR await'ten ÖNCE, FileList senkron
-    // olarak düz bir File[]'e kopyalanıyor. Önceki haliyle ham `files` (canlı
-    // FileList) parametre olarak taşınıyordu ve `Array.from(files)` yalnızca
-    // `await ensureSessionItemId(...)` ÇÖZÜLDÜKTEN SONRA çağrılıyordu — yani bir
-    // ağ round-trip'i kadar GECİKMELİ. Bu arada input'un onChange handler'ı
-    // `e.target.value = ""` çalıştırıyor; bu, native `<input type=file>`'ın canlı
-    // `FileList`'ini SENKRON olarak boşaltıyor (spec: value sıfırlanınca seçili
-    // dosya listesi de sıfırlanır). Sonuç: `doUpload()` içindeki geç `Array.from(files)`
-    // artık BOŞ bir FileList'i kopyalıyor → `uploadAuditSessionAttachmentsDirect([])`
-    // kendi `if (files.length === 0) return []` koruması yüzünden sessizce `[]`
-    // döndürüyor → storage'a hiçbir şey yüklenmiyor, attachment register döngüsü hiç
-    // çalışmıyor — tüm bunlar hatasız, "success" gibi görünen bir log akışıyla oluyor.
+    // FileList canlı/geçici bir koleksiyondur — input'un onChange handler'ı bu
+    // fonksiyon çağrıldıktan hemen sonra `e.target.value = ""` ile input'u
+    // sıfırlıyor, bu da native FileList'i SENKRON olarak boşaltır. Bu yüzden
+    // dosyalar burada, herhangi bir await'ten ÖNCE, düz bir File[]'e kopyalanıyor
+    // — aksi halde bir ağ round-trip'i sonrasında (ör. ensureSessionItemId'den
+    // dönünce) FileList zaten boşalmış olur ve yükleme sessizce 0 dosya yükler.
     const selectedFiles = Array.from(files)
-    console.warn("[AUDIT-UPLOAD] selected-files", { itemId, fileCount: selectedFiles.length, fileNames: selectedFiles.map((f) => f.name), ts: Date.now() })
-    console.warn("[AUDIT-UPLOAD] file-input-change", { itemId, fileCount: selectedFiles.length, pathname: window.location.pathname, ts: Date.now() })
     // "uploading" hemen (herhangi bir await'ten ÖNCE, senkron olarak) set edilir —
     // hem butonu anında kilitler (aynı soruya çift tıklayıp iki upload'ı üst üste
     // tetiklemeyi engeller) hem de kullanıcıya gecikmesiz görsel geri bildirim verir.
@@ -664,9 +550,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
         // fonksiyon gövde sınırını by-pass eder — büyük fotoğraf/taranmış kanıt
         // dosyaları bu sınırı kolayca aşabiliyordu). Artık en baştan kopyalanmış
         // `selectedFiles` (File[]) kullanılıyor — canlı FileList değil.
-        console.warn("[AUDIT-UPLOAD] upload-url-start", { itemId, itemDbId, fileCount: selectedFiles.length, ts: Date.now() })
         const refs = await uploadAuditSessionAttachmentsDirect(sid, itemDbId, selectedFiles)
-        console.warn("[AUDIT-UPLOAD] upload-url-success + storage-upload-success", { itemId, refCount: refs.length, ts: Date.now() })
         // Kullanıcı gerçekten dosya seçtiyse (selectedFiles.length > 0) ama helper
         // 0 ref döndürdüyse, bunu sessiz bir "success" saymıyoruz — açık bir hataya
         // çeviriyoruz ki buton "başarılı" görünüp de hiçbir şey yüklenmemiş olmasın.
@@ -680,7 +564,6 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
 
       for (const ref of refs) {
         try {
-          console.warn("[AUDIT-UPLOAD] register-attachment-start / register-start", { itemId, fileName: ref.fileName, ts: Date.now() })
           const res = await fetch(
             `/api/audit-sessions/${sid}/items/${itemDbId}/attachments`,
             {
@@ -695,9 +578,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
               }),
             }
           )
-          console.warn("[AUDIT-UPLOAD] register-response", { itemId, fileName: ref.fileName, ok: res.ok, status: res.status, ts: Date.now() })
           if (!res.ok) { toast.error(`${ref.fileName} kaydedilemedi.`); continue }
-          console.warn("[AUDIT-UPLOAD] register-attachment-success", { itemId, fileName: ref.fileName, ts: Date.now() })
           const parsed = await parseJson(res)
           // Yalnızca "id" alanını değil, render'ın okuduğu her alanı burada normalize
           // ediyoruz — sunucu yanıtı beklenmedik bir şekle sahip olsa bile (eksik alan,
@@ -728,7 +609,6 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
           ...prev,
           [itemId]: { ...(prev[itemId] ?? defaultState()), attachments: [...(prev[itemId]?.attachments ?? []), ...uploaded] },
         }))
-        console.warn("[AUDIT-UPLOAD] state-patched", { itemId, uploadedCount: uploaded.length, ts: Date.now() })
         toast.success(`${uploaded.length} dosya yüklendi.`)
       }
     } catch (err) {
@@ -736,7 +616,6 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
     } finally {
       if (timeoutId) clearTimeout(timeoutId)
       patchState(itemId, { uploading: false })
-      console.warn("[AUDIT-UPLOAD] finished", { itemId, pathname: window.location.pathname, ts: Date.now() })
     }
   }
 
