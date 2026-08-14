@@ -185,6 +185,7 @@ function formatBytes(n: number | null): string {
 
 export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: number }) {
   const router = useRouter()
+
   const [entry, setEntry] = React.useState<AuditEntryData | null>(null)
   const [sessionData, setSessionData] = React.useState<AuditSession | null>(null)
   const [selectedChecklistId, setSelectedChecklistId] = React.useState<number | null>(null)
@@ -306,6 +307,19 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
   React.useEffect(() => {
     sessionIdRef.current = sessionData?.id ?? null
   }, [sessionData])
+
+  // Bir soru için "önce sonuç seçin" engelini kaldıran item-oluşturma isteği
+  // (ensureSessionItemId) ile aynı sorudaki eşzamanlı bir başka kayıt işlemi
+  // (ör. kullanıcı isteği yollandıktan hemen sonra S/U/NA/OBS seçerse) yarışa
+  // girip sonucu üzerine yazabilir. Bu ref, aynı soru için AYNI ANDA en fazla
+  // bir "ensure" isteğinin uçtuğunu garanti eder — ikinci çağrı yeni bir istek
+  // atmak yerine ilkinin sonucunu bekler.
+  const ensuringItemRef = React.useRef<Map<number, Promise<number | null>>>(new Map())
+
+  // Her checklist maddesinin gizli dosya input'una doğrudan (label-wrapping yerine
+  // programatik .click() ile) erişmek için — herhangi bir tarayıcıya özgü
+  // <label>+iç içe <input> davranış tuhaflığından bağımsız, en yalın tetikleme yolu.
+  const fileInputRefs = React.useRef<Map<number, HTMLInputElement>>(new Map())
 
   const saveItem = React.useCallback(async (
     itemId: number,
@@ -450,53 +464,103 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
   // çağrılıyor (saveItem'in aksine — o, notes/result gibi güncel değerleri parametre
   // olarak çağıran taraftan alır). Memoize edilseydi ilk render'daki (boş) itemStates
   // closure'ına kilitlenir, kullanıcının o an yazmış olduğu notu okuyamazdı.
-  const ensureSessionItemId = async (itemId: number): Promise<number | null> => {
+  const ensureSessionItemId = (itemId: number): Promise<number | null> => {
     const st = getState(itemId)
-    if (st.id) return st.id
-    const sid = sessionIdRef.current
-    if (!sid) return null
-    try {
-      const res = await fetch(`/api/audit-sessions/${sid}/items`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          auditChecklistItemId: itemId,
-          result: null,
-          notes: st.notes || null,
-          findingLevel: null,
-          findingCategory: null,
-          auditeeNotes: st.auditeeNotes || null,
-        }),
-      })
-      const data = await parseJson(res) as Record<string, unknown> | null
-      if (!res.ok || !data || typeof data.id !== "number") return null
-      // Yalnızca "id"yi ekliyoruz — kullanıcının o an yazıyor olabileceği
-      // notes/auditeeNotes/result gibi yerel state'e dokunmuyoruz (üzerine yazmaz).
-      patchState(itemId, { id: data.id })
-      return data.id
-    } catch {
-      return null
-    }
+    if (st.id) return Promise.resolve(st.id)
+
+    // Aynı soru için zaten uçan bir "ensure" isteği varsa (ör. çift tıklama, ya da
+    // upload'la aynı anda bir sonuç/not kaydı tetiklendi), YENİ bir istek atmak
+    // yerine mevcut promise paylaşılır — iki eşzamanlı PUT'un birbirinin üzerine
+    // yazma riskini (ör. sonucu yanlışlıkla null'a döndürme) ortadan kaldırır.
+    const inFlight = ensuringItemRef.current.get(itemId)
+    if (inFlight) return inFlight
+
+    const promise = (async (): Promise<number | null> => {
+      const sid = sessionIdRef.current
+      if (!sid) return null
+      try {
+        const res = await fetch(`/api/audit-sessions/${sid}/items`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            auditChecklistItemId: itemId,
+            result: null,
+            notes: st.notes || null,
+            findingLevel: null,
+            findingCategory: null,
+            auditeeNotes: st.auditeeNotes || null,
+          }),
+        })
+        const data = await parseJson(res) as Record<string, unknown> | null
+        if (!res.ok || !data || typeof data.id !== "number") return null
+        // Yalnızca "id"yi ekliyoruz — kullanıcının o an yazıyor olabileceği
+        // notes/auditeeNotes/result gibi yerel state'e dokunmuyoruz (üzerine yazmaz).
+        patchState(itemId, { id: data.id })
+        return data.id
+      } catch {
+        return null
+      } finally {
+        ensuringItemRef.current.delete(itemId)
+      }
+    })()
+    ensuringItemRef.current.set(itemId, promise)
+    return promise
   }
 
+  // Upload akışındaki hiçbir adımın (item oluşturma, imzalı URL alma, Supabase'e
+  // gönderme, kayıt) üst sınırı yoktu — biri (ör. yavaş/askıda kalan bir ağ isteği)
+  // hiç çözülmez/reddedilmezse "uploading" sonsuza dek true kalır ve buton kalıcı
+  // olarak "Yükleniyor…" durumunda disabled kalırdı (kod DOĞRU çalışıyor olsa bile,
+  // asılı kalan bir promise "finally"i asla tetiklemez). Bu, production'da gözlemlenen
+  // "Dosya ekle disabled ve tıklanamıyor" ile bire bir örtüşüyor. Çözüm: tüm adımı tek
+  // bir zaman aşımı ile yarıştırıyoruz — süre dolarsa temiz bir hata fırlatılır, mevcut
+  // catch/finally state'i her zaman doğru şekilde geri alır.
+  const UPLOAD_TIMEOUT_MS = 30000
+
   const uploadFiles = async (itemId: number, files: FileList) => {
-    const sid = sessionIdRef.current
-    if (!sid) { toast.error("Oturum bulunamadı."); return }
-    const itemDbId = await ensureSessionItemId(itemId)
-    if (!itemDbId) { toast.error("Soru için oturum kaydı oluşturulamadı."); return }
+    // FileList canlı/geçici bir koleksiyondur — input'un onChange handler'ı bu
+    // fonksiyon çağrıldıktan hemen sonra `e.target.value = ""` ile input'u
+    // sıfırlıyor, bu da native FileList'i SENKRON olarak boşaltır. Bu yüzden
+    // dosyalar burada, herhangi bir await'ten ÖNCE, düz bir File[]'e kopyalanıyor
+    // — aksi halde bir ağ round-trip'i sonrasında (ör. ensureSessionItemId'den
+    // dönünce) FileList zaten boşalmış olur ve yükleme sessizce 0 dosya yükler.
+    const selectedFiles = Array.from(files)
+    // "uploading" hemen (herhangi bir await'ten ÖNCE, senkron olarak) set edilir —
+    // hem butonu anında kilitler (aynı soruya çift tıklayıp iki upload'ı üst üste
+    // tetiklemeyi engeller) hem de kullanıcıya gecikmesiz görsel geri bildirim verir.
     patchState(itemId, { uploading: true })
     const uploaded: Attachment[] = []
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
     try {
-      // Dosyalar önce doğrudan Supabase Storage'a yüklenir (Vercel'in ~4.5MB
-      // fonksiyon gövde sınırını by-pass eder — büyük fotoğraf/taranmış kanıt
-      // dosyaları bu sınırı kolayca aşabiliyordu).
-      let refs: Awaited<ReturnType<typeof uploadAuditSessionAttachmentsDirect>>
-      try {
-        refs = await uploadAuditSessionAttachmentsDirect(sid, itemDbId, Array.from(files))
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Yükleme başarısız.")
-        return
+      if (selectedFiles.length === 0) throw new Error("Dosya seçilmedi.")
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error("Yükleme zaman aşımına uğradı. Lütfen tekrar deneyin.")),
+          UPLOAD_TIMEOUT_MS
+        )
+      })
+
+      const doUpload = async () => {
+        const sid = sessionIdRef.current
+        if (!sid) throw new Error("Oturum bulunamadı.")
+        const itemDbId = await ensureSessionItemId(itemId)
+        if (!itemDbId) throw new Error("Soru için oturum kaydı oluşturulamadı. Lütfen tekrar deneyin.")
+        // Dosyalar önce doğrudan Supabase Storage'a yüklenir (Vercel'in ~4.5MB
+        // fonksiyon gövde sınırını by-pass eder — büyük fotoğraf/taranmış kanıt
+        // dosyaları bu sınırı kolayca aşabiliyordu). Artık en baştan kopyalanmış
+        // `selectedFiles` (File[]) kullanılıyor — canlı FileList değil.
+        const refs = await uploadAuditSessionAttachmentsDirect(sid, itemDbId, selectedFiles)
+        // Kullanıcı gerçekten dosya seçtiyse (selectedFiles.length > 0) ama helper
+        // 0 ref döndürdüyse, bunu sessiz bir "success" saymıyoruz — açık bir hataya
+        // çeviriyoruz ki buton "başarılı" görünüp de hiçbir şey yüklenmemiş olmasın.
+        if (refs.length === 0 && selectedFiles.length > 0) {
+          throw new Error("Dosyalar depoya yüklenemedi (0 sonuç döndü). Lütfen tekrar deneyin.")
+        }
+        return { sid, itemDbId, refs }
       }
+
+      const { sid, itemDbId, refs } = await Promise.race([doUpload(), timeoutPromise])
 
       for (const ref of refs) {
         try {
@@ -547,9 +611,10 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
         }))
         toast.success(`${uploaded.length} dosya yüklendi.`)
       }
-    } catch {
-      toast.error("Yükleme başarısız.")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Yükleme başarısız.")
     } finally {
+      if (timeoutId) clearTimeout(timeoutId)
       patchState(itemId, { uploading: false })
     }
   }
@@ -986,19 +1051,34 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
                         </div>
                       ))}
                       {!completed && (
-                        <label className={cn(
-                          "inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-dashed px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted/50 transition-colors",
-                          st.uploading && "opacity-50 pointer-events-none",
-                        )}>
-                          <Upload className="size-3" />
-                          {st.uploading ? "Yükleniyor…" : "Dosya ekle"}
-                          <input type="file" multiple className="sr-only" disabled={st.uploading}
+                        <>
+                          <button
+                            type="button"
+                            disabled={st.uploading}
+                            onClick={() => fileInputRefs.current.get(item.id)?.click()}
+                            className={cn(
+                              "inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-dashed px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted/50 transition-colors",
+                              st.uploading && "opacity-50 pointer-events-none",
+                            )}
+                          >
+                            <Upload className="size-3" />
+                            {st.uploading ? "Yükleniyor…" : "Dosya ekle"}
+                          </button>
+                          <input
+                            type="file"
+                            multiple
+                            className="hidden"
+                            disabled={st.uploading}
+                            ref={(el) => {
+                              if (el) fileInputRefs.current.set(item.id, el)
+                              else fileInputRefs.current.delete(item.id)
+                            }}
                             onChange={(e) => {
                               if (e.target.files?.length) void uploadFiles(item.id, e.target.files)
                               e.target.value = ""
                             }}
                           />
-                        </label>
+                        </>
                       )}
                     </div>
 
