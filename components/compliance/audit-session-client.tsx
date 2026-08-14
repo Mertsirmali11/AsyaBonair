@@ -191,26 +191,37 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
   // (console.log DEĞİL — next.config.ts'teki compiler.removeConsole prod
   // build'de console.log/info/debug'ı SİLİYOR, yalnızca error/warn kalıyor;
   // bu loglar prod'da görünsün diye bilinçli olarak warn kullanıldı),
-  // hiçbir state/davranış değiştirmiyor. Next.js'in App Router'ı 'popstate'e
-  // global olarak abone olup (next/dist/client/components/app-router.js)
-  // ACTION_RESTORE dispatch ediyor — bu da router'ın tree/nextUrl state'ini
-  // güncelleyip hem mevcut route segmentini yeniden senkronize ediyor HEM DE
-  // ekrandaki tüm görünür <Link>'leri toplu olarak yeniden prefetch ediyor
-  // (next/dist/client/components/links.js: pingVisibleLinks). Üretimde
-  // gözlemlenen "sidebar route'larının toplu _rsc isteği" belirtisi bu
-  // mekanizmayla birebir örtüşüyor. Native dosya seçici diyaloğunun bir
-  // 'popstate' tetikleyip tetiklemediğini bu log ile doğruluyoruz.
+  // hiçbir state/davranış değiştirmiyor.
+  //
+  // GÜNCELLEME (gerçek Preview testi sonrası): "native dosya seçici → popstate
+  // → ACTION_RESTORE" teorisi CANLI TESTLE ÇÜRÜTÜLDÜ — [ROUTE-LOADING]
+  // mounted/unmounted gözlemlendi ama [POPSTATE] HİÇ ateşlenmedi. Bu yüzden
+  // popstate artık ana hipotez olarak KULLANILMIYOR. Listener yine de
+  // kaldırılmadı — negatif kontrol olarak değerli (bir sonraki testte de
+  // popstate'in gerçekten hiç ateşlenmediğini teyit eder) ve [VISIBILITY]
+  // ile aynı yerde durması log okumasını kolaylaştırıyor. Asıl güncel
+  // hipotez artık [ROUTE-LOADING] mount'unun [VISIBILITY] hidden→visible
+  // ile aynı ana denk gelmesi — bunu kesinleştirmek için mount logu artık
+  // href + visibilityState + tam stack trace de taşıyor (app-route-loading.tsx).
   React.useEffect(() => {
     const onPopState = () => {
       console.warn("[POPSTATE] fired", {
         pathname: window.location.pathname,
+        href: window.location.href,
         visibilityState: document.visibilityState,
         hasFocus: document.hasFocus(),
         ts: Date.now(),
+        isoTime: new Date().toISOString(),
       })
     }
     const onVisibility = () => {
-      console.warn("[VISIBILITY] change", { state: document.visibilityState, ts: Date.now() })
+      console.warn("[VISIBILITY] change", {
+        state: document.visibilityState,
+        href: window.location.href,
+        hasFocus: document.hasFocus(),
+        ts: Date.now(),
+        isoTime: new Date().toISOString(),
+      })
     }
     window.addEventListener("popstate", onPopState)
     document.addEventListener("visibilitychange", onVisibility)
@@ -512,7 +523,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
     const promise = (async (): Promise<number | null> => {
       const sid = sessionIdRef.current
       if (!sid) return null
-      console.warn("[AUDIT-UPLOAD] ensure-item-start", { itemId, sid })
+      console.warn("[AUDIT-UPLOAD] ensure-item-start", { itemId, sid, ts: Date.now() })
       try {
         const res = await fetch(`/api/audit-sessions/${sid}/items`, {
           method: "PUT",
@@ -531,7 +542,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
         // Yalnızca "id"yi ekliyoruz — kullanıcının o an yazıyor olabileceği
         // notes/auditeeNotes/result gibi yerel state'e dokunmuyoruz (üzerine yazmaz).
         patchState(itemId, { id: data.id })
-        console.warn("[AUDIT-UPLOAD] ensure-item-success", { itemId, sessionItemId: data.id })
+        console.warn("[AUDIT-UPLOAD] ensure-item-success", { itemId, sessionItemId: data.id, ts: Date.now() })
         return data.id
       } catch {
         return null
@@ -554,7 +565,21 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
   const UPLOAD_TIMEOUT_MS = 30000
 
   const uploadFiles = async (itemId: number, files: FileList) => {
-    console.warn("[AUDIT-UPLOAD] file-input-change", { itemId, fileCount: files.length, pathname: window.location.pathname })
+    // KÖK NEDEN (refCount:0) — burada, HİÇBİR await'ten ÖNCE, FileList senkron
+    // olarak düz bir File[]'e kopyalanıyor. Önceki haliyle ham `files` (canlı
+    // FileList) parametre olarak taşınıyordu ve `Array.from(files)` yalnızca
+    // `await ensureSessionItemId(...)` ÇÖZÜLDÜKTEN SONRA çağrılıyordu — yani bir
+    // ağ round-trip'i kadar GECİKMELİ. Bu arada input'un onChange handler'ı
+    // `e.target.value = ""` çalıştırıyor; bu, native `<input type=file>`'ın canlı
+    // `FileList`'ini SENKRON olarak boşaltıyor (spec: value sıfırlanınca seçili
+    // dosya listesi de sıfırlanır). Sonuç: `doUpload()` içindeki geç `Array.from(files)`
+    // artık BOŞ bir FileList'i kopyalıyor → `uploadAuditSessionAttachmentsDirect([])`
+    // kendi `if (files.length === 0) return []` koruması yüzünden sessizce `[]`
+    // döndürüyor → storage'a hiçbir şey yüklenmiyor, attachment register döngüsü hiç
+    // çalışmıyor — tüm bunlar hatasız, "success" gibi görünen bir log akışıyla oluyor.
+    const selectedFiles = Array.from(files)
+    console.warn("[AUDIT-UPLOAD] selected-files", { itemId, fileCount: selectedFiles.length, fileNames: selectedFiles.map((f) => f.name), ts: Date.now() })
+    console.warn("[AUDIT-UPLOAD] file-input-change", { itemId, fileCount: selectedFiles.length, pathname: window.location.pathname, ts: Date.now() })
     // "uploading" hemen (herhangi bir await'ten ÖNCE, senkron olarak) set edilir —
     // hem butonu anında kilitler (aynı soruya çift tıklayıp iki upload'ı üst üste
     // tetiklemeyi engeller) hem de kullanıcıya gecikmesiz görsel geri bildirim verir.
@@ -562,6 +587,8 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
     const uploaded: Attachment[] = []
     let timeoutId: ReturnType<typeof setTimeout> | undefined
     try {
+      if (selectedFiles.length === 0) throw new Error("Dosya seçilmedi.")
+
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(
           () => reject(new Error("Yükleme zaman aşımına uğradı. Lütfen tekrar deneyin.")),
@@ -576,10 +603,17 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
         if (!itemDbId) throw new Error("Soru için oturum kaydı oluşturulamadı. Lütfen tekrar deneyin.")
         // Dosyalar önce doğrudan Supabase Storage'a yüklenir (Vercel'in ~4.5MB
         // fonksiyon gövde sınırını by-pass eder — büyük fotoğraf/taranmış kanıt
-        // dosyaları bu sınırı kolayca aşabiliyordu).
-        console.warn("[AUDIT-UPLOAD] upload-url-start", { itemId, itemDbId })
-        const refs = await uploadAuditSessionAttachmentsDirect(sid, itemDbId, Array.from(files))
-        console.warn("[AUDIT-UPLOAD] upload-url-success + storage-upload-success", { itemId, refCount: refs.length })
+        // dosyaları bu sınırı kolayca aşabiliyordu). Artık en baştan kopyalanmış
+        // `selectedFiles` (File[]) kullanılıyor — canlı FileList değil.
+        console.warn("[AUDIT-UPLOAD] upload-url-start", { itemId, itemDbId, fileCount: selectedFiles.length, ts: Date.now() })
+        const refs = await uploadAuditSessionAttachmentsDirect(sid, itemDbId, selectedFiles)
+        console.warn("[AUDIT-UPLOAD] upload-url-success + storage-upload-success", { itemId, refCount: refs.length, ts: Date.now() })
+        // Kullanıcı gerçekten dosya seçtiyse (selectedFiles.length > 0) ama helper
+        // 0 ref döndürdüyse, bunu sessiz bir "success" saymıyoruz — açık bir hataya
+        // çeviriyoruz ki buton "başarılı" görünüp de hiçbir şey yüklenmemiş olmasın.
+        if (refs.length === 0 && selectedFiles.length > 0) {
+          throw new Error("Dosyalar depoya yüklenemedi (0 sonuç döndü). Lütfen tekrar deneyin.")
+        }
         return { sid, itemDbId, refs }
       }
 
@@ -587,7 +621,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
 
       for (const ref of refs) {
         try {
-          console.warn("[AUDIT-UPLOAD] register-attachment-start", { itemId, fileName: ref.fileName })
+          console.warn("[AUDIT-UPLOAD] register-attachment-start / register-start", { itemId, fileName: ref.fileName, ts: Date.now() })
           const res = await fetch(
             `/api/audit-sessions/${sid}/items/${itemDbId}/attachments`,
             {
@@ -602,8 +636,9 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
               }),
             }
           )
+          console.warn("[AUDIT-UPLOAD] register-response", { itemId, fileName: ref.fileName, ok: res.ok, status: res.status, ts: Date.now() })
           if (!res.ok) { toast.error(`${ref.fileName} kaydedilemedi.`); continue }
-          console.warn("[AUDIT-UPLOAD] register-attachment-success", { itemId, fileName: ref.fileName })
+          console.warn("[AUDIT-UPLOAD] register-attachment-success", { itemId, fileName: ref.fileName, ts: Date.now() })
           const parsed = await parseJson(res)
           // Yalnızca "id" alanını değil, render'ın okuduğu her alanı burada normalize
           // ediyoruz — sunucu yanıtı beklenmedik bir şekle sahip olsa bile (eksik alan,
@@ -634,7 +669,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
           ...prev,
           [itemId]: { ...(prev[itemId] ?? defaultState()), attachments: [...(prev[itemId]?.attachments ?? []), ...uploaded] },
         }))
-        console.warn("[AUDIT-UPLOAD] state-patched", { itemId, uploadedCount: uploaded.length })
+        console.warn("[AUDIT-UPLOAD] state-patched", { itemId, uploadedCount: uploaded.length, ts: Date.now() })
         toast.success(`${uploaded.length} dosya yüklendi.`)
       }
     } catch (err) {
@@ -642,7 +677,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
     } finally {
       if (timeoutId) clearTimeout(timeoutId)
       patchState(itemId, { uploading: false })
-      console.warn("[AUDIT-UPLOAD] finished", { itemId, pathname: window.location.pathname })
+      console.warn("[AUDIT-UPLOAD] finished", { itemId, pathname: window.location.pathname, ts: Date.now() })
     }
   }
 

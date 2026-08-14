@@ -31,7 +31,14 @@ export async function uploadAuditSessionAttachmentsDirect(
   itemId: number,
   files: File[]
 ): Promise<AuditSessionAttachmentRef[]> {
-  if (files.length === 0) return []
+  // GEÇİCİ TEŞHİS LOGU — root cause netleşince kaldırılacak (audit-session-client.tsx'teki
+  // [AUDIT-UPLOAD] loglarıyla aynı gerekçeyle console.warn kullanılıyor, next.config.ts
+  // prod build'de console.log/info/debug'ı siliyor).
+  console.warn("[AUDIT-UPLOAD] helper-called", { sessionId, itemId, fileCount: files.length })
+  if (files.length === 0) {
+    console.warn("[AUDIT-UPLOAD] helper-return (files.length === 0, erken çıkış)", { sessionId, itemId })
+    return []
+  }
 
   const res = await fetch(`/api/audit-sessions/${sessionId}/items/${itemId}/attachments/upload-url`, {
     method: "POST",
@@ -43,6 +50,7 @@ export async function uploadAuditSessionAttachmentsDirect(
     bucket?: string
     uploads?: { originalName: string; fileName: string; path: string; signedUrl: string; token: string }[]
   }
+  console.warn("[AUDIT-UPLOAD] signed-url-response", { sessionId, itemId, ok: res.ok, status: res.status, uploadCount: data.uploads?.length ?? 0 })
   if (!res.ok) {
     throw new Error(data.error || "Yükleme adresi alınamadı")
   }
@@ -58,13 +66,18 @@ export async function uploadAuditSessionAttachmentsDirect(
     const u = uploads[i]
     if (!u) throw new Error(`${files[i].name} için yükleme adresi alınamadı`)
     const contentType = resolveCorrespondenceMimeForUpload(files[i])
+    console.warn("[AUDIT-UPLOAD] storage-upload-start", { sessionId, itemId, fileName: files[i].name, path: u.path })
     const { error } = await supabase.storage
       .from(bucket)
       .uploadToSignedUrl(u.path, u.token, files[i], { contentType })
     if (error) {
       throw new Error(`${files[i].name} yüklenemedi: ${error.message}`)
     }
-    results.push({ path: u.path, fileName: u.fileName, mimeType: contentType, sizeBytes: files[i].size })
+    console.warn("[AUDIT-UPLOAD] storage-upload", { sessionId, itemId, fileName: files[i].name })
+    const ref = { path: u.path, fileName: u.fileName, mimeType: contentType, sizeBytes: files[i].size }
+    console.warn("[AUDIT-UPLOAD] ref-created", { sessionId, itemId, ref })
+    results.push(ref)
   }
+  console.warn("[AUDIT-UPLOAD] helper-return", { sessionId, itemId, resultCount: results.length })
   return results
 }
