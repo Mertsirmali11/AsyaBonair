@@ -26,8 +26,19 @@ export function AppRouteLoading() {
   const router = useRouter()
   const [showManualRetry, setShowManualRetry] = React.useState(false)
 
+  // GEÇİCİ TEŞHİS LOGU — bu fallback'in mount olduğu her an, gerçek bir route
+  // segmenti Suspense'e düştüğü/yeniden RSC verisi beklediği andır. Root cause
+  // netleşince kaldırılacak.
+  React.useEffect(() => {
+    console.warn("[ROUTE-LOADING] mounted", { pathname: window.location.pathname, ts: Date.now() })
+    return () => {
+      console.warn("[ROUTE-LOADING] unmounted", { pathname: window.location.pathname, ts: Date.now() })
+    }
+  }, [])
+
   React.useEffect(() => {
     const autoRetryTimer = window.setTimeout(() => {
+      console.warn("[ROUTE-LOADING] retry/refresh triggered (auto, 6s)", { pathname: window.location.pathname })
       router.refresh()
     }, AUTO_RETRY_MS)
     const manualRetryTimer = window.setTimeout(() => {

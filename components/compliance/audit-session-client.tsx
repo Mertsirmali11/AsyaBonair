@@ -185,6 +185,41 @@ function formatBytes(n: number | null): string {
 
 export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: number }) {
   const router = useRouter()
+
+  // ── GEÇİCİ TEŞHİS ENSTRÜMANTASYONU — kök nedeni doğrulamak için, kalıcı
+  // fix değil. Root cause netleşince kaldırılacak. Yalnızca console.warn
+  // (console.log DEĞİL — next.config.ts'teki compiler.removeConsole prod
+  // build'de console.log/info/debug'ı SİLİYOR, yalnızca error/warn kalıyor;
+  // bu loglar prod'da görünsün diye bilinçli olarak warn kullanıldı),
+  // hiçbir state/davranış değiştirmiyor. Next.js'in App Router'ı 'popstate'e
+  // global olarak abone olup (next/dist/client/components/app-router.js)
+  // ACTION_RESTORE dispatch ediyor — bu da router'ın tree/nextUrl state'ini
+  // güncelleyip hem mevcut route segmentini yeniden senkronize ediyor HEM DE
+  // ekrandaki tüm görünür <Link>'leri toplu olarak yeniden prefetch ediyor
+  // (next/dist/client/components/links.js: pingVisibleLinks). Üretimde
+  // gözlemlenen "sidebar route'larının toplu _rsc isteği" belirtisi bu
+  // mekanizmayla birebir örtüşüyor. Native dosya seçici diyaloğunun bir
+  // 'popstate' tetikleyip tetiklemediğini bu log ile doğruluyoruz.
+  React.useEffect(() => {
+    const onPopState = () => {
+      console.warn("[POPSTATE] fired", {
+        pathname: window.location.pathname,
+        visibilityState: document.visibilityState,
+        hasFocus: document.hasFocus(),
+        ts: Date.now(),
+      })
+    }
+    const onVisibility = () => {
+      console.warn("[VISIBILITY] change", { state: document.visibilityState, ts: Date.now() })
+    }
+    window.addEventListener("popstate", onPopState)
+    document.addEventListener("visibilitychange", onVisibility)
+    return () => {
+      window.removeEventListener("popstate", onPopState)
+      document.removeEventListener("visibilitychange", onVisibility)
+    }
+  }, [])
+
   const [entry, setEntry] = React.useState<AuditEntryData | null>(null)
   const [sessionData, setSessionData] = React.useState<AuditSession | null>(null)
   const [selectedChecklistId, setSelectedChecklistId] = React.useState<number | null>(null)
@@ -477,6 +512,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
     const promise = (async (): Promise<number | null> => {
       const sid = sessionIdRef.current
       if (!sid) return null
+      console.warn("[AUDIT-UPLOAD] ensure-item-start", { itemId, sid })
       try {
         const res = await fetch(`/api/audit-sessions/${sid}/items`, {
           method: "PUT",
@@ -495,6 +531,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
         // Yalnızca "id"yi ekliyoruz — kullanıcının o an yazıyor olabileceği
         // notes/auditeeNotes/result gibi yerel state'e dokunmuyoruz (üzerine yazmaz).
         patchState(itemId, { id: data.id })
+        console.warn("[AUDIT-UPLOAD] ensure-item-success", { itemId, sessionItemId: data.id })
         return data.id
       } catch {
         return null
@@ -507,6 +544,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
   }
 
   const uploadFiles = async (itemId: number, files: FileList) => {
+    console.warn("[AUDIT-UPLOAD] file-input-change", { itemId, fileCount: files.length, pathname: window.location.pathname })
     // "uploading" hemen (herhangi bir await'ten ÖNCE, senkron olarak) set edilir —
     // hem butonu anında kilitler (aynı soruya çift tıklayıp iki upload'ı üst üste
     // tetiklemeyi engeller) hem de kullanıcıya gecikmesiz görsel geri bildirim verir.
@@ -520,9 +558,11 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
       // Dosyalar önce doğrudan Supabase Storage'a yüklenir (Vercel'in ~4.5MB
       // fonksiyon gövde sınırını by-pass eder — büyük fotoğraf/taranmış kanıt
       // dosyaları bu sınırı kolayca aşabiliyordu).
+      console.warn("[AUDIT-UPLOAD] upload-url-start", { itemId, itemDbId })
       let refs: Awaited<ReturnType<typeof uploadAuditSessionAttachmentsDirect>>
       try {
         refs = await uploadAuditSessionAttachmentsDirect(sid, itemDbId, Array.from(files))
+        console.warn("[AUDIT-UPLOAD] upload-url-success + storage-upload-success", { itemId, refCount: refs.length })
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Yükleme başarısız.")
         return
@@ -530,6 +570,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
 
       for (const ref of refs) {
         try {
+          console.warn("[AUDIT-UPLOAD] register-attachment-start", { itemId, fileName: ref.fileName })
           const res = await fetch(
             `/api/audit-sessions/${sid}/items/${itemDbId}/attachments`,
             {
@@ -545,6 +586,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
             }
           )
           if (!res.ok) { toast.error(`${ref.fileName} kaydedilemedi.`); continue }
+          console.warn("[AUDIT-UPLOAD] register-attachment-success", { itemId, fileName: ref.fileName })
           const parsed = await parseJson(res)
           // Yalnızca "id" alanını değil, render'ın okuduğu her alanı burada normalize
           // ediyoruz — sunucu yanıtı beklenmedik bir şekle sahip olsa bile (eksik alan,
@@ -575,12 +617,14 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
           ...prev,
           [itemId]: { ...(prev[itemId] ?? defaultState()), attachments: [...(prev[itemId]?.attachments ?? []), ...uploaded] },
         }))
+        console.warn("[AUDIT-UPLOAD] state-patched", { itemId, uploadedCount: uploaded.length })
         toast.success(`${uploaded.length} dosya yüklendi.`)
       }
     } catch {
       toast.error("Yükleme başarısız.")
     } finally {
       patchState(itemId, { uploading: false })
+      console.warn("[AUDIT-UPLOAD] finished", { itemId, pathname: window.location.pathname })
     }
   }
 
