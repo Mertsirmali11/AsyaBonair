@@ -231,6 +231,29 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
     }
   }, [])
 
+  // GEÇİCİ TEŞHİS LOGU — AuditSessionClient'ın gerçekten unmount+remount olup
+  // olmadığını doğrudan kanıtlamak için. `[]` deps ile yalnızca mount/unmount'ta
+  // çalışır — bir remount olursa bu component'in TAMAMEN yeni bir instance'ı
+  // oluşturulduğu için bu effect de sıfırdan (yeni bir "mounted" logu ile) çalışır.
+  React.useEffect(() => {
+    console.warn("[AUDIT-SESSION] mounted", {
+      auditPlanEntryId,
+      href: window.location.href,
+      visibilityState: document.visibilityState,
+      ts: Date.now(),
+      isoTime: new Date().toISOString(),
+    })
+    return () => {
+      console.warn("[AUDIT-SESSION] unmounted", {
+        auditPlanEntryId,
+        href: window.location.href,
+        visibilityState: document.visibilityState,
+        ts: Date.now(),
+        isoTime: new Date().toISOString(),
+      })
+    }
+  }, [auditPlanEntryId])
+
   const [entry, setEntry] = React.useState<AuditEntryData | null>(null)
   const [sessionData, setSessionData] = React.useState<AuditSession | null>(null)
   const [selectedChecklistId, setSelectedChecklistId] = React.useState<number | null>(null)
@@ -263,13 +286,49 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
   // ─── Load entry ──────────────────────────────────────────────────────────
 
   const loadEntry = React.useCallback(async () => {
+    // GEÇİCİ TEŞHİS LOGU — bu fonksiyonun NE ZAMAN (yalnızca mount'ta mı, yoksa
+    // dosya yükleme sırasında da) çalıştığını ve gerçek HTTP yanıtının ne
+    // olduğunu (status/ok/content-type/parse başarısı) doğrudan kanıtlamak için.
+    console.warn("[LOAD-ENTRY] start", {
+      auditPlanEntryId,
+      href: window.location.href,
+      visibilityState: document.visibilityState,
+      ts: Date.now(),
+      isoTime: new Date().toISOString(),
+    })
     setLoading(true)
     try {
       const res = await fetch(`/api/audit-plan/${auditPlanEntryId}`, { cache: "no-store" })
       const data = await parseJson(res)
-      if (!res.ok || !data) { toast.error("Denetim planı yüklenemedi."); return }
+      console.warn("[LOAD-ENTRY] response", {
+        auditPlanEntryId,
+        status: res.status,
+        ok: res.ok,
+        contentType: res.headers.get("content-type"),
+        parsedSuccessfully: data !== null,
+        ts: Date.now(),
+        isoTime: new Date().toISOString(),
+      })
+      if (!res.ok || !data) {
+        console.warn("[LOAD-ENTRY] failed", {
+          auditPlanEntryId,
+          reason: !res.ok ? "res.ok=false" : "data=null (parse failed or empty body)",
+          status: res.status,
+          ts: Date.now(),
+          isoTime: new Date().toISOString(),
+        })
+        toast.error("Denetim planı yüklenemedi.")
+        return
+      }
       setEntry(data as AuditEntryData)
-    } catch {
+    } catch (err) {
+      console.warn("[LOAD-ENTRY] failed", {
+        auditPlanEntryId,
+        reason: "exception",
+        error: err instanceof Error ? err.message : String(err),
+        ts: Date.now(),
+        isoTime: new Date().toISOString(),
+      })
       toast.error("Yüklenemedi.")
     } finally {
       setLoading(false)
