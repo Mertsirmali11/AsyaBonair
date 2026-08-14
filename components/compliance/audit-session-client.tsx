@@ -543,6 +543,16 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
     return promise
   }
 
+  // Upload akışındaki hiçbir adımın (item oluşturma, imzalı URL alma, Supabase'e
+  // gönderme, kayıt) üst sınırı yoktu — biri (ör. yavaş/askıda kalan bir ağ isteği)
+  // hiç çözülmez/reddedilmezse "uploading" sonsuza dek true kalır ve buton kalıcı
+  // olarak "Yükleniyor…" durumunda disabled kalırdı (kod DOĞRU çalışıyor olsa bile,
+  // asılı kalan bir promise "finally"i asla tetiklemez). Bu, production'da gözlemlenen
+  // "Dosya ekle disabled ve tıklanamıyor" ile bire bir örtüşüyor. Çözüm: tüm adımı tek
+  // bir zaman aşımı ile yarıştırıyoruz — süre dolarsa temiz bir hata fırlatılır, mevcut
+  // catch/finally state'i her zaman doğru şekilde geri alır.
+  const UPLOAD_TIMEOUT_MS = 30000
+
   const uploadFiles = async (itemId: number, files: FileList) => {
     console.warn("[AUDIT-UPLOAD] file-input-change", { itemId, fileCount: files.length, pathname: window.location.pathname })
     // "uploading" hemen (herhangi bir await'ten ÖNCE, senkron olarak) set edilir —
@@ -550,23 +560,30 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
     // tetiklemeyi engeller) hem de kullanıcıya gecikmesiz görsel geri bildirim verir.
     patchState(itemId, { uploading: true })
     const uploaded: Attachment[] = []
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
     try {
-      const sid = sessionIdRef.current
-      if (!sid) { toast.error("Oturum bulunamadı."); return }
-      const itemDbId = await ensureSessionItemId(itemId)
-      if (!itemDbId) { toast.error("Soru için oturum kaydı oluşturulamadı. Lütfen tekrar deneyin."); return }
-      // Dosyalar önce doğrudan Supabase Storage'a yüklenir (Vercel'in ~4.5MB
-      // fonksiyon gövde sınırını by-pass eder — büyük fotoğraf/taranmış kanıt
-      // dosyaları bu sınırı kolayca aşabiliyordu).
-      console.warn("[AUDIT-UPLOAD] upload-url-start", { itemId, itemDbId })
-      let refs: Awaited<ReturnType<typeof uploadAuditSessionAttachmentsDirect>>
-      try {
-        refs = await uploadAuditSessionAttachmentsDirect(sid, itemDbId, Array.from(files))
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error("Yükleme zaman aşımına uğradı. Lütfen tekrar deneyin.")),
+          UPLOAD_TIMEOUT_MS
+        )
+      })
+
+      const doUpload = async () => {
+        const sid = sessionIdRef.current
+        if (!sid) throw new Error("Oturum bulunamadı.")
+        const itemDbId = await ensureSessionItemId(itemId)
+        if (!itemDbId) throw new Error("Soru için oturum kaydı oluşturulamadı. Lütfen tekrar deneyin.")
+        // Dosyalar önce doğrudan Supabase Storage'a yüklenir (Vercel'in ~4.5MB
+        // fonksiyon gövde sınırını by-pass eder — büyük fotoğraf/taranmış kanıt
+        // dosyaları bu sınırı kolayca aşabiliyordu).
+        console.warn("[AUDIT-UPLOAD] upload-url-start", { itemId, itemDbId })
+        const refs = await uploadAuditSessionAttachmentsDirect(sid, itemDbId, Array.from(files))
         console.warn("[AUDIT-UPLOAD] upload-url-success + storage-upload-success", { itemId, refCount: refs.length })
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Yükleme başarısız.")
-        return
+        return { sid, itemDbId, refs }
       }
+
+      const { sid, itemDbId, refs } = await Promise.race([doUpload(), timeoutPromise])
 
       for (const ref of refs) {
         try {
@@ -620,9 +637,10 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
         console.warn("[AUDIT-UPLOAD] state-patched", { itemId, uploadedCount: uploaded.length })
         toast.success(`${uploaded.length} dosya yüklendi.`)
       }
-    } catch {
-      toast.error("Yükleme başarısız.")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Yükleme başarısız.")
     } finally {
+      if (timeoutId) clearTimeout(timeoutId)
       patchState(itemId, { uploading: false })
       console.warn("[AUDIT-UPLOAD] finished", { itemId, pathname: window.location.pathname })
     }
