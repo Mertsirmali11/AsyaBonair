@@ -48,6 +48,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { uploadAuditSessionAttachmentsDirect } from "@/lib/client-audit-session-attachment-upload"
 import { FINDING_CATEGORY_VALUES, findingCategoryLabels, isSacaOrSafaField } from "@/lib/finding-category"
+import { RESULT_KEYS, RESULT_LABELS, type ResultKey } from "@/lib/audit-checklist-result"
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -133,29 +134,27 @@ type AuditSession = {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-type ResultKey = "S" | "U" | "NA" | "OBS"
-
 const resultConfig: Record<ResultKey, { label: string; icon: React.ReactNode; cls: string; activeCls: string }> = {
   S: {
-    label: "Satisfactory",
+    label: RESULT_LABELS.S,
     icon: <CheckCircle2 className="size-3.5" />,
     cls: "border-border text-muted-foreground hover:border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30",
     activeCls: "border-emerald-400 text-emerald-700 bg-emerald-50 dark:text-emerald-400 dark:border-emerald-700 dark:bg-emerald-950/40",
   },
   U: {
-    label: "Unsatisfactory",
+    label: RESULT_LABELS.U,
     icon: <XCircle className="size-3.5" />,
     cls: "border-border text-muted-foreground hover:border-red-300 hover:bg-red-50 dark:hover:bg-red-950/30",
     activeCls: "border-red-400 text-red-700 bg-red-50 dark:text-red-400 dark:border-red-700 dark:bg-red-950/40",
   },
   NA: {
-    label: "N/A",
+    label: RESULT_LABELS.NA,
     icon: <Minus className="size-3.5" />,
     cls: "border-border text-muted-foreground hover:border-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900/30",
     activeCls: "border-slate-400 text-slate-600 bg-slate-50 dark:text-slate-400 dark:border-slate-600 dark:bg-slate-900/40",
   },
   OBS: {
-    label: "Observation",
+    label: RESULT_LABELS.OBS,
     icon: <Eye className="size-3.5" />,
     cls: "border-border text-muted-foreground hover:border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30",
     activeCls: "border-amber-400 text-amber-700 bg-amber-50 dark:text-amber-400 dark:border-amber-700 dark:bg-amber-950/40",
@@ -914,7 +913,7 @@ export function AuditSessionClient({ auditPlanEntryId }: { auditPlanEntryId: num
 
                     {/* Result buttons */}
                     <div className="flex shrink-0 gap-1">
-                      {(["S", "U", "NA", "OBS"] as ResultKey[]).map((r) => {
+                      {RESULT_KEYS.map((r) => {
                         const cfg = resultConfig[r]
                         const active = st.result === r
                         return (

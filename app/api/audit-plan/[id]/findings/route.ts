@@ -99,6 +99,9 @@ export async function POST(req: Request, ctx: Ctx) {
     reference?: string
     assignedToId?: number | null
     dueDate?: string | null
+    /** Manage Audit → Auditee Responses'ta "Add Finding" bir submission satırından açıldıysa
+     * dolu — bulgu bu checklist maddesine otomatik referans olarak bağlanır (bkz. aşağı). */
+    auditSessionItemId?: number | null
   } | null
 
   const isSacaSafa = isSacaOrSafaAuditCategory(entry.auditCategoryType.name)
@@ -168,10 +171,35 @@ export async function POST(req: Request, ctx: Ctx) {
         : null
       : (entry.auditees[0]?.calisanId ?? null)
 
+  // Manage Audit → Auditee Responses'tan "Add Finding" ile açıldıysa ilgili checklist maddesine
+  // otomatik referans bağla. auditSessionItemId @unique olduğu için (bir soruya en fazla bir
+  // finding) — o soru için zaten bir finding varsa (ör. auditor daha önce Unsatisfactory
+  // işaretlemiş) linki KURMUYORUZ, yalnızca bulguyu bağlantısız (auditPlanEntryId üzerinden)
+  // oluşturuyoruz; unique constraint ihlali/500 hatası riske edilmez.
+  let linkedAuditSessionId: number | null = null
+  let linkedAuditSessionItemId: number | null = null
+  const requestedSessionItemId = Number(body?.auditSessionItemId)
+  if (Number.isInteger(requestedSessionItemId) && requestedSessionItemId > 0) {
+    const sessionItem = await prisma.auditSessionItem.findFirst({
+      where: { id: requestedSessionItemId, session: { auditPlanEntryId: entry.id } },
+      select: { id: true, auditSessionId: true, finding: { select: { id: true } } },
+    })
+    if (sessionItem && !sessionItem.finding) {
+      linkedAuditSessionId = sessionItem.auditSessionId
+      linkedAuditSessionItemId = sessionItem.id
+    }
+  }
+
   const finding = await prisma.auditFinding.create({
     data: {
       findingCode,
-      auditPlanEntryId: entry.id,
+      // auditSessionItemId bağlanabiliyorsa checklist-kaynaklı bulgularla aynı desende
+      // (auditSessionId + auditSessionItemId), aksi halde manuel bulgularla aynı desende
+      // (yalnızca auditPlanEntryId) oluşturulur — iki ayrı finding oluşturma yolu YOKTUR,
+      // yalnızca hangi FK'lerin dolu olduğu değişir.
+      ...(linkedAuditSessionItemId
+        ? { auditSessionId: linkedAuditSessionId, auditSessionItemId: linkedAuditSessionItemId }
+        : { auditPlanEntryId: entry.id }),
       findingLevel,
       findingCategory,
       explanation,
@@ -194,8 +222,10 @@ export async function POST(req: Request, ctx: Ctx) {
       data: {
         auditPlanEntryId: entry.id,
         actorId: actor?.id ?? null,
-        eventType: "FINDING_CREATED",
-        note: `Bulgu ${finding.findingCode} ${actorName} tarafından oluşturuldu.`,
+        eventType: linkedAuditSessionItemId ? "FINDING_CREATED_FROM_AUDITEE_RESPONSE" : "FINDING_CREATED",
+        note: linkedAuditSessionItemId
+          ? `Bulgu ${finding.findingCode} ${actorName} tarafından bir auditee response'tan oluşturuldu.`
+          : `Bulgu ${finding.findingCode} ${actorName} tarafından oluşturuldu.`,
       },
     })
   } catch {

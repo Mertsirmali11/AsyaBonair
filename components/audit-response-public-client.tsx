@@ -24,6 +24,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FINDING_FILE_ACCEPT_HTML, FINDING_FILE_TYPES_USER_MESSAGE } from "@/lib/allowed-document-uploads"
 import { uploadAuditResponseFilesDirect } from "@/lib/client-audit-response-upload"
 import { uploadAuditResponseChecklistFilesDirect } from "@/lib/client-audit-response-checklist-upload"
+import { RESULT_KEYS, RESULT_LABELS, type ResultKey } from "@/lib/audit-checklist-result"
 import { cn } from "@/lib/utils"
 
 type AuditSummary = {
@@ -38,6 +39,7 @@ type FileRow = { id: number; fileName: string; fileSizeBytes: number | null; sub
 
 type ChecklistSubmissionRow = {
   id: number
+  /** S | U | NA | OBS | null */
   auditeeResponse: string | null
   auditeeNote: string | null
   reviewStatus: string
@@ -46,14 +48,14 @@ type ChecklistSubmissionRow = {
   files: { id: number; fileName: string; fileSizeBytes: number | null }[]
 }
 type ChecklistItemRow = {
-  sessionItemId: number
+  checklistItemId: number
   label: string
   reference: string | null
   section: string | null
   submissions: ChecklistSubmissionRow[]
 }
 type ChecklistSessionRow = {
-  sessionId: number
+  checklistId: number
   checklistTitle: string
   checklistNumber: string | null
   items: ChecklistItemRow[]
@@ -95,10 +97,39 @@ async function parseJson(res: Response): Promise<unknown> {
   }
 }
 
+function reviewStatusBadge(status: string) {
+  if (status === "Accepted") {
+    return (
+      <Badge className="gap-1 bg-teal-600 text-white hover:bg-teal-600">
+        <CheckCircle2 className="size-3" /> Kabul Edildi
+      </Badge>
+    )
+  }
+  if (status === "RevisionRequested") {
+    return (
+      <Badge variant="destructive" className="gap-1">
+        <XCircle className="size-3" /> Revizyon Talep Edildi
+      </Badge>
+    )
+  }
+  if (status === "Resubmitted") {
+    return (
+      <Badge variant="outline" className="gap-1 border-blue-300 text-blue-700 dark:border-blue-800 dark:text-blue-400">
+        <Loader2 className="size-3" /> Tekrar Gönderildi
+      </Badge>
+    )
+  }
+  return (
+    <Badge variant="outline" className="gap-1">
+      <Loader2 className="size-3" /> İnceleme Bekliyor
+    </Badge>
+  )
+}
+
 export function AuditResponsePublicClient({ token }: { token: string }) {
   const [state, setState] = React.useState<LoadState>({ status: "loading" })
 
-  // Gönderen bilgisi — not ve dosya formu ortak kullanır, hata durumunda kaybolmaz.
+  // Gönderen bilgisi — genel not ve genel dosya formu ortak kullanır, hata durumunda kaybolmaz.
   const [submitterName, setSubmitterName] = React.useState("")
   const [submitterEmail, setSubmitterEmail] = React.useState("")
 
@@ -111,17 +142,21 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
   const [fileError, setFileError] = React.useState<string | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
-  // Checklist — soru başına cevap/not/dosya formu (sessionItemId -> form state)
-  type ChecklistFormState = { response: string; note: string; files: File[] }
+  // Checklist — soru başına cevap/not/dosya formu (checklistItemId -> form state)
+  type ChecklistFormState = { result: ResultKey | ""; note: string; files: File[] }
   const [checklistForms, setChecklistForms] = React.useState<Record<number, ChecklistFormState>>({})
   const [checklistSubmitting, setChecklistSubmitting] = React.useState<Record<number, boolean>>({})
   const [checklistErrors, setChecklistErrors] = React.useState<Record<number, string>>({})
+  // Bir soru için form ilk kez açıldığında (henüz kullanıcı hiçbir şey değiştirmediyse) hangi
+  // gönderimden prefill edildiğini takip eder — RevisionRequested durumunda önceki cevap/notu
+  // otomatik doldurmak için (kullanıcı sıfırdan yazmak zorunda kalmaz).
+  const prefillDoneRef = React.useRef<Set<number>>(new Set())
 
-  const getChecklistForm = (sessionItemId: number): ChecklistFormState =>
-    checklistForms[sessionItemId] ?? { response: "", note: "", files: [] }
+  const getChecklistForm = (checklistItemId: number): ChecklistFormState =>
+    checklistForms[checklistItemId] ?? { result: "", note: "", files: [] }
 
-  const updateChecklistForm = (sessionItemId: number, patch: Partial<ChecklistFormState>) => {
-    setChecklistForms((prev) => ({ ...prev, [sessionItemId]: { ...getChecklistForm(sessionItemId), ...patch } }))
+  const updateChecklistForm = (checklistItemId: number, patch: Partial<ChecklistFormState>) => {
+    setChecklistForms((prev) => ({ ...prev, [checklistItemId]: { ...getChecklistForm(checklistItemId), ...patch } }))
   }
 
   const load = React.useCallback(async () => {
@@ -152,12 +187,41 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
     void load()
   }, [load])
 
+  // RevisionRequested durumundaki sorular için formu otomatik olarak önceki cevap/notla
+  // doldur — auditee sıfırdan yazmak yerine güncelleyip yeniden gönderebilsin.
+  React.useEffect(() => {
+    if (state.status !== "ready") return
+    for (const session of state.checklistSessions) {
+      for (const item of session.items) {
+        const latest = item.submissions[0]
+        if (
+          latest &&
+          latest.reviewStatus === "RevisionRequested" &&
+          !prefillDoneRef.current.has(item.checklistItemId) &&
+          !checklistForms[item.checklistItemId]
+        ) {
+          prefillDoneRef.current.add(item.checklistItemId)
+          const r = latest.auditeeResponse
+          setChecklistForms((prev) => ({
+            ...prev,
+            [item.checklistItemId]: {
+              result: (r && (RESULT_KEYS as readonly string[]).includes(r) ? (r as ResultKey) : ""),
+              note: latest.auditeeNote ?? "",
+              files: [],
+            },
+          }))
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state])
+
   const nameOk = submitterName.trim().length > 0
 
   const submitNote = async () => {
     setNoteError(null)
     if (!nameOk) {
-      setNoteError("İsim zorunludur.")
+      setNoteError("Ad Soyad zorunludur.")
       return
     }
     if (!noteText.trim()) {
@@ -210,7 +274,7 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
   const submitFiles = async () => {
     setFileError(null)
     if (!nameOk) {
-      setFileError("İsim zorunludur.")
+      setFileError("Ad Soyad zorunludur.")
       return
     }
     if (pendingFiles.length === 0) {
@@ -261,28 +325,28 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
     }
   }
 
-  const submitChecklistItem = async (sessionItemId: number) => {
-    setChecklistErrors((prev) => ({ ...prev, [sessionItemId]: "" }))
+  const submitChecklistItem = async (checklistItemId: number) => {
+    setChecklistErrors((prev) => ({ ...prev, [checklistItemId]: "" }))
     if (!nameOk) {
-      setChecklistErrors((prev) => ({ ...prev, [sessionItemId]: "İsim zorunludur (yukarıdaki 'Your Details' bölümü)." }))
+      setChecklistErrors((prev) => ({ ...prev, [checklistItemId]: "Ad Soyad zorunludur (yukarıdaki 'Bilgileriniz' bölümü)." }))
       return
     }
-    const form = getChecklistForm(sessionItemId)
-    if (!form.response.trim() && !form.note.trim() && form.files.length === 0) {
-      setChecklistErrors((prev) => ({ ...prev, [sessionItemId]: "Cevap, not veya dosyalardan en az biri girilmelidir." }))
+    const form = getChecklistForm(checklistItemId)
+    if (!form.result && !form.note.trim() && form.files.length === 0) {
+      setChecklistErrors((prev) => ({ ...prev, [checklistItemId]: "Cevap, not veya dosyalardan en az biri girilmelidir." }))
       return
     }
-    setChecklistSubmitting((prev) => ({ ...prev, [sessionItemId]: true }))
+    setChecklistSubmitting((prev) => ({ ...prev, [checklistItemId]: true }))
     try {
       const uploaded =
         form.files.length > 0
-          ? await uploadAuditResponseChecklistFilesDirect(token, sessionItemId, form.files)
+          ? await uploadAuditResponseChecklistFilesDirect(token, checklistItemId, form.files)
           : []
-      const res = await fetch(`/api/audit-response/${token}/checklist/${sessionItemId}`, {
+      const res = await fetch(`/api/audit-response/${token}/checklist/${checklistItemId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          auditeeResponse: form.response.trim() || undefined,
+          result: form.result || undefined,
           auditeeNote: form.note.trim() || undefined,
           submitterName: submitterName.trim(),
           submitterEmail: submitterEmail.trim() || undefined,
@@ -294,14 +358,14 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
         throw new Error((data && data.error) || "Gönderilemedi. Lütfen tekrar deneyin.")
       }
       toast.success("Cevabınız gönderildi. Denetçi onayı bekleniyor.")
-      updateChecklistForm(sessionItemId, { response: "", note: "", files: [] })
+      updateChecklistForm(checklistItemId, { result: "", note: "", files: [] })
       if (state.status === "ready") {
         setState({
           ...state,
           checklistSessions: state.checklistSessions.map((s) => ({
             ...s,
             items: s.items.map((it) =>
-              it.sessionItemId === sessionItemId
+              it.checklistItemId === checklistItemId
                 ? { ...it, submissions: [data.submission!, ...it.submissions] }
                 : it
             ),
@@ -310,33 +374,11 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : "Gönderilemedi. Lütfen tekrar deneyin."
-      setChecklistErrors((prev) => ({ ...prev, [sessionItemId]: message }))
+      setChecklistErrors((prev) => ({ ...prev, [checklistItemId]: message }))
       toast.error(message)
     } finally {
-      setChecklistSubmitting((prev) => ({ ...prev, [sessionItemId]: false }))
+      setChecklistSubmitting((prev) => ({ ...prev, [checklistItemId]: false }))
     }
-  }
-
-  const reviewStatusBadge = (status: string) => {
-    if (status === "Accepted") {
-      return (
-        <Badge className="gap-1 bg-teal-600 text-white hover:bg-teal-600">
-          <CheckCircle2 className="size-3" /> Accepted
-        </Badge>
-      )
-    }
-    if (status === "Rejected") {
-      return (
-        <Badge variant="destructive" className="gap-1">
-          <XCircle className="size-3" /> Revision Requested
-        </Badge>
-      )
-    }
-    return (
-      <Badge variant="outline" className="gap-1">
-        <Loader2 className="size-3" /> Pending Review
-      </Badge>
-    )
   }
 
   return (
@@ -370,26 +412,26 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
           <div className="space-y-4">
             <Card className="shadow-sm">
               <CardHeader>
-                <CardTitle className="text-xl">Audit Response</CardTitle>
+                <CardTitle className="text-xl">Denetim Yanıtı</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">Audit Number</p>
+                    <p className="text-xs font-medium text-muted-foreground">Denetim No</p>
                     <p className="font-mono text-sm font-semibold">{state.entry.auditNumber}</p>
                   </div>
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">Audit Type / Field</p>
+                    <p className="text-xs font-medium text-muted-foreground">Denetim Türü / Alan</p>
                     <p className="text-sm">{state.entry.field}</p>
                   </div>
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">Planned Date</p>
+                    <p className="text-xs font-medium text-muted-foreground">Planlanan Tarih</p>
                     <p className="text-sm">{new Date(state.entry.plannedDate).toLocaleDateString("tr-TR")}</p>
                   </div>
                 </div>
                 {state.entry.description && (
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">Description</p>
+                    <p className="text-xs font-medium text-muted-foreground">Açıklama</p>
                     <p className="text-sm leading-relaxed whitespace-pre-wrap">{state.entry.description}</p>
                   </div>
                 )}
@@ -398,15 +440,15 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
 
             <Card className="shadow-sm">
               <CardHeader>
-                <CardTitle className="text-base">Your Details</CardTitle>
+                <CardTitle className="text-base">Bilgileriniz</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label htmlFor="submitter-name">Name *</Label>
+                  <Label htmlFor="submitter-name">Ad Soyad *</Label>
                   <Input id="submitter-name" value={submitterName} onChange={(e) => setSubmitterName(e.target.value)} placeholder="Adınız Soyadınız" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="submitter-email">Email (optional)</Label>
+                  <Label htmlFor="submitter-email">E-posta (İsteğe Bağlı)</Label>
                   <Input id="submitter-email" type="email" value={submitterEmail} onChange={(e) => setSubmitterEmail(e.target.value)} placeholder="ornek@sirket.com" />
                 </div>
               </CardContent>
@@ -415,7 +457,7 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
             <Card className="shadow-sm">
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
-                  <FileText className="size-4" /> Notes / Remarks
+                  <FileText className="size-4" /> Genel Not / Açıklama
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -430,12 +472,12 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
                 <div className="flex justify-end">
                   <Button type="button" onClick={() => void submitNote()} disabled={submittingNote}>
                     {submittingNote ? <Loader2 className="mr-1.5 size-4 animate-spin" /> : <Send className="mr-1.5 size-4" />}
-                    Submit Note
+                    Notu Gönder
                   </Button>
                 </div>
                 {state.notes.length > 0 && (
                   <div className="space-y-2 border-t pt-3">
-                    <p className="text-xs font-medium text-muted-foreground">Previously submitted</p>
+                    <p className="text-xs font-medium text-muted-foreground">Önceden gönderilenler</p>
                     <ul className="space-y-2 max-h-56 overflow-y-auto">
                       {state.notes.map((n) => (
                         <li key={n.id} className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
@@ -454,7 +496,7 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
             <Card className="shadow-sm">
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
-                  <Paperclip className="size-4" /> File Upload
+                  <Paperclip className="size-4" /> Genel Dosyalar
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -498,12 +540,12 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
                 <div className="flex justify-end">
                   <Button type="button" onClick={() => void submitFiles()} disabled={uploadingFiles || pendingFiles.length === 0}>
                     {uploadingFiles ? <Loader2 className="mr-1.5 size-4 animate-spin" /> : <Upload className="mr-1.5 size-4" />}
-                    Upload Files
+                    Dosyaları Yükle
                   </Button>
                 </div>
                 {state.files.length > 0 && (
                   <div className="space-y-2 border-t pt-3">
-                    <p className="text-xs font-medium text-muted-foreground">Previously submitted</p>
+                    <p className="text-xs font-medium text-muted-foreground">Önceden gönderilenler</p>
                     <ul className="space-y-1.5 max-h-56 overflow-y-auto">
                       {state.files.map((f) => (
                         <li key={f.id} className="flex items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
@@ -520,7 +562,7 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
             </Card>
 
             {state.checklistSessions.map((session) => (
-              <Card key={session.sessionId} className="shadow-sm">
+              <Card key={session.checklistId} className="shadow-sm">
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
                     <ClipboardList className="size-4" />
@@ -532,12 +574,13 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {session.items.map((item) => {
-                    const form = getChecklistForm(item.sessionItemId)
-                    const submitting = !!checklistSubmitting[item.sessionItemId]
-                    const error = checklistErrors[item.sessionItemId]
+                    const form = getChecklistForm(item.checklistItemId)
+                    const submitting = !!checklistSubmitting[item.checklistItemId]
+                    const error = checklistErrors[item.checklistItemId]
                     const latest = item.submissions[0]
+                    const needsRevision = latest?.reviewStatus === "RevisionRequested"
                     return (
-                      <div key={item.sessionItemId} className="space-y-2.5 rounded-lg border p-3">
+                      <div key={item.checklistItemId} className="space-y-2.5 rounded-lg border p-3">
                         <div className="flex flex-wrap items-start justify-between gap-2">
                           <div className="min-w-0">
                             <p className="text-sm font-medium">{item.label}</p>
@@ -550,8 +593,9 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
                           {latest && reviewStatusBadge(latest.reviewStatus)}
                         </div>
 
-                        {latest && latest.reviewStatus === "Rejected" && latest.reviewNote && (
+                        {needsRevision && latest?.reviewNote && (
                           <p className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
+                            <span className="font-medium">Denetçi notu: </span>
                             {latest.reviewNote}
                           </p>
                         )}
@@ -564,8 +608,13 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
                                   <span className="text-muted-foreground">{formatDate(sub.submittedAt)}</span>
                                   {reviewStatusBadge(sub.reviewStatus)}
                                 </div>
-                                {sub.auditeeResponse && <p className="mt-1 whitespace-pre-wrap">{sub.auditeeResponse}</p>}
-                                {sub.auditeeNote && <p className="mt-1 whitespace-pre-wrap text-muted-foreground">{sub.auditeeNote}</p>}
+                                {sub.auditeeResponse && (
+                                  <p className="mt-1">
+                                    <span className="font-semibold">{sub.auditeeResponse}</span>
+                                    <span className="text-muted-foreground"> ({RESULT_LABELS[sub.auditeeResponse as ResultKey] ?? sub.auditeeResponse})</span>
+                                  </p>
+                                )}
+                                {sub.auditeeNote && <p className="mt-1 whitespace-pre-wrap">{sub.auditeeNote}</p>}
                                 {sub.files.length > 0 && (
                                   <p className="mt-1 text-muted-foreground">
                                     {sub.files.map((f) => f.fileName).join(", ")}
@@ -577,28 +626,41 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
                         )}
 
                         <div className="space-y-2">
+                          <div className="space-y-1.5">
+                            <Label className="text-xs">Cevap</Label>
+                            <div className="flex gap-1.5">
+                              {RESULT_KEYS.map((r) => (
+                                <button
+                                  key={r}
+                                  type="button"
+                                  disabled={submitting}
+                                  onClick={() => updateChecklistForm(item.checklistItemId, { result: form.result === r ? "" : r })}
+                                  title={RESULT_LABELS[r]}
+                                  className={cn(
+                                    "inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-semibold",
+                                    form.result === r
+                                      ? "border-primary bg-primary text-primary-foreground"
+                                      : "border-border text-muted-foreground hover:bg-muted/50",
+                                    submitting && "opacity-50 cursor-not-allowed"
+                                  )}
+                                >
+                                  {r}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                           <div className="space-y-1">
-                            <Label className="text-xs">Auditee Response</Label>
+                            <Label className="text-xs">Denetlenen Notu</Label>
                             <Textarea
-                              value={form.response}
-                              onChange={(e) => updateChecklistForm(item.sessionItemId, { response: e.target.value })}
-                              placeholder="Cevabınızı yazın…"
+                              value={form.note}
+                              onChange={(e) => updateChecklistForm(item.checklistItemId, { note: e.target.value })}
+                              placeholder="Notunuzu yazın (isteğe bağlı)…"
                               className="min-h-[70px] text-sm"
                               disabled={submitting}
                             />
                           </div>
                           <div className="space-y-1">
-                            <Label className="text-xs">Auditee Note</Label>
-                            <Textarea
-                              value={form.note}
-                              onChange={(e) => updateChecklistForm(item.sessionItemId, { note: e.target.value })}
-                              placeholder="Ek not (isteğe bağlı)…"
-                              className="min-h-[50px] text-sm"
-                              disabled={submitting}
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Attachment</Label>
+                            <Label className="text-xs">Dosya Eki</Label>
                             <input
                               type="file"
                               multiple
@@ -606,7 +668,7 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
                               disabled={submitting}
                               className="block w-full text-xs text-muted-foreground file:mr-2 file:rounded-md file:border file:bg-background file:px-2 file:py-1 file:text-xs"
                               onChange={(e) =>
-                                updateChecklistForm(item.sessionItemId, {
+                                updateChecklistForm(item.checklistItemId, {
                                   files: [...form.files, ...Array.from(e.target.files ?? [])],
                                 })
                               }
@@ -620,7 +682,7 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
                                       type="button"
                                       disabled={submitting}
                                       onClick={() =>
-                                        updateChecklistForm(item.sessionItemId, {
+                                        updateChecklistForm(item.checklistItemId, {
                                           files: form.files.filter((_, j) => j !== i),
                                         })
                                       }
@@ -639,10 +701,10 @@ export function AuditResponsePublicClient({ token }: { token: string }) {
                               type="button"
                               size="sm"
                               disabled={submitting}
-                              onClick={() => void submitChecklistItem(item.sessionItemId)}
+                              onClick={() => void submitChecklistItem(item.checklistItemId)}
                             >
                               {submitting ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <Send className="mr-1.5 size-3.5" />}
-                              Submit
+                              {needsRevision ? "Yeniden Gönder" : "Gönder"}
                             </Button>
                           </div>
                         </div>

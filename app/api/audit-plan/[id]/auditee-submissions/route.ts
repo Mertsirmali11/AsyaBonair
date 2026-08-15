@@ -16,8 +16,8 @@ function calisanName(c: { isim: string | null; soyisim: string | null } | null):
 
 /**
  * GET: Public Audit Response Link üzerinden bu denetime bağlı checklist sorularına
- * gönderilmiş TÜM auditee submission'ları (Pending/Accepted/Rejected, en yeni önce).
- * "Auditee Responses" / "Pending Auditee Responses" panelinde gösterilir.
+ * gönderilmiş TÜM auditee submission'ları (Pending/RevisionRequested/Resubmitted/Accepted,
+ * en yeni önce). "Auditee Responses" panelinde gösterilir.
  */
 export async function GET(_req: Request, ctx: Ctx) {
   const session = await auth()
@@ -35,7 +35,13 @@ export async function GET(_req: Request, ctx: Ctx) {
     where: { sessionItem: { session: { auditPlanEntryId: entryId } } },
     orderBy: { submittedAt: "desc" },
     include: {
-      sessionItem: { select: { id: true, checklistItem: { select: { label: true } } } },
+      sessionItem: {
+        select: {
+          id: true,
+          auditChecklistItemId: true,
+          checklistItem: { select: { label: true, reference: true, sortOrder: true } },
+        },
+      },
       reviewedBy: { select: { isim: true, soyisim: true } },
       files: { select: { id: true, fileName: true, fileSizeBytes: true } },
     },
@@ -45,14 +51,19 @@ export async function GET(_req: Request, ctx: Ctx) {
     rows.map((r) => ({
       id: r.id,
       sessionItemId: r.sessionItem.id,
+      checklistItemId: r.sessionItem.auditChecklistItemId,
       question: r.sessionItem.checklistItem.label,
-      auditeeResponse: r.auditeeResponse,
+      reference: r.sessionItem.checklistItem.reference,
+      sortOrder: r.sessionItem.checklistItem.sortOrder,
+      // S | U | NA | OBS | null — auditee'nin seçtiği cevap (serbest metin DEĞİL)
+      result: r.auditeeResponse,
       auditeeNote: r.auditeeNote,
       reviewStatus: r.reviewStatus,
       reviewNote: r.reviewNote,
       reviewedByName: calisanName(r.reviewedBy),
       reviewedAt: r.reviewedAt ? r.reviewedAt.toISOString() : null,
       submitterName: r.submitterName,
+      submitterEmail: r.submitterEmail,
       submittedAt: r.submittedAt.toISOString(),
       files: r.files.map((f) => ({ id: f.id, fileName: f.fileName, fileSizeBytes: f.fileSizeBytes })),
     }))

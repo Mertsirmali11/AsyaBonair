@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { requireAuditPlanSession } from "@/lib/audit-plan-session"
-import { isSacaOrSafaAuditCategory, normalizeFindingCategory } from "@/lib/finding-category"
+import { upsertAuditSessionItemAnswer, syncFindingForSessionItemResult } from "@/lib/audit-session-item-answer"
 import { prisma } from "@/lib/prisma-server"
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -26,7 +26,11 @@ export async function GET(_req: Request, ctx: Ctx) {
   return NextResponse.json(items)
 }
 
-/** PUT: upsert result for a checklist item; auto-create AuditFinding if result=U */
+/**
+ * PUT: upsert result for a checklist item; auto-create AuditFinding if result=U.
+ * Asıl yazma/validasyon mantığı lib/audit-session-item-answer.ts'e taşındı — Manage Audit'teki
+ * "Accept auditee response" akışı da (yalnızca cevap kısmını) AYNI fonksiyonu çağırır.
+ */
 export async function PUT(req: Request, ctx: Ctx) {
   const session = await requireAuditPlanSession()
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -44,177 +48,30 @@ export async function PUT(req: Request, ctx: Ctx) {
   const result = typeof b.result === "string" ? b.result : null
   const notes = typeof b.notes === "string" ? b.notes.trim() : null
   const auditeeNotes = typeof b.auditeeNotes === "string" ? b.auditeeNotes.trim() : null
-  // Ham değerler — SACA/SAFA olup olmadığı (entry fetch edilene kadar) bilinmediği için
-  // asıl doğrulama aşağıda, session/entry yüklendikten sonra yapılır.
   const rawFindingLevel = typeof b.findingLevel === "string" ? b.findingLevel : "Level1"
   const rawFindingCategory = b.findingCategory
 
-  if (!Number.isInteger(auditChecklistItemId) || auditChecklistItemId < 1)
-    return NextResponse.json({ error: "Invalid auditChecklistItemId" }, { status: 400 })
-
-  const validResults = ["S", "U", "NA", "OBS", null]
-  if (!validResults.includes(result))
-    return NextResponse.json({ error: "Invalid result. Use S, U, NA, OBS or null" }, { status: 400 })
-
-  // Verify session exists and get context
-  const auditSession = await prisma.auditSession.findUnique({
-    where: { id },
-    include: {
-      entry: {
-        include: {
-          auditCategoryType: { select: { name: true } },
-          auditSubCategoryType: { select: { name: true } },
-          auditees: { select: { calisanId: true }, take: 1 },
-        },
-      },
-    },
+  const answer = await upsertAuditSessionItemAnswer({
+    auditSessionId: id,
+    auditChecklistItemId,
+    result,
+    notes,
+    auditeeNotes,
   })
-  if (!auditSession) return NextResponse.json({ error: "Session not found" }, { status: 404 })
+  if (!answer.ok) return NextResponse.json({ error: answer.error }, { status: answer.status })
 
-  const isSacaSafa = isSacaOrSafaAuditCategory(auditSession.entry.auditCategoryType.name)
-
-  // SACA/SAFA denetimlerinde tek sınıflandırma findingCategory'dir — findingLevel istemciden
-  // ne gelirse gelsin YOK SAYILIR, hiçbir default/eski Level değeri kaydedilmez. Diğer audit
-  // type'larında (Internal, External, vb.) mevcut Level davranışı aynen korunur.
-  let findingLevel: string | null = null
-  if (!isSacaSafa) {
-    findingLevel = rawFindingLevel
-    const validLevels = ["Level1", "Level2", "Observation"]
-    if (!validLevels.includes(findingLevel))
-      return NextResponse.json({ error: "Invalid findingLevel" }, { status: 400 })
-  }
-
-  const findingCategory = normalizeFindingCategory(rawFindingCategory, auditSession.entry.auditCategoryType.name)
-  // SACA/SAFA'da bir madde Unsatisfactory işaretlenirken (bulgu oluşacak/güncellenecek)
-  // findingCategory ZORUNLU — server-side (yalnızca UI'da gizlemek yeterli değil).
-  if (isSacaSafa && result === "U" && !findingCategory) {
-    return NextResponse.json({ error: "Finding Category zorunludur" }, { status: 400 })
-  }
-
-  // Verify checklist item belongs to the session's checklist
-  const clItem = await prisma.auditChecklistItem.findFirst({
-    where: { id: auditChecklistItemId, auditChecklistId: auditSession.auditChecklistId },
+  const findingSync = await syncFindingForSessionItemResult({
+    auditSessionId: id,
+    sessionItemId: answer.sessionItem.id,
+    result,
+    notes,
+    rawFindingLevel,
+    rawFindingCategory,
   })
-  if (!clItem) return NextResponse.json({ error: "Checklist item not found in this session" }, { status: 404 })
+  if (!findingSync.ok) return NextResponse.json({ error: findingSync.error }, { status: findingSync.status })
 
-  // Upsert session item (include auditeeNotes)
-  const sessionItem = await prisma.auditSessionItem.upsert({
-    where: {
-      auditSessionId_auditChecklistItemId: {
-        auditSessionId: id,
-        auditChecklistItemId,
-      },
-    },
-    create: { auditSessionId: id, auditChecklistItemId, result, notes, auditeeNotes },
-    update: { result, notes, auditeeNotes },
-  })
-
-  // Auto-create or remove finding based on result
-  if (result === "U") {
-    // Check if finding already exists for this session item
-    const existingFinding = await prisma.auditFinding.findUnique({
-      where: { auditSessionItemId: sessionItem.id },
-    })
-
-    if (!existingFinding) {
-      // Generate finding code: BON-AF-XXX
-      const count = await prisma.auditFinding.count()
-      const findingCode = `BON-AF-${String(count + 1).padStart(3, "0")}`
-
-      const cat = auditSession.entry.auditCategoryType.name
-      const sub = auditSession.entry.auditSubCategoryType?.name
-      const field = sub ? `${cat} — ${sub}` : cat
-
-      const auditNumber = auditSession.entry.auditNumberPrefix
-        ? `${auditSession.entry.auditNumberPrefix}-${auditSession.entry.id}`
-        : `AP-${auditSession.entry.id}`
-
-      // Due date based on findingLevel
-      let dueDate: Date | null = null
-      if (findingLevel === "Level1") {
-        dueDate = new Date()
-        dueDate.setDate(dueDate.getDate() + 10)
-      } else if (findingLevel === "Level2") {
-        dueDate = new Date()
-        dueDate.setDate(dueDate.getDate() + 90)
-      }
-      // Observation: no deadline
-
-      // Denetlenen kişiyi (ilk auditee) otomatik atanan kişi olarak ayarla
-      const auditeeId = auditSession.entry.auditees[0]?.calisanId ?? null
-
-      await prisma.auditFinding.create({
-        data: {
-          findingCode,
-          auditSessionId: id,
-          auditSessionItemId: sessionItem.id,
-          findingLevel,
-          findingCategory,
-          explanation: notes ?? clItem.label,
-          reference: clItem.reference,
-          field,
-          auditNumber,
-          dueDate,
-          status: "Open",
-          ...(auditeeId ? { assignedToId: auditeeId } : {}),
-        },
-      })
-    } else if (existingFinding.deletedAt) {
-      // auditSessionItemId @unique olduğu için bu slot'ta zaten (soft-delete edilmiş) bir
-      // kayıt var — yeni satır INSERT etmek unique constraint'i ihlal eder. Bunun yerine
-      // aynı kaydı geri getiriyoruz (deletedAt temizlenir), sanki checklist maddesi
-      // yeniden Unsatisfactory işaretlendiğinde finding "yeniden oluşmuş" gibi davranır.
-      let dueDate: Date | null = null
-      if (findingLevel === "Level1") {
-        dueDate = new Date()
-        dueDate.setDate(dueDate.getDate() + 10)
-      } else if (findingLevel === "Level2") {
-        dueDate = new Date()
-        dueDate.setDate(dueDate.getDate() + 90)
-      }
-      await prisma.auditFinding.update({
-        where: { id: existingFinding.id },
-        data: { deletedAt: null, findingLevel, findingCategory, status: "Open", dueDate },
-      })
-    } else if (existingFinding.findingLevel !== findingLevel) {
-      // Update findingLevel and recalculate due date if level changed
-      let dueDate: Date | null = null
-      if (findingLevel === "Level1") {
-        dueDate = new Date()
-        dueDate.setDate(dueDate.getDate() + 10)
-      } else if (findingLevel === "Level2") {
-        dueDate = new Date()
-        dueDate.setDate(dueDate.getDate() + 90)
-      }
-      await prisma.auditFinding.update({
-        where: { id: existingFinding.id },
-        data: { findingLevel, findingCategory, dueDate },
-      })
-    } else if (existingFinding.findingCategory !== findingCategory) {
-      // Yalnızca kategori değişti — vade tarihine dokunma
-      await prisma.auditFinding.update({
-        where: { id: existingFinding.id },
-        data: { findingCategory },
-      })
-    }
-  } else {
-    // If result changed from U to something else, remove finding if no responses
-    const existingFinding = await prisma.auditFinding.findUnique({
-      where: { auditSessionItemId: sessionItem.id },
-    })
-    if (existingFinding && !existingFinding.deletedAt && existingFinding.status === "Open") {
-      const responseCount = await prisma.auditFindingResponse.count({
-        where: { auditFindingId: existingFinding.id },
-      })
-      if (responseCount === 0) {
-        await prisma.auditFinding.delete({ where: { id: existingFinding.id } })
-      }
-    }
-  }
-
-  // Return updated item with finding info
   const updated = await prisma.auditSessionItem.findUnique({
-    where: { id: sessionItem.id },
+    where: { id: answer.sessionItem.id },
     include: {
       finding: { select: { id: true, findingCode: true, findingLevel: true, findingCategory: true, status: true } },
       attachments: true,
