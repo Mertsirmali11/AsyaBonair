@@ -2,6 +2,8 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import { resolveFindingAuditeeAccess } from "@/lib/audit-finding-auditee-access"
+import { computeCpaUiPermissions } from "@/lib/audit-finding-cpa-access"
+import { validateFindingAssignment } from "@/lib/audit-finding-assignee"
 import { isSacaOrSafaAuditCategory, normalizeFindingCategory } from "@/lib/finding-category"
 import { prisma } from "@/lib/prisma-server"
 
@@ -51,6 +53,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     where: { id },
     include: {
       assignedTo: { select: { id: true, isim: true, soyisim: true, departman: true } },
+      assignedGroup: { select: { id: true, name: true, description: true } },
       responses: {
         orderBy: { submittedAt: "asc" },
         include: {
@@ -92,7 +95,11 @@ export async function GET(_req: Request, ctx: Ctx) {
       ? { entry: manualEntry, checklist: null }
       : null
 
-  return NextResponse.json({ ...rest, session: normalizedSession })
+  // Client'a ham grup üyelik listesi SIZDIRILMAZ — yalnızca "bu kullanıcı cevap/review
+  // yapabilir mi" boolean'ları döner, gerçek enforcement her zaman ilgili POST/PATCH'tedir.
+  const cpaPermissions = await computeCpaUiPermissions(id, authSession?.user?.email)
+
+  return NextResponse.json({ ...rest, session: normalizedSession, cpaPermissions })
 }
 
 /** Bu bulgunun bağlı olduğu denetimin audit category adı — SACA/SAFA normalize kontrolü için. */
@@ -155,11 +162,29 @@ export async function PATCH(req: Request, ctx: Ctx) {
       changedLabels.push("vade tarihi")
     }
   }
-  if (b.assignedToId !== undefined) {
+  // Person ↔ Group karşılıklı dışlayıcı — hangisi gönderilirse DİĞERİ otomatik null'a çekilir
+  // (Person → Group veya Group → Person yeniden atama, iki alanı ayrı ayrı yönetmeye gerek yok).
+  if (b.assignedGroupId !== undefined) {
+    const v = b.assignedGroupId ? Number(b.assignedGroupId) : null
+    if (v !== existing.assignedGroupId) {
+      data.assignedGroupId = v
+      if (existing.assignedToId !== null) data.assignedToId = null
+      changedLabels.push("sorumlu grup")
+    }
+  } else if (b.assignedToId !== undefined) {
     const v = b.assignedToId ? Number(b.assignedToId) : null
     if (v !== existing.assignedToId) {
       data.assignedToId = v
+      if (existing.assignedGroupId !== null) data.assignedGroupId = null
       changedLabels.push("sorumlu kişi")
+    }
+  }
+  if (data.assignedToId !== undefined || data.assignedGroupId !== undefined) {
+    const nextAssignedToId = (data.assignedToId !== undefined ? data.assignedToId : existing.assignedToId) as number | null
+    const nextAssignedGroupId = (data.assignedGroupId !== undefined ? data.assignedGroupId : existing.assignedGroupId) as number | null
+    const assignmentCheck = await validateFindingAssignment(nextAssignedToId, nextAssignedGroupId)
+    if (!assignmentCheck.ok) {
+      return NextResponse.json({ error: assignmentCheck.error }, { status: assignmentCheck.status })
     }
   }
   // SACA/SAFA denetimlerine bağlı bulgularda Level artık kullanılmıyor — istemci eski/varsayılan

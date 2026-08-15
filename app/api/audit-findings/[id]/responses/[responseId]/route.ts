@@ -16,8 +16,9 @@ function calisanName(c: { isim: string | null; soyisim: string | null } | null):
  * (rootCause/correctiveAction/preventiveAction) DEĞİŞTİRMEZ — içerik yalnızca
  * POST /api/audit-findings/[id]/responses ile (sorumlu kişi tarafından, yeni bir satır olarak)
  * gönderilir/resubmit edilir. Yalnızca canAccessAuditPlan() yetkisine sahip kullanıcılar
- * (requireCpaReviewer) çağırabilir; sorumlu kişi kendi cevabını (respondedById kendisiyse)
- * inceleyemez — "self_review" ile reddedilir.
+ * (requireCpaReviewer) çağırabilir; bulgunun sorumlu tarafı (kişi VEYA — gruba atanmışsa
+ * grubun HERHANGİ BİR aktif üyesi, yalnızca bu cevabı gönderen kişi değil) kendi/grubunun
+ * CPA'sını inceleyemez — "self_review" ile reddedilir.
  *
  * İdempotency: atomik updateMany guard (yalnızca cpaStatus Pending/Resubmitted iken flip
  * eder) — çift tık/retry'da tekrar review-note yazılmaz, finding tekrar Closed edilmez.
@@ -31,16 +32,16 @@ export async function PATCH(req: Request, ctx: Ctx) {
 
   const response = await prisma.auditFindingResponse.findFirst({
     where: { id: respId, auditFindingId: findingId },
-    select: { respondedById: true },
+    select: { id: true },
   })
   if (!response) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   const authSession = await auth()
-  const reviewer = await requireCpaReviewer(authSession?.user?.email, response.respondedById)
+  const reviewer = await requireCpaReviewer(findingId, authSession?.user?.email)
   if (!reviewer.ok) {
     const message =
       reviewer.reason === "self_review"
-        ? "Kendi CPA cevabınızı inceleyemezsiniz."
+        ? "Kendi CPA cevabınızı (veya grubunuzun cevabını) inceleyemezsiniz."
         : "Yalnızca denetçi/compliance yetkisi olan kullanıcılar CPA'yı inceleyebilir."
     return NextResponse.json({ error: message }, { status: 403 })
   }

@@ -123,6 +123,8 @@ model Calisan {
   auditFindingsAssigned   AuditFinding[]           @relation("AuditFindingAssignee")
   auditFindingResponses   AuditFindingResponse[]   @relation("AuditFindingResponder")
   auditFindingResponsesReviewed AuditFindingResponse[] @relation("AuditFindingResponseReviewer")
+  userGroupsCreated UserGroup[] @relation("UserGroupCreator")
+  userGroupMemberships UserGroupMember[] @relation("UserGroupMemberCalisan")
   auditFindingExtensions  AuditFindingExtension[]  @relation("AuditFindingExtensionRequester")
   supportTicketsCreated SupportTicket[] @relation("SupportTicketCreator")
   supportTicketsAdminUpdated SupportTicket[] @relation("SupportTicketAdmin")
@@ -1264,7 +1266,14 @@ model AuditFinding {
   initializedOn      DateTime  @default(now()) @map("initialized_on")
   dueDate            DateTime? @map("due_date") @db.Date
   status             String    @default("Open") @db.VarChar(50) // Open | Closed
+  /// Kişiye atama — assignedGroupId ile KARŞILIKLI DIŞLAYICI (aynı anda ikisi de dolu olamaz,
+  /// application-level enforce edilir, bkz. lib/audit-finding-assignee.ts). Checklist üzerinden
+  /// otomatik oluşan bulgularda (result=U) hâlâ YALNIZCA bu alan kullanılır — o akış grup
+  /// desteğini bu aşamada kapsamıyor, ilk auditee'ye otomatik atanmaya devam eder.
   assignedToId       Int?      @map("assigned_to_id")
+  /// Gruba atama — assignedToId ile KARŞILIKLI DIŞLAYICI. Yalnızca manuel Add Finding/Edit
+  /// akışlarından set edilebilir.
+  assignedGroupId    Int?      @map("assigned_group_id")
   /// Doluysa bulgu silinmiş sayılır (soft delete) — hard delete YAPILMAZ, kendi
   /// AuditFindingHistory kaydı kaybolmasın diye. Tüm liste/okuma sorguları bu alanı
   /// null olarak filtreler; findingCode benzersizliği bu satırlarda da korunur.
@@ -1276,6 +1285,10 @@ model AuditFinding {
   sessionItem AuditSessionItem?  @relation(fields: [auditSessionItemId], references: [id], onDelete: SetNull)
   manualEntry AuditPlanEntry?    @relation("AuditPlanEntryManualFindings", fields: [auditPlanEntryId], references: [id], onDelete: Cascade)
   assignedTo  Calisan?           @relation("AuditFindingAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  /// onDelete: Restrict — açık (Open) bulgusu olan bir grubun silinmesi API katmanında zaten
+  /// engellenir (409); bu FK kısıtı, o kontrolü atlayan bir yol (ör. doğrudan SQL) olsa bile
+  /// veri bütünlüğünü son çare olarak korur.
+  assignedGroup UserGroup?       @relation(fields: [assignedGroupId], references: [id], onDelete: Restrict)
   responses   AuditFindingResponse[]
   extensions  AuditFindingExtension[]
   /// Checklist ekleri (AuditSessionItemAttachment) veya Audit Files'tan (AuditPlanDocument)
@@ -1288,7 +1301,48 @@ model AuditFinding {
   @@index([auditPlanEntryId])
   @@index([status])
   @@index([dueDate])
+  @@index([assignedGroupId])
   @@map("audit_findings")
+}
+
+/// Kullanıcı Grupları (Configurations → User Groups) — admin'in istediği isimde oluşturup
+/// istediği çalışanları ekleyip çıkarabildiği, Department'tan BAĞIMSIZ, serbest üyelik grubu.
+/// "Add all members from Department" yalnızca oluşturma/düzenleme anında Members listesini
+/// TEK SEFERLİK doldurur — grup ile Department arasında kalıcı/senkronize bir DB ilişkisi
+/// KURULMAZ (departman üyeliği sonradan değişse bile grup kendiliğinden değişmez).
+model UserGroup {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique @db.VarChar(200)
+  description String?   @db.Text
+  createdById Int?      @map("created_by_id")
+  /// Doluysa grup silinmiş sayılır (soft delete) — hard delete YAPILMAZ, kendisine atanmış
+  /// (kapalı/geçmiş) bulguların audit trail'i kaybolmasın diye. Açık bulgusu olan bir grubun
+  /// silinmesi API katmanında zaten engellenir (409) — bkz. app/api/user-groups/[id]/route.ts.
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  createdBy Calisan?          @relation("UserGroupCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  members   UserGroupMember[]
+  findings  AuditFinding[]
+
+  @@index([deletedAt])
+  @@map("user_groups")
+}
+
+model UserGroupMember {
+  id        Int      @id @default(autoincrement())
+  groupId   Int      @map("group_id")
+  calisanId Int      @map("calisan_id")
+  addedAt   DateTime @default(now()) @map("added_at")
+
+  group   UserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  calisan Calisan   @relation("UserGroupMemberCalisan", fields: [calisanId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, calisanId])
+  @@index([groupId])
+  @@index([calisanId])
+  @@map("user_group_members")
 }
 
 /// Bulguya doğrudan yüklenen dosyalar — checklist madde eklerinden ve Audit Files'tan

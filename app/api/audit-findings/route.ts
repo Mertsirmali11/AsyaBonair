@@ -19,11 +19,30 @@ export async function GET(req: NextRequest) {
 
   if (!isAdmin && !calisan) return NextResponse.json([], { status: 200 })
 
+  // Admin değilse: kendine DOĞRUDAN atanan bulgular + üyesi olduğu bir gruba atanan bulgular.
+  const memberGroupIds = isAdmin
+    ? []
+    : (
+        await prisma.userGroupMember.findMany({
+          where: { calisanId: calisan!.id },
+          select: { groupId: true },
+        })
+      ).map((m) => m.groupId)
+
   const findings = await prisma.auditFinding.findMany({
-    where: isAdmin ? { deletedAt: null } : { deletedAt: null, assignedToId: calisan!.id },
+    where: isAdmin
+      ? { deletedAt: null }
+      : {
+          deletedAt: null,
+          OR: [
+            { assignedToId: calisan!.id },
+            ...(memberGroupIds.length > 0 ? [{ assignedGroupId: { in: memberGroupIds } }] : []),
+          ],
+        },
     orderBy: { createdAt: "desc" },
     include: {
       assignedTo: { select: { id: true, isim: true, soyisim: true } },
+      assignedGroup: { select: { id: true, name: true } },
       responses: {
         orderBy: { submittedAt: "asc" },
         select: { id: true, cpaStatus: true, submittedAt: true },
@@ -74,6 +93,7 @@ export async function GET(req: NextRequest) {
       assignedTo: f.assignedTo
         ? { id: f.assignedTo.id, name: [f.assignedTo.isim, f.assignedTo.soyisim].filter(Boolean).join(" ") }
         : null,
+      assignedGroup: f.assignedGroup ? { id: f.assignedGroup.id, name: f.assignedGroup.name } : null,
       cpaRequests: `${totalCpa}/${acceptedCpa}/${rejectedCpa}`,
       pendingCpa,
       hasExtension,

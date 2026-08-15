@@ -84,7 +84,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { AuditCategoryCombobox } from "@/components/compliance/audit-category-combobox"
 import { PostponeAuditDialog } from "@/components/compliance/postpone-audit-dialog"
-import { EmployeeCombobox } from "@/components/employee-combobox"
+import { AssigneeCombobox, type AssigneeValue } from "@/components/assignee-combobox"
 import type { AuditChecklistListRow } from "@/components/compliance/audit-checklists-client"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { parseDdMmYyyyToUtcDate, todayLocalDdMmYyyy } from "@/lib/correspondence-date"
@@ -160,7 +160,9 @@ export type AuditPlanFindingRow = {
   status: string
   dueDate: string | null
   isManual: boolean
+  /** Person/Group karşılıklı dışlayıcı — ikisi birden dolu olamaz. */
   assignedTo: { id: number; name: string | null; department: string | null } | null
+  assignedGroup: { id: number; name: string } | null
 }
 
 export type AuditPlanHistoryRow = {
@@ -509,10 +511,12 @@ export function AuditPlanClient() {
   const [findingCategoryInput, setFindingCategoryInput] = React.useState("CAT1")
   const [findingExplanation, setFindingExplanation] = React.useState("")
   const [findingReference, setFindingReference] = React.useState("")
-  const [findingAssignedToId, setFindingAssignedToId] = React.useState<number | undefined>(undefined)
+  /** Person/Group karşılıklı dışlayıcı — bkz. components/assignee-combobox.tsx */
+  const [findingAssignee, setFindingAssignee] = React.useState<AssigneeValue>(null)
   /** dd.mm.yyyy — yalnızca SACA/SAFA denetimlerinde gösterilir/zorunludur (bkz. manage-audit-client.tsx). */
   const [findingDueDateInput, setFindingDueDateInput] = React.useState("")
   const [findingAssignees, setFindingAssignees] = React.useState<{ id: number; label: string }[]>([])
+  const [findingGroups, setFindingGroups] = React.useState<{ id: number; label: string; memberCount: number }[]>([])
   const [creatingFinding, setCreatingFinding] = React.useState(false)
 
   const reloadFindings = React.useCallback(async () => {
@@ -540,18 +544,25 @@ export function AuditPlanClient() {
     let cancelled = false
     ;(async () => {
       try {
-        const res = await fetch("/api/calisanlar")
-        if (!res.ok || cancelled) return
-        const data = (await res.json()) as CalisanLite[]
-        if (cancelled) return
-        setFindingAssignees(
-          data.map((c) => ({
-            id: c.id,
-            label: [c.isim, c.soyisim].filter(Boolean).join(" ").trim() || `ID ${c.id}`,
-          }))
-        )
+        const [peopleRes, groupsRes] = await Promise.all([fetch("/api/calisanlar"), fetch("/api/user-groups")])
+        if (!cancelled && peopleRes.ok) {
+          const data = (await peopleRes.json()) as CalisanLite[]
+          setFindingAssignees(
+            data.map((c) => ({
+              id: c.id,
+              label: [c.isim, c.soyisim].filter(Boolean).join(" ").trim() || `ID ${c.id}`,
+            }))
+          )
+        }
+        if (!cancelled && groupsRes.ok) {
+          const data = (await groupsRes.json()) as { id: number; name: string; memberCount: number }[]
+          setFindingGroups(data.map((g) => ({ id: g.id, label: g.name, memberCount: g.memberCount })))
+        }
       } catch {
-        if (!cancelled) setFindingAssignees([])
+        if (!cancelled) {
+          setFindingAssignees([])
+          setFindingGroups([])
+        }
       }
     })()
     return () => {
@@ -564,7 +575,7 @@ export function AuditPlanClient() {
     setFindingCategoryInput("CAT1")
     setFindingExplanation("")
     setFindingReference("")
-    setFindingAssignedToId(undefined)
+    setFindingAssignee(null)
     setFindingDueDateInput("")
     setFindingDialogOpen(true)
   }
@@ -598,7 +609,9 @@ export function AuditPlanClient() {
           findingCategory: isSacaSafa ? findingCategoryInput : null,
           explanation: findingExplanation.trim(),
           reference: findingReference.trim() || null,
-          assignedToId: findingAssignedToId ?? null,
+          ...(findingAssignee?.type === "group"
+            ? { assignedGroupId: findingAssignee.id }
+            : { assignedToId: findingAssignee?.type === "person" ? findingAssignee.id : null }),
           ...(isSacaSafa ? { dueDate: dueDateIso } : {}),
         }),
       })
@@ -2088,9 +2101,14 @@ export function AuditPlanClient() {
                                   </span>
                                 )}
                                 <span className="text-muted-foreground min-w-0 flex-1 truncate">{f.explanation}</span>
-                                {f.assignedTo?.name && (
+                                {f.assignedGroup ? (
+                                  <span className="text-muted-foreground flex shrink-0 items-center gap-1 text-xs">
+                                    <Users className="size-3" />
+                                    {f.assignedGroup.name}
+                                  </span>
+                                ) : f.assignedTo?.name ? (
                                   <span className="text-muted-foreground text-xs shrink-0">{f.assignedTo.name}</span>
-                                )}
+                                ) : null}
                                 <span
                                   className={cn(
                                     "shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium",
@@ -2479,13 +2497,8 @@ export function AuditPlanClient() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Sorumlu Kişi (İsteğe Bağlı)</Label>
-              <EmployeeCombobox
-                options={findingAssignees}
-                value={findingAssignedToId}
-                onChange={setFindingAssignedToId}
-                placeholder="Personel seçin…"
-              />
+              <Label>Responsible Person / Group (İsteğe Bağlı)</Label>
+              <AssigneeCombobox people={findingAssignees} groups={findingGroups} value={findingAssignee} onChange={setFindingAssignee} />
             </div>
             {isSacaOrSafaAuditCategory(detail?.categoryName) && (
               <div className="space-y-2">

@@ -35,20 +35,41 @@ export async function POST(_req: Request, ctx: Ctx) {
     where: { id },
     include: {
       assignedTo: { select: { id: true, isim: true, soyisim: true, email: true, departman: true } },
+      assignedGroup: {
+        select: {
+          name: true,
+          members: {
+            where: { calisan: { istenCikisTarihi: null } },
+            select: { calisan: { select: { email: true } } },
+          },
+        },
+      },
       session: { select: { entry: { select: { auditeeDepartments: { select: { departmentName: true } } } } } },
       manualEntry: { select: { auditeeDepartments: { select: { departmentName: true } } } },
     },
   })
   if (!finding || finding.deletedAt) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
-  // Alıcılar: önce doğrudan sorumlu kişi; kişi yoksa (veya e-postası yoksa) sorumlu
-  // departman/grup üyelerine (finding.assignedTo.departman VEYA denetimin Auditee Group'u) gönderilir.
+  // Alıcılar: önce doğrudan sorumlu kişi; kişiye atanmamışsa sorumlu User Group'un TÜM AKTİF
+  // üyelerine; o da yoksa sorumlu departman/grup üyelerine (finding.assignedTo.departman VEYA
+  // denetimin Auditee Group'u) gönderilir.
   let recipientLabel: string
   let recipientEmails: string[] = []
 
   if (finding.assignedTo?.email) {
     recipientEmails = [finding.assignedTo.email]
     recipientLabel = calisanName(finding.assignedTo)
+  } else if (finding.assignedGroup) {
+    recipientEmails = Array.from(
+      new Set(finding.assignedGroup.members.map((m) => m.calisan.email).filter((e): e is string => !!e?.trim()))
+    )
+    recipientLabel = finding.assignedGroup.name
+    if (recipientEmails.length === 0) {
+      return NextResponse.json(
+        { error: `"${finding.assignedGroup.name}" grubunun aktif e-postalı üyesi yok.` },
+        { status: 400 }
+      )
+    }
   } else {
     const deptNames = new Set<string>()
     if (finding.assignedTo?.departman) deptNames.add(finding.assignedTo.departman)

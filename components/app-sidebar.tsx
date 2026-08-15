@@ -143,6 +143,11 @@ export function AppSidebar({
       requiresConfigurations: true,
     },
     {
+      title: t.nav.userGroups,
+      url: "/configurations/user-groups",
+      requiresConfigurations: true,
+    },
+    {
       title: t.nav.auditSettings,
       url: "/configurations/audit-settings",
       requiresConfigurations: true,

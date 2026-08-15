@@ -19,6 +19,7 @@ import {
   Send,
   Trash2,
   User,
+  Users,
   XCircle,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -57,6 +58,7 @@ import { DatePicker } from "@/components/ui/date-picker"
 import { dbDateToDdMmYyyy, parseDdMmYyyyToUtcDate } from "@/lib/correspondence-date"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { AssigneeCombobox, type AssigneeValue } from "@/components/assignee-combobox"
 
 type Attachment = {
   id: number
@@ -108,7 +110,12 @@ type FindingDetail = {
   initializedOn: string
   dueDate: string | null
   status: string
+  /** Person/Group karşılıklı dışlayıcı — ikisi birden dolu olamaz. */
   assignedTo: { id: number; isim: string | null; soyisim: string | null; departman: string | null } | null
+  assignedGroup: { id: number; name: string; description: string | null } | null
+  /** Server-side hesaplanmış — client hiçbir yetki hesabı yapmaz, yalnızca bu iki boolean'a
+   * göre form/aksiyonları gösterir/gizler. Gerçek enforcement her zaman ilgili API route'unda. */
+  cpaPermissions: { canRespond: boolean; canReview: boolean }
   responses: Response[]
   extensions: Extension[]
   // Checklist üzerinden otomatik oluşan bulgularda dolu (gerçek AuditSession).
@@ -205,6 +212,7 @@ export function FindingDetailClient({
   const [finding, setFinding] = React.useState<FindingDetail | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [calisanlar, setCalisanlar] = React.useState<CalisanLite[]>([])
+  const [groups, setGroups] = React.useState<{ id: number; label: string; memberCount: number }[]>([])
 
   // Response form state
   const [responseOpen, setResponseOpen] = React.useState(false)
@@ -221,7 +229,7 @@ export function FindingDetailClient({
 
   // Assign user state
   const [assignOpen, setAssignOpen] = React.useState(false)
-  const [assignedToId, setAssignedToId] = React.useState<string>("")
+  const [assignValue, setAssignValue] = React.useState<AssigneeValue>(null)
   const [assigning, setAssigning] = React.useState(false)
 
   // Edit Finding state
@@ -231,7 +239,7 @@ export function FindingDetailClient({
   const [editCategory, setEditCategory] = React.useState<string>("CAT1")
   const [editExplanation, setEditExplanation] = React.useState("")
   const [editReference, setEditReference] = React.useState("")
-  const [editAssignedToId, setEditAssignedToId] = React.useState<string>("")
+  const [editAssignValue, setEditAssignValue] = React.useState<AssigneeValue>(null)
   const [editDueDate, setEditDueDate] = React.useState("")
   const [savingEdit, setSavingEdit] = React.useState(false)
 
@@ -359,7 +367,13 @@ export function FindingDetailClient({
     setEditCategory(finding.findingCategory || "CAT1")
     setEditExplanation(finding.explanation)
     setEditReference(finding.reference || "")
-    setEditAssignedToId(finding.assignedTo ? String(finding.assignedTo.id) : "")
+    setEditAssignValue(
+      finding.assignedGroup
+        ? { type: "group", id: finding.assignedGroup.id }
+        : finding.assignedTo
+          ? { type: "person", id: finding.assignedTo.id }
+          : null
+    )
     setEditDueDate(finding.dueDate ? dbDateToDdMmYyyy(finding.dueDate) : "")
     setEditOpen(true)
   }
@@ -392,7 +406,9 @@ export function FindingDetailClient({
           findingCategory: isSacaSafa ? editCategory : null,
           explanation: editExplanation.trim(),
           reference: editReference.trim() || null,
-          assignedToId: editAssignedToId ? Number(editAssignedToId) : null,
+          ...(editAssignValue?.type === "group"
+            ? { assignedGroupId: editAssignValue.id }
+            : { assignedToId: editAssignValue?.type === "person" ? editAssignValue.id : null }),
           dueDate: dueDateIso,
         }),
       })
@@ -433,12 +449,29 @@ export function FindingDetailClient({
     } catch { /* ignore */ }
   }, [])
 
+  const loadGroups = React.useCallback(async () => {
+    try {
+      const res = await fetch("/api/user-groups", { cache: "no-store" })
+      const data = await parseJson(res as globalThis.Response)
+      if (Array.isArray(data)) {
+        setGroups(
+          (data as { id: number; name: string; memberCount: number }[]).map((g) => ({
+            id: g.id,
+            label: g.name,
+            memberCount: g.memberCount,
+          }))
+        )
+      }
+    } catch { /* ignore */ }
+  }, [])
+
   React.useEffect(() => {
     void load()
     void loadCalisanlar()
+    void loadGroups()
     void loadFindingFiles()
     void loadFindingHistory()
-  }, [load, loadCalisanlar, loadFindingFiles, loadFindingHistory])
+  }, [load, loadCalisanlar, loadGroups, loadFindingFiles, loadFindingHistory])
 
   const submitResponse = async () => {
     if (!rootCause.trim() && !correctiveAction.trim() && !preventiveAction.trim()) {
@@ -504,17 +537,13 @@ export function FindingDetailClient({
     }
   }
 
-  // CPA cevabı YALNIZCA finding.assignedTo ile eşleşen kişi verebilir/düzenleyebilir/resubmit
-  // edebilir — eski, daha geniş bireysel/departman auditee eşleşmesi (finding'i GÖRÜNTÜLEME
-  // erişimi için hâlâ ayrı olarak kullanılıyor, bkz. resolveFindingAuditeeAccess) burada
-  // KASITLI olarak reuse EDİLMİYOR — bu, düzeltilen gevşekliğin ta kendisiydi. Server-side
-  // aynı kural: lib/audit-finding-cpa-access.ts requireCpaResponsiblePerson.
-  const isResponsiblePerson = !!(finding?.assignedTo && currentCalisanId && finding.assignedTo.id === currentCalisanId)
-
-  // CPA review (Accept / Revision Request) yalnızca canAccessAuditPlan() yetkisine sahip
-  // kullanıcılarda (isAdmin prop'u zaten bu) — kendi CPA'sını inceleyemesin diye ayrıca
-  // isResponsiblePerson olmadığından emin olunur (server-side de aynı "self_review" guard'ı var).
-  const canReviewCpa = isAdmin && !isResponsiblePerson
+  // CPA cevabı YALNIZCA bulgunun sorumlu tarafı (kişiye atanmışsa o kişi; gruba atanmışsa
+  // grubun AKTİF bir üyesi) verebilir/düzenleyebilir/resubmit edebilir. Grup üyeliği client'ta
+  // HİÇ hesaplanmaz/bilinmez — server GET /api/audit-findings/[id] zaten
+  // computeCpaUiPermissions() ile bu iki boolean'ı hesaplayıp döndürüyor (bkz.
+  // lib/audit-finding-cpa-access.ts). Gerçek enforcement HER ZAMAN ilgili POST/PATCH route'unda.
+  const isResponsiblePerson = finding?.cpaPermissions.canRespond ?? false
+  const canReviewCpa = finding?.cpaPermissions.canReview ?? false
 
   const latestResponse = finding && finding.responses.length > 0 ? finding.responses[finding.responses.length - 1] : null
   const needsRevision = latestResponse?.cpaStatus === "RevisionRequested"
@@ -588,7 +617,11 @@ export function FindingDetailClient({
       const res = await fetch(`/api/audit-findings/${findingId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assignedToId: assignedToId ? Number(assignedToId) : null }),
+        body: JSON.stringify(
+          assignValue?.type === "group"
+            ? { assignedGroupId: assignValue.id }
+            : { assignedToId: assignValue?.type === "person" ? assignValue.id : null }
+        ),
       })
       if (!res.ok) { toast.error("Atanamadı."); return }
       toast.success("Atama güncellendi.")
@@ -696,12 +729,23 @@ export function FindingDetailClient({
             )}
             {isAdmin ? (
               <Button type="button" variant="outline" size="sm" onClick={() => {
-                setAssignedToId(finding.assignedTo ? String(finding.assignedTo.id) : "")
+                setAssignValue(
+                  finding.assignedGroup
+                    ? { type: "group", id: finding.assignedGroup.id }
+                    : finding.assignedTo
+                      ? { type: "person", id: finding.assignedTo.id }
+                      : null
+                )
                 setAssignOpen(true)
               }}>
-                <User className="mr-1.5 size-3.5" />
-                {finding.assignedTo ? calisanName(finding.assignedTo) : "Atama yap"}
+                {finding.assignedGroup ? <Users className="mr-1.5 size-3.5" /> : <User className="mr-1.5 size-3.5" />}
+                {finding.assignedGroup ? finding.assignedGroup.name : finding.assignedTo ? calisanName(finding.assignedTo) : "Atama yap"}
               </Button>
+            ) : finding.assignedGroup ? (
+              <Badge variant="outline" className="gap-1.5 px-2.5 py-1.5">
+                <Users className="size-3.5" />
+                {finding.assignedGroup.name}
+              </Badge>
             ) : finding.assignedTo ? (
               <Badge variant="outline" className="gap-1.5 px-2.5 py-1.5">
                 <User className="size-3.5" />
@@ -767,9 +811,16 @@ export function FindingDetailClient({
               </p>
             </div>
             <div>
-              <p className="text-muted-foreground text-xs font-medium">Atanan Kişi</p>
+              <p className="text-muted-foreground text-xs font-medium">
+                {finding.assignedGroup ? "Sorumlu Grup" : "Sorumlu"}
+              </p>
               <p className="text-sm">
-                {finding.assignedTo ? (
+                {finding.assignedGroup ? (
+                  <span className="flex items-center gap-1.5">
+                    <Users className="size-3.5" />
+                    {finding.assignedGroup.name}
+                  </span>
+                ) : finding.assignedTo ? (
                   <>
                     {calisanName(finding.assignedTo)}
                     {finding.assignedTo.departman && (
@@ -1092,18 +1143,13 @@ export function FindingDetailClient({
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>Responsible Person</Label>
-                <Select value={editAssignedToId || "none"} onValueChange={(v) => setEditAssignedToId(v === "none" ? "" : v)}>
-                  <SelectTrigger><SelectValue placeholder="Atanmadı" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Atanmadı</SelectItem>
-                    {calisanlar.map((c) => (
-                      <SelectItem key={c.id} value={String(c.id)}>
-                        {[c.isim, c.soyisim].filter(Boolean).join(" ")}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Responsible Person / Group</Label>
+                <AssigneeCombobox
+                  people={calisanlar.map((c) => ({ id: c.id, label: [c.isim, c.soyisim].filter(Boolean).join(" ") || `#${c.id}` }))}
+                  groups={groups}
+                  value={editAssignValue}
+                  onChange={setEditAssignValue}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Due Date</Label>
@@ -1289,23 +1335,16 @@ export function FindingDetailClient({
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Bulgyu Ata</DialogTitle>
+            <DialogTitle>Bulguyu Ata</DialogTitle>
           </DialogHeader>
           <div className="space-y-2 py-2">
-            <Label>Sorumlu Kişi</Label>
-            <Select value={assignedToId} onValueChange={setAssignedToId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Kişi seç…" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="0">— Atamasız</SelectItem>
-                {calisanlar.map((c) => (
-                  <SelectItem key={c.id} value={String(c.id)}>
-                    {calisanName(c)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label>Responsible Person / Group</Label>
+            <AssigneeCombobox
+              people={calisanlar.map((c) => ({ id: c.id, label: calisanName(c) }))}
+              groups={groups}
+              value={assignValue}
+              onChange={setAssignValue}
+            />
           </div>
           <DialogFooter className="gap-2">
             <Button type="button" variant="outline" onClick={() => setAssignOpen(false)}>Vazgeç</Button>

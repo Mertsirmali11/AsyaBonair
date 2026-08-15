@@ -39,10 +39,13 @@ export async function GET(_req: Request, ctx: Ctx) {
 }
 
 /**
- * POST: CPA cevabı oluşturur — YALNIZCA AuditFinding.assignedToId ile eşleşen kişi
- * (requireCpaResponsiblePerson). Admin olmak, auditee department/individual eşleşmesi TEK
- * BAŞINA yeterli DEĞİLDİR (bu, düzeltilen gevşekliğin ta kendisiydi). respondedById istemciden
- * ASLA alınmaz — her zaman gerçek oturum sahibinin kendi kaydına zorlanır.
+ * POST: CPA cevabı oluşturur — YALNIZCA bulgunun sorumlu tarafı: kişiye atanmışsa
+ * AuditFinding.assignedToId ile eşleşen kişi, gruba atanmışsa assignedGroupId'nin AKTİF bir
+ * üyesi (requireCpaResponsiblePerson — grup üyeliği her zaman DB'den taze sorgulanır, client'a
+ * güvenilmez). Admin olmak, auditee department/individual eşleşmesi TEK BAŞINA yeterli
+ * DEĞİLDİR (bu, düzeltilen gevşekliğin ta kendisiydi). respondedById istemciden ASLA alınmaz —
+ * her zaman gerçek oturum sahibinin kendi kaydına zorlanır (grup ataması olsa bile: A/B/C'den
+ * kim gönderdiyse respondedById O'dur).
  *
  * Status: bu finding için en son gönderim "RevisionRequested" ise yeni satır "Resubmitted",
  * aksi halde "Pending" olarak oluşturulur. Önceki satır DEĞİŞTİRİLMEZ (append-only) — geçmiş
@@ -56,7 +59,10 @@ export async function POST(req: Request, ctx: Ctx) {
   const authSession = await auth()
   const check = await requireCpaResponsiblePerson(id, authSession?.user?.email)
   if (!check.ok) {
-    return NextResponse.json({ error: "Yalnızca bu bulgunun sorumlu kişisi CPA cevabı verebilir." }, { status: 403 })
+    return NextResponse.json(
+      { error: "Yalnızca bu bulgunun sorumlu kişisi (veya sorumlu grubun bir üyesi) CPA cevabı verebilir." },
+      { status: 403 }
+    )
   }
 
   const finding = await prisma.auditFinding.findUnique({ where: { id } })
@@ -115,7 +121,8 @@ export async function POST(req: Request, ctx: Ctx) {
     }
 
     // E-posta bildirimi auditor'lara — gönderim başarısız olsa bile CPA kaydı geçerli kalır.
-    void notifyAuditorsCpaSubmitted(id, isResubmit).catch((e) => {
+    // Gerçek cevabı gönderen kişi (respondedBy) e-posta içeriğinde açıkça belirtilir.
+    void notifyAuditorsCpaSubmitted(id, isResubmit, created.respondedBy).catch((e) => {
       console.error("notifyAuditorsCpaSubmitted", e)
     })
 
