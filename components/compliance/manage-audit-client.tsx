@@ -97,6 +97,7 @@ import {
   findingCategoryStyles,
   isSacaOrSafaAuditCategory,
 } from "@/lib/finding-category"
+import { RESULT_LABELS, type ResultKey } from "@/lib/audit-checklist-result"
 import {
   downloadFullReportPdf,
   downloadInitialReportPdf,
@@ -407,14 +408,19 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
     }
   }, [findingDialogOpen])
 
-  const openFindingDialog = () => {
+  /** Auditee Responses panelindeki "Add Finding" bir submission satırından açıldığında dolu —
+   * bulgu o checklist maddesine (auditSessionItemId) otomatik referans olarak bağlanır. */
+  const [findingLinkedSessionItem, setFindingLinkedSessionItem] = React.useState<{ id: number; question: string } | null>(null)
+
+  const openFindingDialog = (prefill?: { sessionItemId: number; question: string; explanation?: string; reference?: string | null }) => {
     setFindingLevelInput("Level1")
     setFindingCategoryInput("CAT1")
-    setFindingExplanation("")
-    setFindingReference("")
+    setFindingExplanation(prefill?.explanation ?? "")
+    setFindingReference(prefill?.reference ?? "")
     setFindingAssignedToId(undefined)
     setFindingDueDateInput("")
     setFindingPendingFiles([])
+    setFindingLinkedSessionItem(prefill ? { id: prefill.sessionItemId, question: prefill.question } : null)
     setFindingDialogOpen(true)
   }
 
@@ -469,11 +475,15 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
           reference: findingReference.trim() || null,
           assignedToId: findingAssignedToId ?? null,
           ...(isSacaSafa ? { dueDate: dueDateIso } : {}),
+          ...(findingLinkedSessionItem ? { auditSessionItemId: findingLinkedSessionItem.id } : {}),
         }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || "Bulgu kaydedilemedi.")
       toast.success(`Bulgu eklendi (${data.findingCode ?? ""}).`)
+      if (findingLinkedSessionItem) {
+        await reloadAuditeeSubmissions()
+      }
 
       // Finding oluştu — dosyalar seçildiyse şimdi kendi Finding ID'siyle yükle. Bu adım
       // başarısız olsa bile finding zaten kaydedilmiş olduğu için akışı bozma.
@@ -502,26 +512,31 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
   }
 
   // ─── Auditee Responses — Public Audit Response Link üzerinden checklist sorularına
-  // gönderilen cevaplar (Pending Auditor Review) ────────────────────────────────
+  // gönderilen cevaplar. reviewStatus: Pending → RevisionRequested → Resubmitted → Accepted.
   type AuditeeSubmissionRow = {
     id: number
     sessionItemId: number
+    checklistItemId: number
     question: string
-    auditeeResponse: string | null
+    reference: string | null
+    sortOrder: number
+    /** S | U | NA | OBS | null — auditee'nin seçtiği cevap */
+    result: string | null
     auditeeNote: string | null
     reviewStatus: string
     reviewNote: string | null
     reviewedByName: string | null
     reviewedAt: string | null
     submitterName: string | null
+    submitterEmail: string | null
     submittedAt: string
     files: { id: number; fileName: string; fileSizeBytes: number | null }[]
   }
   const [auditeeSubmissions, setAuditeeSubmissions] = React.useState<AuditeeSubmissionRow[]>([])
   const [auditeeSubmissionsLoading, setAuditeeSubmissionsLoading] = React.useState(false)
   const [reviewingSubmissionId, setReviewingSubmissionId] = React.useState<number | null>(null)
-  const [rejectSubmissionTarget, setRejectSubmissionTarget] = React.useState<AuditeeSubmissionRow | null>(null)
-  const [rejectSubmissionNote, setRejectSubmissionNote] = React.useState("")
+  const [revisionRequestTarget, setRevisionRequestTarget] = React.useState<AuditeeSubmissionRow | null>(null)
+  const [revisionRequestNote, setRevisionRequestNote] = React.useState("")
 
   const reloadAuditeeSubmissions = React.useCallback(async () => {
     setAuditeeSubmissionsLoading(true)
@@ -547,7 +562,7 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
         body: JSON.stringify({ action: "accept" }),
       })
       if (!res.ok) throw new Error()
-      toast.success("Cevap kabul edildi.")
+      toast.success("Cevap kabul edildi ve Denetim Yürüt ekranına aktarıldı.")
       await Promise.all([reloadAuditeeSubmissions(), reloadHistory()])
     } catch {
       toast.error("İşlem başarısız.")
@@ -556,27 +571,27 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
     }
   }
 
-  const openRejectSubmissionDialog = (row: AuditeeSubmissionRow) => {
-    setRejectSubmissionTarget(row)
-    setRejectSubmissionNote("")
+  const openRevisionRequestDialog = (row: AuditeeSubmissionRow) => {
+    setRevisionRequestTarget(row)
+    setRevisionRequestNote("")
   }
 
-  const confirmRejectSubmission = async () => {
-    if (!rejectSubmissionTarget) return
-    if (!rejectSubmissionNote.trim()) {
-      toast.error("Reddetme gerekçesi zorunludur.")
+  const confirmRevisionRequest = async () => {
+    if (!revisionRequestTarget) return
+    if (!revisionRequestNote.trim()) {
+      toast.error("Revizyon açıklaması zorunludur.")
       return
     }
-    setReviewingSubmissionId(rejectSubmissionTarget.id)
+    setReviewingSubmissionId(revisionRequestTarget.id)
     try {
-      const res = await fetch(`/api/audit-plan/${entryId}/auditee-submissions/${rejectSubmissionTarget.id}`, {
+      const res = await fetch(`/api/audit-plan/${entryId}/auditee-submissions/${revisionRequestTarget.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "reject", reviewNote: rejectSubmissionNote.trim() }),
+        body: JSON.stringify({ action: "revision_request", reviewNote: revisionRequestNote.trim() }),
       })
       if (!res.ok) throw new Error()
       toast.success("Revizyon talep edildi.")
-      setRejectSubmissionTarget(null)
+      setRevisionRequestTarget(null)
       await Promise.all([reloadAuditeeSubmissions(), reloadHistory()])
     } catch {
       toast.error("İşlem başarısız.")
@@ -1300,7 +1315,7 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
                   <AlertTriangle className="size-4 text-red-500" />
                   Findings ({findings.length})
                 </h2>
-                <Button type="button" variant="outline" size="sm" onClick={openFindingDialog}>
+                <Button type="button" variant="outline" size="sm" onClick={() => openFindingDialog()}>
                   <Plus className="mr-1.5 size-3.5" />
                   Add Finding
                 </Button>
@@ -1534,9 +1549,9 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
               <h2 className="flex items-center gap-2 text-sm font-semibold">
                 <ClipboardCheck className="size-4 text-blue-600" />
                 Auditee Responses ({auditeeSubmissions.length})
-                {auditeeSubmissions.filter((s) => s.reviewStatus === "Pending").length > 0 && (
+                {auditeeSubmissions.filter((s) => s.reviewStatus === "Pending" || s.reviewStatus === "Resubmitted").length > 0 && (
                   <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
-                    {auditeeSubmissions.filter((s) => s.reviewStatus === "Pending").length} Pending
+                    {auditeeSubmissions.filter((s) => s.reviewStatus === "Pending" || s.reviewStatus === "Resubmitted").length} Pending
                   </Badge>
                 )}
               </h2>
@@ -1546,57 +1561,103 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
                 <p className="text-muted-foreground text-sm">Henüz auditee checklist cevabı yok.</p>
               ) : (
                 <ul className="max-h-96 space-y-2 overflow-y-auto">
-                  {auditeeSubmissions.map((s) => (
+                  {auditeeSubmissions.map((s) => {
+                    const awaitingReview = s.reviewStatus === "Pending" || s.reviewStatus === "Resubmitted"
+                    return (
                     <li key={s.id} className="bg-background/60 space-y-1.5 rounded-md border p-2.5 text-xs">
                       <div className="flex flex-wrap items-start justify-between gap-2">
-                        <p className="min-w-0 flex-1 font-medium">{s.question}</p>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium">{s.question}</p>
+                          {s.reference && <p className="text-muted-foreground mt-0.5 font-mono text-[11px]">{s.reference}</p>}
+                        </div>
                         {s.reviewStatus === "Accepted" ? (
                           <Badge className="gap-1 bg-teal-600 text-white hover:bg-teal-600"><CheckCircle2 className="size-3" />Accepted</Badge>
-                        ) : s.reviewStatus === "Rejected" ? (
+                        ) : s.reviewStatus === "RevisionRequested" ? (
                           <Badge variant="destructive" className="gap-1"><XCircle className="size-3" />Revision Requested</Badge>
+                        ) : s.reviewStatus === "Resubmitted" ? (
+                          <Badge variant="outline" className="gap-1 border-blue-300 text-blue-700 dark:border-blue-800 dark:text-blue-400">Resubmitted</Badge>
                         ) : (
                           <Badge variant="outline" className="gap-1 border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-400">Pending</Badge>
                         )}
                       </div>
-                      {s.auditeeResponse && <p className="whitespace-pre-wrap">{s.auditeeResponse}</p>}
+                      {s.result && (
+                        <p>
+                          <span className="text-muted-foreground">Cevap: </span>
+                          <span className="font-semibold">{s.result}</span>
+                          <span className="text-muted-foreground"> ({RESULT_LABELS[s.result as ResultKey] ?? s.result})</span>
+                        </p>
+                      )}
                       {s.auditeeNote && <p className="text-muted-foreground whitespace-pre-wrap">{s.auditeeNote}</p>}
                       {s.files.length > 0 && (
-                        <p className="text-muted-foreground">{s.files.map((f) => f.fileName).join(", ")}</p>
+                        <p className="flex flex-wrap gap-x-2 gap-y-1 text-muted-foreground">
+                          {s.files.map((f) => (
+                            <a
+                              key={f.id}
+                              href={`/api/audit-plan/${entryId}/auditee-submissions/${s.id}/files/${f.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 underline underline-offset-2 hover:text-foreground"
+                            >
+                              <Paperclip className="size-3" />
+                              {f.fileName}
+                            </a>
+                          ))}
+                        </p>
                       )}
-                      {s.reviewStatus === "Rejected" && s.reviewNote && (
+                      {s.reviewStatus === "RevisionRequested" && s.reviewNote && (
                         <p className="rounded bg-destructive/10 px-2 py-1 text-destructive">{s.reviewNote}</p>
                       )}
                       <p className="text-muted-foreground">
-                        {s.submitterName ?? "—"} · {formatDetailDate(s.submittedAt)}
+                        {s.submitterName ?? "—"}
+                        {s.submitterEmail && ` (${s.submitterEmail})`} · {formatDetailDate(s.submittedAt)}
                         {s.reviewedByName && ` · reviewed by ${s.reviewedByName}`}
                       </p>
-                      {s.reviewStatus === "Pending" && (
-                        <div className="flex justify-end gap-2 pt-1">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-xs"
-                            disabled={reviewingSubmissionId === s.id}
-                            onClick={() => openRejectSubmissionDialog(s)}
-                          >
-                            <XCircle className="mr-1 size-3" />
-                            Reject
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            disabled={reviewingSubmissionId === s.id}
-                            onClick={() => void acceptSubmission(s.id)}
-                          >
-                            {reviewingSubmissionId === s.id ? <Loader2 className="mr-1 size-3 animate-spin" /> : <CheckCircle2 className="mr-1 size-3" />}
-                            Accept
-                          </Button>
-                        </div>
-                      )}
+                      <div className="flex flex-wrap justify-end gap-2 pt-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-xs"
+                          onClick={() =>
+                            openFindingDialog({
+                              sessionItemId: s.sessionItemId,
+                              question: s.question,
+                              explanation: s.auditeeNote?.trim() || s.question,
+                              reference: s.reference,
+                            })
+                          }
+                        >
+                          <AlertTriangle className="mr-1 size-3" />
+                          Add Finding
+                        </Button>
+                        {awaitingReview && (
+                          <>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              disabled={reviewingSubmissionId === s.id}
+                              onClick={() => openRevisionRequestDialog(s)}
+                            >
+                              <XCircle className="mr-1 size-3" />
+                              Revision Request
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              disabled={reviewingSubmissionId === s.id}
+                              onClick={() => void acceptSubmission(s.id)}
+                            >
+                              {reviewingSubmissionId === s.id ? <Loader2 className="mr-1 size-3 animate-spin" /> : <CheckCircle2 className="mr-1 size-3" />}
+                              Accept
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </li>
-                  ))}
+                  )})}
                 </ul>
               )}
             </section>
@@ -1761,6 +1822,11 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-1">
+            {findingLinkedSessionItem && (
+              <p className="bg-muted/50 rounded-md border px-3 py-2 text-xs text-muted-foreground">
+                İlgili checklist sorusu: <span className="text-foreground font-medium">{findingLinkedSessionItem.question}</span>
+              </p>
+            )}
             {/* SACA/SAFA denetimlerinde tek sınıflandırma Finding Category'dir — Bulgu
                 Seviyesi (Level) hiç gösterilmez. Diğer audit type'larında (Internal, vb.)
                 mevcut Level davranışı aynen korunur. */}
@@ -1954,35 +2020,38 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
         onConfirm={confirmPostpone}
       />
 
-      {/* ── Reject Auditee Response ─────────────────────────────────────────────── */}
-      <Dialog open={!!rejectSubmissionTarget} onOpenChange={(o) => !o && setRejectSubmissionTarget(null)}>
+      {/* ── Revision Request (Auditee Response) ─────────────────────────────────── */}
+      <Dialog open={!!revisionRequestTarget} onOpenChange={(o) => !o && setRevisionRequestTarget(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <XCircle className="size-4 text-destructive" />
-              Request Revision
+              Revision Request
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-2 py-1">
-            <Label htmlFor="reject-submission-note">Reason / Gerekçe *</Label>
+            {revisionRequestTarget && (
+              <p className="text-muted-foreground text-sm">{revisionRequestTarget.question}</p>
+            )}
+            <Label htmlFor="revision-request-note">Gerekçe *</Label>
             <Textarea
-              id="reject-submission-note"
-              value={rejectSubmissionNote}
-              onChange={(e) => setRejectSubmissionNote(e.target.value)}
-              placeholder="Örn. Please provide additional evidence."
+              id="revision-request-note"
+              value={revisionRequestNote}
+              onChange={(e) => setRevisionRequestNote(e.target.value)}
+              placeholder="Örn. Lütfen ek kanıt/belge sağlayın."
               className="min-h-[90px]"
               autoFocus
             />
           </div>
           <DialogFooter className="gap-2 sm:justify-end">
-            <Button type="button" variant="outline" onClick={() => setRejectSubmissionTarget(null)} disabled={reviewingSubmissionId === rejectSubmissionTarget?.id}>Vazgeç</Button>
+            <Button type="button" variant="outline" onClick={() => setRevisionRequestTarget(null)} disabled={reviewingSubmissionId === revisionRequestTarget?.id}>Vazgeç</Button>
             <Button
               type="button"
               variant="destructive"
-              disabled={reviewingSubmissionId === rejectSubmissionTarget?.id || !rejectSubmissionNote.trim()}
-              onClick={() => void confirmRejectSubmission()}
+              disabled={reviewingSubmissionId === revisionRequestTarget?.id || !revisionRequestNote.trim()}
+              onClick={() => void confirmRevisionRequest()}
             >
-              {reviewingSubmissionId === rejectSubmissionTarget?.id ? "Gönderiliyor…" : "Request Revision"}
+              {reviewingSubmissionId === revisionRequestTarget?.id ? "Gönderiliyor…" : "Revizyon Talep Et"}
             </Button>
           </DialogFooter>
         </DialogContent>

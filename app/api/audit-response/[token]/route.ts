@@ -9,10 +9,17 @@ type Ctx = { params: Promise<{ token: string }> }
 
 /**
  * Public Audit Response Link — token ile kimliklendirilir, OTURUM GEREKMEZ.
- * Yalnızca bu tek denetime ait, cevap ekranında gösterilecek sade bilgileri döner:
- * Audit Number / Type / açıklama / planlı tarih, ve bu link'in bağlı olduğu denetime
- * daha önce auditee tarafından gönderilmiş not/dosyalar (kendi gönderim geçmişini görsün diye).
- * Checklist, finding, auditor bilgisi, diğer audit kayıtları — HİÇBİRİ döndürülmez.
+ * Audit Number / Type / açıklama / planlı tarih, bu link'in bağlı olduğu denetime daha önce
+ * auditee tarafından gönderilmiş genel not/dosyalar, VE bu denetime şu an atanmış checklist'lerin
+ * TÜM sorularını döner. Auditor notu, finding, diğer audit kayıtları — HİÇBİRİ döndürülmez.
+ *
+ * ÖNEMLİ (checklist görünürlük kök-neden fix'i): Sorular `AuditPlanChecklistAssignment →
+ * AuditChecklist.items` (master liste) üzerinden geliyor — `AuditSession`/`AuditSessionItem`
+ * VARLIĞINA bağlı DEĞİL. Auditor "Denetim Yürüt" ekranını hiç açmamış olsa bile (henüz hiçbir
+ * AuditSession/AuditSessionItem yokken) checklist tam olarak görünür. Aktif (archivedAt: null)
+ * session/session-item varsa yalnızca "bu soruya daha önce ne cevap verildi" eşlemesi için
+ * kullanılır — snapshot/kilit YOKTUR, checklist sonradan atanırsa veya değişirse link her
+ * açılışta güncel durumu okur.
  */
 export async function GET(_req: Request, ctx: Ctx) {
   const { token } = await ctx.params
@@ -40,7 +47,7 @@ export async function GET(_req: Request, ctx: Ctx) {
   const field = sub ? `${cat} — ${sub}` : cat
   const auditNumber = entry.auditNumberPrefix ? `${entry.auditNumberPrefix}-${entry.id}` : `AP-${entry.id}`
 
-  const [notes, files, sessions] = await Promise.all([
+  const [notes, files, assignments] = await Promise.all([
     prisma.auditResponseNote.findMany({
       where: { auditPlanEntryId: entry.id },
       orderBy: { submittedAt: "desc" },
@@ -57,38 +64,60 @@ export async function GET(_req: Request, ctx: Ctx) {
       orderBy: { createdAt: "desc" },
       select: { id: true, fileName: true, fileSizeBytes: true, submitterName: true, createdAt: true },
     }),
-    // Bu denetime bağlı checklist oturum(lar)ı — auditor'un cevabı/sonucu (result/notes)
-    // HİÇBİR ZAMAN döndürülmez, yalnızca soru metni ve bu link'in KENDİ gönderimleri.
-    prisma.auditSession.findMany({
-      where: { auditPlanEntryId: entry.id, archivedAt: null },
+    // Denetime ŞU AN atanmış checklist'ler — asıl soru kaynağı bu, AuditSession değil.
+    prisma.auditPlanChecklistAssignment.findMany({
+      where: { auditPlanEntryId: entry.id },
+      orderBy: { assignedAt: "asc" },
       select: {
         id: true,
-        checklist: { select: { title: true, checklistNumber: true } },
-        items: {
-          orderBy: { checklistItem: { sortOrder: "asc" } },
+        checklist: {
           select: {
             id: true,
-            checklistItem: {
-              select: { label: true, reference: true, section: true, isHeading: true, sortOrder: true },
-            },
-            auditeeSubmissions: {
-              where: { responseLinkId: validation.link.id },
-              orderBy: { submittedAt: "desc" },
-              select: {
-                id: true,
-                auditeeResponse: true,
-                auditeeNote: true,
-                reviewStatus: true,
-                reviewNote: true,
-                submittedAt: true,
-                files: { select: { id: true, fileName: true, fileSizeBytes: true } },
-              },
+            title: true,
+            checklistNumber: true,
+            items: {
+              where: { isHeading: false },
+              orderBy: { sortOrder: "asc" },
+              select: { id: true, label: true, reference: true, section: true, sortOrder: true },
             },
           },
         },
       },
     }),
   ])
+
+  // Bu checklist'lerin aktif (archivedAt: null) session'ları varsa, madde bazında mevcut
+  // cevap/submission eşlemesi için kullanılır — checklist removed/re-add sonrası archived
+  // session'lar burada KESİNLİKLE hariç tutulur (mevcut korumayla birebir aynı).
+  const checklistIds = assignments.map((a) => a.checklist.id)
+  const activeSessions = checklistIds.length
+    ? await prisma.auditSession.findMany({
+        where: { auditPlanEntryId: entry.id, auditChecklistId: { in: checklistIds }, archivedAt: null },
+        select: {
+          auditChecklistId: true,
+          items: {
+            select: {
+              id: true,
+              auditChecklistItemId: true,
+              auditeeSubmissions: {
+                where: { responseLinkId: validation.link.id },
+                orderBy: { submittedAt: "desc" },
+                select: {
+                  id: true,
+                  auditeeResponse: true,
+                  auditeeNote: true,
+                  reviewStatus: true,
+                  reviewNote: true,
+                  submittedAt: true,
+                  files: { select: { id: true, fileName: true, fileSizeBytes: true } },
+                },
+              },
+            },
+          },
+        },
+      })
+    : []
+  const sessionByChecklistId = new Map(activeSessions.map((s) => [s.auditChecklistId, s]))
 
   return NextResponse.json({
     ok: true,
@@ -113,29 +142,38 @@ export async function GET(_req: Request, ctx: Ctx) {
       submitterName: f.submitterName,
       createdAt: f.createdAt.toISOString(),
     })),
-    checklistSessions: sessions
-      .filter((s) => s.items.length > 0)
-      .map((s) => ({
-        sessionId: s.id,
-        checklistTitle: s.checklist.title,
-        checklistNumber: s.checklist.checklistNumber,
-        items: s.items
-          .filter((it) => !it.checklistItem.isHeading)
-          .map((it) => ({
-            sessionItemId: it.id,
-            label: it.checklistItem.label,
-            reference: it.checklistItem.reference,
-            section: it.checklistItem.section,
-            submissions: it.auditeeSubmissions.map((sub) => ({
-              id: sub.id,
-              auditeeResponse: sub.auditeeResponse,
-              auditeeNote: sub.auditeeNote,
-              reviewStatus: sub.reviewStatus,
-              reviewNote: sub.reviewNote,
-              submittedAt: sub.submittedAt.toISOString(),
-              files: sub.files.map((f) => ({ id: f.id, fileName: f.fileName, fileSizeBytes: f.fileSizeBytes })),
-            })),
-          })),
-      })),
+    checklistSessions: assignments
+      .filter((a) => a.checklist.items.length > 0)
+      .map((a) => {
+        const activeSession = sessionByChecklistId.get(a.checklist.id)
+        const itemBySessionMap = new Map(
+          (activeSession?.items ?? []).map((si) => [si.auditChecklistItemId, si])
+        )
+        return {
+          checklistId: a.checklist.id,
+          checklistTitle: a.checklist.title,
+          checklistNumber: a.checklist.checklistNumber,
+          items: a.checklist.items.map((it) => {
+            const sessionItem = itemBySessionMap.get(it.id)
+            return {
+              // Public formun submit ettiği kararlı kimlik — AuditChecklistItem.id. AuditSessionItem
+              // henüz yoksa dahi bu değer her zaman mevcuttur (checklist assign edildiği sürece).
+              checklistItemId: it.id,
+              label: it.label,
+              reference: it.reference,
+              section: it.section,
+              submissions: (sessionItem?.auditeeSubmissions ?? []).map((sub) => ({
+                id: sub.id,
+                auditeeResponse: sub.auditeeResponse,
+                auditeeNote: sub.auditeeNote,
+                reviewStatus: sub.reviewStatus,
+                reviewNote: sub.reviewNote,
+                submittedAt: sub.submittedAt.toISOString(),
+                files: sub.files.map((f) => ({ id: f.id, fileName: f.fileName, fileSizeBytes: f.fileSizeBytes })),
+              })),
+            }
+          }),
+        }
+      }),
   })
 }

@@ -26,7 +26,7 @@ function getSupabaseBrowserClient() {
  */
 export async function uploadAuditResponseChecklistFilesDirect(
   token: string,
-  sessionItemId: number,
+  checklistItemId: number,
   files: File[]
 ): Promise<AuditResponseChecklistFileRef[]> {
   if (files.length === 0) return []
@@ -34,7 +34,7 @@ export async function uploadAuditResponseChecklistFilesDirect(
   const res = await fetch(`/api/audit-response/${token}/checklist/upload-url`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sessionItemId, files: files.map((f) => ({ name: f.name, size: f.size })) }),
+    body: JSON.stringify({ checklistItemId, files: files.map((f) => ({ name: f.name, size: f.size })) }),
   })
   const data = (await res.json().catch(() => ({}))) as {
     error?: string

@@ -25,8 +25,13 @@ const ALLOWED_EXT_FOR_NAMING = new Set([
 /**
  * Public Audit Response Link — checklist sorusuna dosya eklemek için imzalı Supabase upload
  * URL'i. Genel Audit Files ile karışmasın diye ayrı bir storage klasörü kullanır
- * (audit-checklist-submissions/{entryId}/{sessionItemId}/...) — genel dosya yükleme
+ * (audit-checklist-submissions/{entryId}/{checklistItemId}/...) — genel dosya yükleme
  * route'undan (files/upload-url) bilerek AYRI tutulur.
+ *
+ * `checklistItemId` (AuditChecklistItem.id) kullanılır — `sessionItemId` DEĞİL: dosya
+ * seçimi/yükleme, o soru için henüz hiçbir AuditSessionItem oluşmadan da yapılabilmeli
+ * (AuditSessionItem yalnızca gerçek submit anında, POST /checklist/[checklistItemId] içinde
+ * idempotent olarak oluşturulur — bkz. ensureActiveAuditSessionItem).
  */
 export async function POST(req: Request, ctx: Ctx) {
   const { token } = await ctx.params
@@ -36,22 +41,26 @@ export async function POST(req: Request, ctx: Ctx) {
   }
 
   const body = (await req.json().catch(() => null)) as {
-    sessionItemId?: number
+    checklistItemId?: number
     files?: { name: string; size: number }[]
   } | null
 
-  const sessionItemId = Number(body?.sessionItemId)
-  if (!Number.isInteger(sessionItemId) || sessionItemId < 1) {
-    return NextResponse.json({ error: "Invalid sessionItemId" }, { status: 400 })
+  const checklistItemId = Number(body?.checklistItemId)
+  if (!Number.isInteger(checklistItemId) || checklistItemId < 1) {
+    return NextResponse.json({ error: "Invalid checklistItemId" }, { status: 400 })
   }
 
-  // Bu session item gerçekten bu link'in bağlı olduğu denetime mi ait — kritik güvenlik
-  // kontrolü, aksi halde token sahibi ID tahmin ederek başka denetimlere dosya ekleyebilir.
-  const sessionItem = await prisma.auditSessionItem.findFirst({
-    where: { id: sessionItemId, session: { auditPlanEntryId: validation.link.auditPlanEntryId } },
+  // Bu checklist maddesi gerçekten bu link'in bağlı olduğu denetime ATANMIŞ bir checklist'e mi
+  // ait — kritik güvenlik kontrolü, aksi halde token sahibi id tahmin ederek başka denetimlere
+  // dosya ekleyebilir.
+  const clItem = await prisma.auditChecklistItem.findFirst({
+    where: {
+      id: checklistItemId,
+      checklist: { assignments: { some: { auditPlanEntryId: validation.link.auditPlanEntryId } } },
+    },
     select: { id: true },
   })
-  if (!sessionItem) {
+  if (!clItem) {
     return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
 
@@ -87,7 +96,7 @@ export async function POST(req: Request, ctx: Ctx) {
       typeof crypto !== "undefined" && crypto.randomUUID
         ? crypto.randomUUID()
         : `${Date.now()}_${Math.random().toString(16).slice(2)}`
-    const path = `audit-checklist-submissions/${entryId}/${sessionItemId}/${uid}_${finalNames[i]}`
+    const path = `audit-checklist-submissions/${entryId}/${checklistItemId}/${uid}_${finalNames[i]}`
     const result = await createSignedUploadUrl(path)
     if (!result.ok) return NextResponse.json({ error: result.message }, { status: 500 })
     uploads.push({ originalName: names[i], fileName: finalNames[i], path: result.path, signedUrl: result.signedUrl, token: result.token })
