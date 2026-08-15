@@ -19,6 +19,7 @@ import {
   Send,
   Trash2,
   User,
+  Users,
   XCircle,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -50,7 +51,6 @@ import {
 } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { normalizeDepartmentKey } from "@/lib/department-access"
 import { uploadAuditFindingFilesDirect } from "@/lib/client-audit-finding-file-upload"
 import { findingCategoryLabels, findingCategoryStyles, isSacaOrSafaAuditCategory, FINDING_CATEGORY_VALUES } from "@/lib/finding-category"
 import { findingLevelStyles } from "@/components/compliance/audit-plan-client"
@@ -58,6 +58,7 @@ import { DatePicker } from "@/components/ui/date-picker"
 import { dbDateToDdMmYyyy, parseDdMmYyyyToUtcDate } from "@/lib/correspondence-date"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { AssigneeCombobox, type AssigneeValue } from "@/components/assignee-combobox"
 
 type Attachment = {
   id: number
@@ -73,8 +74,12 @@ type Response = {
   rootCause: string | null
   correctiveAction: string | null
   preventiveAction: string | null
+  /** Pending | RevisionRequested | Resubmitted | Accepted */
   cpaStatus: string
+  /** Auditor'ın revizyon gerekçesi (alan adı tarihsel, artık "reject" değil "revision" anlamında) */
   rejectComment: string | null
+  reviewedBy: { id: number; isim: string | null; soyisim: string | null } | null
+  reviewedAt: string | null
   submittedAt: string
   respondedBy: { id: number; isim: string | null; soyisim: string | null } | null
   attachments: Attachment[]
@@ -105,7 +110,12 @@ type FindingDetail = {
   initializedOn: string
   dueDate: string | null
   status: string
+  /** Person/Group karşılıklı dışlayıcı — ikisi birden dolu olamaz. */
   assignedTo: { id: number; isim: string | null; soyisim: string | null; departman: string | null } | null
+  assignedGroup: { id: number; name: string; description: string | null } | null
+  /** Server-side hesaplanmış — client hiçbir yetki hesabı yapmaz, yalnızca bu iki boolean'a
+   * göre form/aksiyonları gösterir/gizler. Gerçek enforcement her zaman ilgili API route'unda. */
+  cpaPermissions: { canRespond: boolean; canReview: boolean }
   responses: Response[]
   extensions: Extension[]
   // Checklist üzerinden otomatik oluşan bulgularda dolu (gerçek AuditSession).
@@ -181,34 +191,34 @@ function calisanName(c: { isim: string | null; soyisim: string | null } | null):
   return [c.isim, c.soyisim].filter(Boolean).join(" ") || "—"
 }
 
+/** Pending → RevisionRequested → Resubmitted → Accepted */
 const cpaStatusConfig: Record<string, { label: string; cls: string }> = {
-  Pending: { label: "Bekliyor", cls: "bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-700" },
-  Accepted: { label: "Kabul edildi", cls: "bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-700" },
-  Rejected: { label: "Reddedildi", cls: "bg-red-100 text-red-700 border-red-300 dark:bg-red-950/40 dark:text-red-400 dark:border-red-700" },
+  Pending: { label: "İnceleme Bekliyor", cls: "bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-700" },
+  Resubmitted: { label: "Tekrar Gönderildi", cls: "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-700" },
+  RevisionRequested: { label: "Düzenleme İstendi", cls: "bg-red-100 text-red-700 border-red-300 dark:bg-red-950/40 dark:text-red-400 dark:border-red-700" },
+  Accepted: { label: "Kabul Edildi", cls: "bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-700" },
 }
 
 export function FindingDetailClient({
   findingId,
   currentCalisanId,
-  currentDepartman,
   isAdmin = true,
 }: {
   findingId: number
   currentCalisanId: number | null
-  currentDepartman?: string | null
-  /** Audit Plan admini mi (canAccessAuditPlan) — atama/CPA karar gibi yönetici aksiyonları buna göre gösterilir. */
+  /** Audit Plan admini mi (canAccessAuditPlan) — atama/CPA review gibi yönetici aksiyonları buna göre gösterilir. */
   isAdmin?: boolean
 }) {
   const [finding, setFinding] = React.useState<FindingDetail | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [calisanlar, setCalisanlar] = React.useState<CalisanLite[]>([])
+  const [groups, setGroups] = React.useState<{ id: number; label: string; memberCount: number }[]>([])
 
   // Response form state
   const [responseOpen, setResponseOpen] = React.useState(false)
   const [rootCause, setRootCause] = React.useState("")
   const [correctiveAction, setCorrectiveAction] = React.useState("")
   const [preventiveAction, setPreventiveAction] = React.useState("")
-  const [respondedById, setRespondedById] = React.useState<string>("")
   const [submitting, setSubmitting] = React.useState(false)
 
   // Attachment state
@@ -219,7 +229,7 @@ export function FindingDetailClient({
 
   // Assign user state
   const [assignOpen, setAssignOpen] = React.useState(false)
-  const [assignedToId, setAssignedToId] = React.useState<string>("")
+  const [assignValue, setAssignValue] = React.useState<AssigneeValue>(null)
   const [assigning, setAssigning] = React.useState(false)
 
   // Edit Finding state
@@ -229,7 +239,7 @@ export function FindingDetailClient({
   const [editCategory, setEditCategory] = React.useState<string>("CAT1")
   const [editExplanation, setEditExplanation] = React.useState("")
   const [editReference, setEditReference] = React.useState("")
-  const [editAssignedToId, setEditAssignedToId] = React.useState<string>("")
+  const [editAssignValue, setEditAssignValue] = React.useState<AssigneeValue>(null)
   const [editDueDate, setEditDueDate] = React.useState("")
   const [savingEdit, setSavingEdit] = React.useState(false)
 
@@ -237,11 +247,12 @@ export function FindingDetailClient({
   const [deleteFindingOpen, setDeleteFindingOpen] = React.useState(false)
   const [deletingFinding, setDeletingFinding] = React.useState(false)
 
-  // Reject dialog state
-  const [rejectOpen, setRejectOpen] = React.useState(false)
-  const [rejectTargetId, setRejectTargetId] = React.useState<number | null>(null)
-  const [rejectComment, setRejectComment] = React.useState("")
-  const [rejecting, setRejecting] = React.useState(false)
+  // Revision Request dialog state
+  const [revisionRequestOpen, setRevisionRequestOpen] = React.useState(false)
+  const [revisionRequestTargetId, setRevisionRequestTargetId] = React.useState<number | null>(null)
+  const [revisionRequestNote, setRevisionRequestNote] = React.useState("")
+  const [requestingRevision, setRequestingRevision] = React.useState(false)
+  const [acceptingResponseId, setAcceptingResponseId] = React.useState<number | null>(null)
 
   // Finding Files state (checklist eklerinden ve Audit Files'tan bağımsız, doğrudan Finding ID'ye bağlı)
   const [findingFiles, setFindingFiles] = React.useState<FindingFileRow[]>([])
@@ -356,7 +367,13 @@ export function FindingDetailClient({
     setEditCategory(finding.findingCategory || "CAT1")
     setEditExplanation(finding.explanation)
     setEditReference(finding.reference || "")
-    setEditAssignedToId(finding.assignedTo ? String(finding.assignedTo.id) : "")
+    setEditAssignValue(
+      finding.assignedGroup
+        ? { type: "group", id: finding.assignedGroup.id }
+        : finding.assignedTo
+          ? { type: "person", id: finding.assignedTo.id }
+          : null
+    )
     setEditDueDate(finding.dueDate ? dbDateToDdMmYyyy(finding.dueDate) : "")
     setEditOpen(true)
   }
@@ -389,7 +406,9 @@ export function FindingDetailClient({
           findingCategory: isSacaSafa ? editCategory : null,
           explanation: editExplanation.trim(),
           reference: editReference.trim() || null,
-          assignedToId: editAssignedToId ? Number(editAssignedToId) : null,
+          ...(editAssignValue?.type === "group"
+            ? { assignedGroupId: editAssignValue.id }
+            : { assignedToId: editAssignValue?.type === "person" ? editAssignValue.id : null }),
           dueDate: dueDateIso,
         }),
       })
@@ -430,12 +449,29 @@ export function FindingDetailClient({
     } catch { /* ignore */ }
   }, [])
 
+  const loadGroups = React.useCallback(async () => {
+    try {
+      const res = await fetch("/api/user-groups", { cache: "no-store" })
+      const data = await parseJson(res as globalThis.Response)
+      if (Array.isArray(data)) {
+        setGroups(
+          (data as { id: number; name: string; memberCount: number }[]).map((g) => ({
+            id: g.id,
+            label: g.name,
+            memberCount: g.memberCount,
+          }))
+        )
+      }
+    } catch { /* ignore */ }
+  }, [])
+
   React.useEffect(() => {
     void load()
     void loadCalisanlar()
+    void loadGroups()
     void loadFindingFiles()
     void loadFindingHistory()
-  }, [load, loadCalisanlar, loadFindingFiles, loadFindingHistory])
+  }, [load, loadCalisanlar, loadGroups, loadFindingFiles, loadFindingHistory])
 
   const submitResponse = async () => {
     if (!rootCause.trim() && !correctiveAction.trim() && !preventiveAction.trim()) {
@@ -448,10 +484,11 @@ export function FindingDetailClient({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          // respondedById istemciden ARTIK GÖNDERİLMEZ — sunucu her zaman gerçek oturum
+          // sahibinin kendi kaydına zorlar (bkz. requireCpaResponsiblePerson).
           rootCause: rootCause.trim() || null,
           correctiveAction: correctiveAction.trim() || null,
           preventiveAction: preventiveAction.trim() || null,
-          respondedById: respondedById ? Number(respondedById) : null,
         }),
       })
       const data = (await parseJson(res as globalThis.Response)) as { id?: unknown; error?: string } | null
@@ -491,7 +528,6 @@ export function FindingDetailClient({
       setRootCause("")
       setCorrectiveAction("")
       setPreventiveAction("")
-      setRespondedById("")
       setCreatedResponseId(null)
       await load()
     } catch {
@@ -501,69 +537,77 @@ export function FindingDetailClient({
     }
   }
 
-  // Giriş yapan kişi bireysel auditee mi, ya da denetime atanmış Auditee Group/Department'ın
-  // bir üyesi mi? ("Departmandan herhangi bir yetkili kişi denetime cevap verebilsin.")
-  const isCurrentUserAuditee = React.useMemo(() => {
-    if (!finding?.session) return false
-    const individualMatch = currentCalisanId
-      ? finding.session.entry.auditees.some((a) => a.calisan.id === currentCalisanId)
-      : false
-    const departmentMatch = currentDepartman
-      ? finding.session.entry.auditeeDepartments.some(
-          (d) => normalizeDepartmentKey(d.departmentName) === normalizeDepartmentKey(currentDepartman)
-        )
-      : false
-    return individualMatch || departmentMatch
-  }, [currentCalisanId, currentDepartman, finding])
+  // CPA cevabı YALNIZCA bulgunun sorumlu tarafı (kişiye atanmışsa o kişi; gruba atanmışsa
+  // grubun AKTİF bir üyesi) verebilir/düzenleyebilir/resubmit edebilir. Grup üyeliği client'ta
+  // HİÇ hesaplanmaz/bilinmez — server GET /api/audit-findings/[id] zaten
+  // computeCpaUiPermissions() ile bu iki boolean'ı hesaplayıp döndürüyor (bkz.
+  // lib/audit-finding-cpa-access.ts). Gerçek enforcement HER ZAMAN ilgili POST/PATCH route'unda.
+  const isResponsiblePerson = finding?.cpaPermissions.canRespond ?? false
+  const canReviewCpa = finding?.cpaPermissions.canReview ?? false
 
-  const openResponseDialog = () => {
-    setRootCause("")
-    setCorrectiveAction("")
-    setPreventiveAction("")
+  const latestResponse = finding && finding.responses.length > 0 ? finding.responses[finding.responses.length - 1] : null
+  const needsRevision = latestResponse?.cpaStatus === "RevisionRequested"
+  // Sorumlu kişi yeni cevap açabilir: hiç cevap yoksa, ya da en son cevap "Düzenleme İstendi"
+  // ise (resubmit). Cevap incelemedeyken veya kabul edildiyse yeni form açılmaz.
+  const canSubmitOrResubmit = !latestResponse || needsRevision
+
+  /** Yeniden gönderim ise (latest.cpaStatus === "RevisionRequested") önceki cevap prefill edilir —
+   * "önceki cevap/history kaybolmasın" gereksinimi: kullanıcı sıfırdan yazmak zorunda kalmaz. */
+  const openResponseDialog = (prefillFrom?: Response) => {
+    setRootCause(prefillFrom?.rootCause ?? "")
+    setCorrectiveAction(prefillFrom?.correctiveAction ?? "")
+    setPreventiveAction(prefillFrom?.preventiveAction ?? "")
     setPendingFiles([])
-    // Cevaplayan kişi = giriş yapan auditee
-    setRespondedById(currentCalisanId ? String(currentCalisanId) : "")
     setResponseOpen(true)
   }
 
-  const updateCpaStatus = async (responseId: number, cpaStatus: string) => {
+  const acceptCpaResponse = async (responseId: number) => {
+    setAcceptingResponseId(responseId)
     try {
       const res = await fetch(`/api/audit-findings/${findingId}/responses/${responseId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cpaStatus }),
+        body: JSON.stringify({ action: "accept" }),
       })
-      if (!res.ok) { toast.error("Güncellenemedi."); return }
-      toast.success(`CPA durumu: ${cpaStatus === "Accepted" ? "Kabul edildi" : "Reddedildi"}`)
-      await load()
-    } catch {
-      toast.error("Bağlantı hatası.")
-    }
-  }
-
-  const openRejectDialog = (responseId: number) => {
-    setRejectTargetId(responseId)
-    setRejectComment("")
-    setRejectOpen(true)
-  }
-
-  const submitReject = async () => {
-    if (!rejectTargetId) return
-    setRejecting(true)
-    try {
-      const res = await fetch(`/api/audit-findings/${findingId}/responses/${rejectTargetId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cpaStatus: "Rejected", rejectComment: rejectComment.trim() || null }),
-      })
-      if (!res.ok) { toast.error("Güncellenemedi."); return }
-      toast.success("CPA reddedildi.")
-      setRejectOpen(false)
+      const data = await parseJson(res as globalThis.Response).catch(() => null) as { error?: string } | null
+      if (!res.ok) { toast.error((data && data.error) || "Güncellenemedi."); return }
+      toast.success("CPA kabul edildi. Bulgu kapatıldı.")
       await load()
     } catch {
       toast.error("Bağlantı hatası.")
     } finally {
-      setRejecting(false)
+      setAcceptingResponseId(null)
+    }
+  }
+
+  const openRevisionRequestDialog = (responseId: number) => {
+    setRevisionRequestTargetId(responseId)
+    setRevisionRequestNote("")
+    setRevisionRequestOpen(true)
+  }
+
+  const submitRevisionRequest = async () => {
+    if (!revisionRequestTargetId) return
+    if (!revisionRequestNote.trim()) {
+      toast.error("Revizyon açıklaması zorunludur.")
+      return
+    }
+    setRequestingRevision(true)
+    try {
+      const res = await fetch(`/api/audit-findings/${findingId}/responses/${revisionRequestTargetId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "revision_request", reviewNote: revisionRequestNote.trim() }),
+      })
+      const data = await parseJson(res as globalThis.Response).catch(() => null) as { error?: string } | null
+      if (!res.ok) { toast.error((data && data.error) || "Güncellenemedi."); return }
+      toast.success("Düzenleme talep edildi.")
+      setRevisionRequestOpen(false)
+      await load()
+    } catch {
+      toast.error("Bağlantı hatası.")
+    } finally {
+      setRequestingRevision(false)
     }
   }
 
@@ -573,7 +617,11 @@ export function FindingDetailClient({
       const res = await fetch(`/api/audit-findings/${findingId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assignedToId: assignedToId ? Number(assignedToId) : null }),
+        body: JSON.stringify(
+          assignValue?.type === "group"
+            ? { assignedGroupId: assignValue.id }
+            : { assignedToId: assignValue?.type === "person" ? assignValue.id : null }
+        ),
       })
       if (!res.ok) { toast.error("Atanamadı."); return }
       toast.success("Atama güncellendi.")
@@ -681,12 +729,23 @@ export function FindingDetailClient({
             )}
             {isAdmin ? (
               <Button type="button" variant="outline" size="sm" onClick={() => {
-                setAssignedToId(finding.assignedTo ? String(finding.assignedTo.id) : "")
+                setAssignValue(
+                  finding.assignedGroup
+                    ? { type: "group", id: finding.assignedGroup.id }
+                    : finding.assignedTo
+                      ? { type: "person", id: finding.assignedTo.id }
+                      : null
+                )
                 setAssignOpen(true)
               }}>
-                <User className="mr-1.5 size-3.5" />
-                {finding.assignedTo ? calisanName(finding.assignedTo) : "Atama yap"}
+                {finding.assignedGroup ? <Users className="mr-1.5 size-3.5" /> : <User className="mr-1.5 size-3.5" />}
+                {finding.assignedGroup ? finding.assignedGroup.name : finding.assignedTo ? calisanName(finding.assignedTo) : "Atama yap"}
               </Button>
+            ) : finding.assignedGroup ? (
+              <Badge variant="outline" className="gap-1.5 px-2.5 py-1.5">
+                <Users className="size-3.5" />
+                {finding.assignedGroup.name}
+              </Badge>
             ) : finding.assignedTo ? (
               <Badge variant="outline" className="gap-1.5 px-2.5 py-1.5">
                 <User className="size-3.5" />
@@ -709,15 +768,15 @@ export function FindingDetailClient({
                 Send Reminder
               </Button>
             )}
-            {isOpen && isCurrentUserAuditee && (
+            {isOpen && isResponsiblePerson && canSubmitOrResubmit && (
               <Button
                 type="button"
                 size="sm"
                 className="bg-blue-600 hover:bg-blue-700"
-                onClick={openResponseDialog}
+                onClick={() => openResponseDialog(needsRevision ? (latestResponse ?? undefined) : undefined)}
               >
                 <Send className="mr-1.5 size-3.5" />
-                Cevap Ver
+                {needsRevision ? "Yeniden Gönder" : "Cevap Ver"}
               </Button>
             )}
           </div>
@@ -752,9 +811,16 @@ export function FindingDetailClient({
               </p>
             </div>
             <div>
-              <p className="text-muted-foreground text-xs font-medium">Atanan Kişi</p>
+              <p className="text-muted-foreground text-xs font-medium">
+                {finding.assignedGroup ? "Sorumlu Grup" : "Sorumlu"}
+              </p>
               <p className="text-sm">
-                {finding.assignedTo ? (
+                {finding.assignedGroup ? (
+                  <span className="flex items-center gap-1.5">
+                    <Users className="size-3.5" />
+                    {finding.assignedGroup.name}
+                  </span>
+                ) : finding.assignedTo ? (
                   <>
                     {calisanName(finding.assignedTo)}
                     {finding.assignedTo.departman && (
@@ -857,14 +923,23 @@ export function FindingDetailClient({
           <h2 className="mb-3 text-lg font-semibold flex items-center gap-2">
             <GitBranch className="size-4 text-blue-600" />
             Kök Neden Analizi & CPA Cevapları ({finding.responses.length})
+            {latestResponse ? (
+              <Badge variant="outline" className={cn("text-xs font-normal", cpaStatusConfig[latestResponse.cpaStatus]?.cls)}>
+                {cpaStatusConfig[latestResponse.cpaStatus]?.label ?? latestResponse.cpaStatus}
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-xs font-normal bg-muted text-muted-foreground border-border">
+                Cevap Bekleniyor
+              </Badge>
+            )}
           </h2>
 
           {finding.responses.length === 0 ? (
             <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
               Henüz cevap verilmemiş.
-              {isOpen && (
+              {isOpen && isResponsiblePerson && (
                 <p className="mt-1">
-                  <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={openResponseDialog}>
+                  <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => openResponseDialog()}>
                     İlk cevabı gönder →
                   </Button>
                 </p>
@@ -934,36 +1009,54 @@ export function FindingDetailClient({
                         </div>
                       )}
 
-                      {/* Red gerekçesi */}
-                      {resp.cpaStatus === "Rejected" && resp.rejectComment && (
+                      {/* Revizyon notu — bu response'un review'i sırasında auditor tarafından yazıldı */}
+                      {resp.cpaStatus === "RevisionRequested" && resp.rejectComment && (
                         <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">
-                          <p className="font-semibold uppercase tracking-wide mb-0.5">Denetçi Red Gerekçesi</p>
+                          <p className="font-semibold uppercase tracking-wide mb-0.5">Denetçi Revizyon Notu</p>
                           <p className="whitespace-pre-wrap">{resp.rejectComment}</p>
                         </div>
                       )}
 
-                      {/* CPA Actions — sadece admin (auditee değil) */}
-                      {isOpen && resp.cpaStatus === "Pending" && !isCurrentUserAuditee && (
+                      {resp.reviewedBy && (resp.cpaStatus === "Accepted" || resp.cpaStatus === "RevisionRequested") && (
+                        <p className="text-muted-foreground text-xs">
+                          {resp.cpaStatus === "Accepted" ? "Kabul eden" : "İnceleyen"}: {calisanName(resp.reviewedBy)}
+                          {resp.reviewedAt && ` · ${formatDateTime(resp.reviewedAt)}`}
+                        </p>
+                      )}
+
+                      {/* CPA Review Actions — yalnızca auditor/compliance (canReviewCpa), yalnızca en son
+                          cevap ve yalnızca inceleme bekliyorken (Pending/Resubmitted). Sorumlu kişi kendi
+                          cevabını asla göremez (canReviewCpa zaten isResponsiblePerson'ı dışlar). */}
+                      {isOpen &&
+                        idx === finding.responses.length - 1 &&
+                        (resp.cpaStatus === "Pending" || resp.cpaStatus === "Resubmitted") &&
+                        canReviewCpa && (
                         <div className="flex gap-2 pt-1">
                           <Button
                             type="button"
                             size="sm"
                             variant="outline"
                             className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400"
-                            onClick={() => void updateCpaStatus(resp.id, "Accepted")}
+                            disabled={acceptingResponseId === resp.id}
+                            onClick={() => void acceptCpaResponse(resp.id)}
                           >
-                            <CheckCircle2 className="mr-1.5 size-3.5" />
-                            CPA Kabul Et
+                            {acceptingResponseId === resp.id ? (
+                              <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="mr-1.5 size-3.5" />
+                            )}
+                            CPA&apos;yı Kabul Et
                           </Button>
                           <Button
                             type="button"
                             size="sm"
                             variant="outline"
                             className="border-red-300 text-red-700 hover:bg-red-50 dark:text-red-400"
-                            onClick={() => openRejectDialog(resp.id)}
+                            disabled={acceptingResponseId === resp.id}
+                            onClick={() => openRevisionRequestDialog(resp.id)}
                           >
                             <XCircle className="mr-1.5 size-3.5" />
-                            CPA Reddet
+                            Düzenleme İste
                           </Button>
                         </div>
                       )}
@@ -1050,18 +1143,13 @@ export function FindingDetailClient({
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>Responsible Person</Label>
-                <Select value={editAssignedToId || "none"} onValueChange={(v) => setEditAssignedToId(v === "none" ? "" : v)}>
-                  <SelectTrigger><SelectValue placeholder="Atanmadı" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Atanmadı</SelectItem>
-                    {calisanlar.map((c) => (
-                      <SelectItem key={c.id} value={String(c.id)}>
-                        {[c.isim, c.soyisim].filter(Boolean).join(" ")}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Responsible Person / Group</Label>
+                <AssigneeCombobox
+                  people={calisanlar.map((c) => ({ id: c.id, label: [c.isim, c.soyisim].filter(Boolean).join(" ") || `#${c.id}` }))}
+                  groups={groups}
+                  value={editAssignValue}
+                  onChange={setEditAssignValue}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Due Date</Label>
@@ -1120,7 +1208,7 @@ export function FindingDetailClient({
       <Dialog open={responseOpen} onOpenChange={setResponseOpen}>
         <DialogContent className="!flex max-h-[min(90dvh,90vh)] w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
           <DialogHeader className="shrink-0 px-6 pt-6 pr-14 text-left">
-            <DialogTitle>Bulguya Cevap Ver — Kök Neden Analizi</DialogTitle>
+            <DialogTitle>{needsRevision ? "CPA Cevabını Yeniden Gönder" : "Bulguya Cevap Ver — Kök Neden Analizi"}</DialogTitle>
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             <div className="space-y-4 px-6 py-4 pb-2">
@@ -1129,11 +1217,18 @@ export function FindingDetailClient({
                 <p className="text-muted-foreground text-xs mt-0.5">{finding.explanation}</p>
               </div>
 
+              {needsRevision && latestResponse?.rejectComment && (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">
+                  <p className="font-semibold uppercase tracking-wide mb-0.5">Denetçi Revizyon Notu</p>
+                  <p className="whitespace-pre-wrap">{latestResponse.rejectComment}</p>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label>Cevaplayan Kişi</Label>
                 <div className="flex h-10 w-full items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-foreground">
-                  {/* Bireysel auditee veya Auditee Group/Department eşleşmesiyle erişen
-                      kullanıcının kendi kimliği — cevap her zaman bu kullanıcı adına kaydedilir. */}
+                  {/* Yalnızca finding.assignedTo ile eşleşen kişi bu dialog'u açabilir — cevap
+                      her zaman bu kullanıcı adına kaydedilir (bkz. isResponsiblePerson). */}
                   {calisanName(calisanlar.find((c) => c.id === currentCalisanId) ?? null)}
                 </div>
               </div>
@@ -1229,7 +1324,7 @@ export function FindingDetailClient({
               {submitting || uploadingFiles ? (
                 <><Loader2 className="mr-1.5 size-4 animate-spin" />{uploadingFiles ? "Dosyalar yükleniyor…" : "Gönderiliyor…"}</>
               ) : (
-                <><Send className="mr-1.5 size-4" />Gönder</>
+                <><Send className="mr-1.5 size-4" />{needsRevision ? "Yeniden Gönder" : "Gönder"}</>
               )}
             </Button>
           </DialogFooter>
@@ -1240,23 +1335,16 @@ export function FindingDetailClient({
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Bulgyu Ata</DialogTitle>
+            <DialogTitle>Bulguyu Ata</DialogTitle>
           </DialogHeader>
           <div className="space-y-2 py-2">
-            <Label>Sorumlu Kişi</Label>
-            <Select value={assignedToId} onValueChange={setAssignedToId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Kişi seç…" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="0">— Atamasız</SelectItem>
-                {calisanlar.map((c) => (
-                  <SelectItem key={c.id} value={String(c.id)}>
-                    {calisanName(c)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label>Responsible Person / Group</Label>
+            <AssigneeCombobox
+              people={calisanlar.map((c) => ({ id: c.id, label: calisanName(c) }))}
+              groups={groups}
+              value={assignValue}
+              onChange={setAssignValue}
+            />
           </div>
           <DialogFooter className="gap-2">
             <Button type="button" variant="outline" onClick={() => setAssignOpen(false)}>Vazgeç</Button>
@@ -1267,34 +1355,35 @@ export function FindingDetailClient({
         </DialogContent>
       </Dialog>
 
-      {/* ── REJECT DIALOG ─────────────────────────────────────────────── */}
-      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+      {/* ── REVISION REQUEST DIALOG ───────────────────────────────────── */}
+      <Dialog open={revisionRequestOpen} onOpenChange={setRevisionRequestOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>CPA Red Gerekçesi</DialogTitle>
+            <DialogTitle>Düzenleme İste</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <p className="text-sm text-muted-foreground">
-              Denetlenen kişiye neden reddedildiğini açıklayın. Bu gerekçe cevap kartında görünecektir.
+              Sorumlu kişiye neyin eksik/yetersiz olduğunu açıklayın. Bu not cevap kartında görünecek ve
+              sorumlu kişi cevabını güncelleyip yeniden gönderebilecek.
             </p>
             <Textarea
-              value={rejectComment}
-              onChange={(e) => setRejectComment(e.target.value)}
-              placeholder="Red gerekçenizi yazın…"
+              value={revisionRequestNote}
+              onChange={(e) => setRevisionRequestNote(e.target.value)}
+              placeholder="Revizyon açıklamanızı yazın…"
               className="min-h-[100px]"
               autoFocus
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectOpen(false)} disabled={rejecting}>
+            <Button variant="outline" onClick={() => setRevisionRequestOpen(false)} disabled={requestingRevision}>
               Vazgeç
             </Button>
             <Button
               variant="destructive"
-              onClick={() => void submitReject()}
-              disabled={rejecting}
+              onClick={() => void submitRevisionRequest()}
+              disabled={requestingRevision || !revisionRequestNote.trim()}
             >
-              {rejecting ? <><Loader2 className="mr-1.5 size-3.5 animate-spin" />Gönderiliyor…</> : <><XCircle className="mr-1.5 size-3.5" />Reddet</>}
+              {requestingRevision ? <><Loader2 className="mr-1.5 size-3.5 animate-spin" />Gönderiliyor…</> : <><XCircle className="mr-1.5 size-3.5" />Düzenleme İste</>}
             </Button>
           </DialogFooter>
         </DialogContent>

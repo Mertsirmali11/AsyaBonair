@@ -26,7 +26,6 @@ export default async function FindingDetailPage({ params }: Props) {
     <FindingDetailClient
       findingId={findingId}
       currentCalisanId={calisan?.id ?? null}
-      currentDepartman={session.user?.departman ?? null}
       isAdmin={canAccessAuditPlan(session.user?.email)}
     />
   )

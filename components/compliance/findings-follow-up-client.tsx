@@ -14,6 +14,7 @@ import {
   HelpCircle,
   Lightbulb,
   MoreVertical,
+  Users,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -66,7 +67,9 @@ type FindingRow = {
   reference: string | null
   dueDate: string | null
   status: string
+  /** Person/Group karşılıklı dışlayıcı — ikisi birden dolu olamaz. */
   assignedTo: { id: number; name: string } | null
+  assignedGroup: { id: number; name: string } | null
   cpaRequests: string
   pendingCpa: number
   hasExtension: boolean
@@ -300,6 +303,7 @@ export function FindingsFollowUpClient() {
                   <TableHead className="whitespace-nowrap font-semibold">Initialized On</TableHead>
                   <TableHead className="font-semibold">Field</TableHead>
                   <TableHead className="font-semibold">Explanation</TableHead>
+                  <TableHead className="whitespace-nowrap font-semibold">Responsible</TableHead>
                   <TableHead className="whitespace-nowrap font-semibold">Due Date</TableHead>
                   <TableHead className="whitespace-nowrap font-semibold">CPA Requests</TableHead>
                 </TableRow>
@@ -307,13 +311,13 @@ export function FindingsFollowUpClient() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-muted-foreground h-32 text-center">
+                    <TableCell colSpan={10} className="text-muted-foreground h-32 text-center">
                       Yükleniyor…
                     </TableCell>
                   </TableRow>
                 ) : filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-muted-foreground h-32 text-center">
+                    <TableCell colSpan={10} className="text-muted-foreground h-32 text-center">
                       {rows.length === 0 ? "Henüz bulgu yok." : "Filtre ile eşleşen kayıt yok."}
                     </TableCell>
                   </TableRow>
@@ -386,6 +390,18 @@ export function FindingsFollowUpClient() {
                       </TableCell>
                       <TableCell className="max-w-[240px] text-sm">
                         <span className="line-clamp-2">{row.explanation}</span>
+                      </TableCell>
+                      <TableCell className="max-w-[160px] truncate text-sm">
+                        {row.assignedGroup ? (
+                          <span className="flex items-center gap-1 text-muted-foreground" title={row.assignedGroup.name}>
+                            <Users className="size-3 shrink-0" />
+                            {row.assignedGroup.name}
+                          </span>
+                        ) : row.assignedTo ? (
+                          <span className="text-muted-foreground" title={row.assignedTo.name}>{row.assignedTo.name}</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
                       </TableCell>
                       <TableCell className={cn(
                         "whitespace-nowrap text-sm",

@@ -46,6 +46,7 @@ export async function resolveFindingAuditeeAccess(
     where: { id: findingId },
     select: {
       assignedToId: true,
+      assignedGroupId: true,
       session: { select: { entry: { select: entryFields } } },
       manualEntry: { select: entryFields },
     },
@@ -62,10 +63,18 @@ export async function resolveFindingAuditeeAccess(
       )
     : false
   const assigneeMatch = finding.assignedToId === calisan.id
+  // Bulgu bir gruba atanmışsa, o grubun üyesi de görüntüleyip cevap verebilmeli — aksi halde
+  // CPA yazma yetkisi olan biri kendi finding'ini bile açamaz. Üyelik DB'den taze sorgulanır.
+  const groupMemberMatch = finding.assignedGroupId
+    ? await prisma.userGroupMember.findFirst({
+        where: { groupId: finding.assignedGroupId, calisanId: calisan.id },
+        select: { id: true },
+      }).then((m) => !!m)
+    : false
 
   return {
     isAdmin: false,
-    isAuditee: individualMatch || departmentMatch || assigneeMatch,
+    isAuditee: individualMatch || departmentMatch || assigneeMatch || groupMemberMatch,
     calisanId: calisan.id,
   }
 }

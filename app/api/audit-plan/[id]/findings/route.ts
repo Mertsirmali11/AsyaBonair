@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { canAccessAuditPlan } from "@/lib/audit-plan-access"
 import { isSacaOrSafaAuditCategory, normalizeFindingCategory } from "@/lib/finding-category"
+import { validateFindingAssignment } from "@/lib/audit-finding-assignee"
 import { prisma } from "@/lib/prisma-server"
 
 export const runtime = "nodejs"
@@ -42,6 +43,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     orderBy: { createdAt: "desc" },
     include: {
       assignedTo: { select: { id: true, isim: true, soyisim: true, departman: true } },
+      assignedGroup: { select: { id: true, name: true } },
     },
   })
 
@@ -58,6 +60,7 @@ export async function GET(_req: Request, ctx: Ctx) {
       assignedTo: f.assignedTo
         ? { id: f.assignedTo.id, name: calisanName(f.assignedTo), department: f.assignedTo.departman }
         : null,
+      assignedGroup: f.assignedGroup ? { id: f.assignedGroup.id, name: f.assignedGroup.name } : null,
     }))
   )
 }
@@ -98,6 +101,8 @@ export async function POST(req: Request, ctx: Ctx) {
     explanation?: string
     reference?: string
     assignedToId?: number | null
+    /** Person/Group karşılıklı dışlayıcı — bkz. lib/audit-finding-assignee.ts */
+    assignedGroupId?: number | null
     dueDate?: string | null
     /** Manage Audit → Auditee Responses'ta "Add Finding" bir submission satırından açıldıysa
      * dolu — bulgu bu checklist maddesine otomatik referans olarak bağlanır (bkz. aşağı). */
@@ -163,13 +168,27 @@ export async function POST(req: Request, ctx: Ctx) {
     dueDate.setDate(dueDate.getDate() + 90)
   }
 
-  // assignedToId gönderilmişse (null dahil) onu kullan, yoksa ilk denetlenen kişiye ata (otomatik oluşan bulgularla aynı varsayılan davranış)
-  const assignedToId =
-    body?.assignedToId !== undefined
-      ? body.assignedToId
-        ? Number(body.assignedToId)
-        : null
-      : (entry.auditees[0]?.calisanId ?? null)
+  // Person/Group karşılıklı dışlayıcı. assignedGroupId AÇIKÇA gönderildiyse (dolu) grup ataması
+  // kullanılır (kişi null kalır) — mevcut "ilk denetlenene otomatik ata" varsayımı yalnızca
+  // NE assignedToId NE DE assignedGroupId gönderilmediğinde devreye girer (geriye dönük uyumluluk,
+  // mevcut person-assigned davranış birebir korunur).
+  let assignedToId: number | null
+  let assignedGroupId: number | null
+  if (body?.assignedGroupId) {
+    assignedGroupId = Number(body.assignedGroupId)
+    assignedToId = null
+  } else if (body?.assignedToId !== undefined) {
+    assignedToId = body.assignedToId ? Number(body.assignedToId) : null
+    assignedGroupId = null
+  } else {
+    assignedToId = entry.auditees[0]?.calisanId ?? null
+    assignedGroupId = null
+  }
+
+  const assignmentCheck = await validateFindingAssignment(assignedToId, assignedGroupId)
+  if (!assignmentCheck.ok) {
+    return NextResponse.json({ error: assignmentCheck.error }, { status: assignmentCheck.status })
+  }
 
   // Manage Audit → Auditee Responses'tan "Add Finding" ile açıldıysa ilgili checklist maddesine
   // otomatik referans bağla. auditSessionItemId @unique olduğu için (bir soruya en fazla bir
@@ -209,7 +228,9 @@ export async function POST(req: Request, ctx: Ctx) {
       dueDate,
       status: "Open",
       ...(assignedToId ? { assignedToId } : {}),
+      ...(assignedGroupId ? { assignedGroupId } : {}),
     },
+    include: { assignedGroup: { select: { id: true, name: true } } },
   })
 
   try {

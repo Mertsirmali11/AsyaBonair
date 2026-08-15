@@ -27,6 +27,7 @@ import {
   Search,
   Settings,
   Trash2,
+  Users,
   XCircle,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -68,7 +69,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { SetWorkspacePageTitle } from "@/components/workspace-page-title"
 import { AuditCategoryCombobox } from "@/components/compliance/audit-category-combobox"
 import { PostponeAuditDialog } from "@/components/compliance/postpone-audit-dialog"
-import { EmployeeCombobox } from "@/components/employee-combobox"
+import { AssigneeCombobox, type AssigneeValue } from "@/components/assignee-combobox"
 import type { AuditChecklistListRow } from "@/components/compliance/audit-checklists-client"
 import {
   type AuditPlanDetail,
@@ -361,12 +362,14 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
   const [findingCategoryInput, setFindingCategoryInput] = React.useState("CAT1")
   const [findingExplanation, setFindingExplanation] = React.useState("")
   const [findingReference, setFindingReference] = React.useState("")
-  const [findingAssignedToId, setFindingAssignedToId] = React.useState<number | undefined>(undefined)
+  /** Person/Group karşılıklı dışlayıcı — bkz. components/assignee-combobox.tsx */
+  const [findingAssignee, setFindingAssignee] = React.useState<AssigneeValue>(null)
   /** dd.mm.yyyy — yalnızca SACA/SAFA denetimlerinde gösterilir/zorunludur (Level olmadığı için
    * otomatik vade hesaplanamaz). Diğer audit type'larında mevcut Level tabanlı otomatik
    * hesaplama aynen kullanılmaya devam eder, bu alan gösterilmez. */
   const [findingDueDateInput, setFindingDueDateInput] = React.useState("")
   const [findingAssignees, setFindingAssignees] = React.useState<{ id: number; label: string }[]>([])
+  const [findingGroups, setFindingGroups] = React.useState<{ id: number; label: string; memberCount: number }[]>([])
   const [creatingFinding, setCreatingFinding] = React.useState(false)
   /** Add Finding dialogunda "Kaydet"e basılmadan önce seçilen dosyalar — finding oluşunca
    * kendi ID'siyle yüklenir (upload endpoint'i finding'in zaten var olmasını şart koşuyor). */
@@ -387,26 +390,37 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
     void reloadFindings()
   }, [reloadFindings])
 
-  React.useEffect(() => {
-    if (!findingDialogOpen) return
-    let cancelled = false
-    ;(async () => {
-      try {
-        const res = await fetch("/api/calisanlar")
-        if (!res.ok || cancelled) return
-        const data = (await res.json()) as CalisanLite[]
-        if (cancelled) return
+  /** Add/Edit Finding dialoglarının People+Groups picker'ı için ortak veri yükleme —
+   * ikisi de AYNI AssigneeCombobox'ı reuse ettiği için ortak. */
+  const loadAssigneeOptions = React.useCallback(async (signal: { cancelled: boolean }) => {
+    try {
+      const [peopleRes, groupsRes] = await Promise.all([fetch("/api/calisanlar"), fetch("/api/user-groups")])
+      if (!signal.cancelled && peopleRes.ok) {
+        const data = (await peopleRes.json()) as CalisanLite[]
         setFindingAssignees(
           data.map((c) => ({ id: c.id, label: [c.isim, c.soyisim].filter(Boolean).join(" ").trim() || `ID ${c.id}` }))
         )
-      } catch {
-        if (!cancelled) setFindingAssignees([])
       }
-    })()
-    return () => {
-      cancelled = true
+      if (!signal.cancelled && groupsRes.ok) {
+        const data = (await groupsRes.json()) as { id: number; name: string; memberCount: number }[]
+        setFindingGroups(data.map((g) => ({ id: g.id, label: g.name, memberCount: g.memberCount })))
+      }
+    } catch {
+      if (!signal.cancelled) {
+        setFindingAssignees([])
+        setFindingGroups([])
+      }
     }
-  }, [findingDialogOpen])
+  }, [])
+
+  React.useEffect(() => {
+    if (!findingDialogOpen) return
+    const signal = { cancelled: false }
+    void loadAssigneeOptions(signal)
+    return () => {
+      signal.cancelled = true
+    }
+  }, [findingDialogOpen, loadAssigneeOptions])
 
   /** Auditee Responses panelindeki "Add Finding" bir submission satırından açıldığında dolu —
    * bulgu o checklist maddesine (auditSessionItemId) otomatik referans olarak bağlanır. */
@@ -417,7 +431,7 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
     setFindingCategoryInput("CAT1")
     setFindingExplanation(prefill?.explanation ?? "")
     setFindingReference(prefill?.reference ?? "")
-    setFindingAssignedToId(undefined)
+    setFindingAssignee(null)
     setFindingDueDateInput("")
     setFindingPendingFiles([])
     setFindingLinkedSessionItem(prefill ? { id: prefill.sessionItemId, question: prefill.question } : null)
@@ -473,7 +487,10 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
           findingCategory: isSacaSafa ? findingCategoryInput : null,
           explanation: findingExplanation.trim(),
           reference: findingReference.trim() || null,
-          assignedToId: findingAssignedToId ?? null,
+          // Person/Group karşılıklı dışlayıcı — her zaman AYNI ANDA yalnızca birini gönderir.
+          ...(findingAssignee?.type === "group"
+            ? { assignedGroupId: findingAssignee.id }
+            : { assignedToId: findingAssignee?.type === "person" ? findingAssignee.id : null }),
           ...(isSacaSafa ? { dueDate: dueDateIso } : {}),
           ...(findingLinkedSessionItem ? { auditSessionItemId: findingLinkedSessionItem.id } : {}),
         }),
@@ -606,7 +623,7 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
   const [editFindingCategory, setEditFindingCategory] = React.useState("CAT1")
   const [editFindingExplanation, setEditFindingExplanation] = React.useState("")
   const [editFindingReference, setEditFindingReference] = React.useState("")
-  const [editFindingAssignedToId, setEditFindingAssignedToId] = React.useState<number | undefined>(undefined)
+  const [editFindingAssignee, setEditFindingAssignee] = React.useState<AssigneeValue>(null)
   const [editFindingDueDate, setEditFindingDueDate] = React.useState("")
   const [savingEditFinding, setSavingEditFinding] = React.useState(false)
   const [deleteFindingTarget, setDeleteFindingTarget] = React.useState<AuditPlanFindingRow | null>(null)
@@ -630,8 +647,11 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
     setEditFindingCategory(f.findingCategory || "CAT1")
     setEditFindingExplanation(f.explanation || "")
     setEditFindingReference("")
-    setEditFindingAssignedToId(f.assignedTo?.id)
+    setEditFindingAssignee(
+      f.assignedGroup ? { type: "group", id: f.assignedGroup.id } : f.assignedTo ? { type: "person", id: f.assignedTo.id } : null
+    )
     setEditFindingDueDate(isoToDdmmyyyy(f.dueDate))
+    void loadAssigneeOptions({ cancelled: false })
     // Kompakt liste satırı "reference" alanını içermiyor — yanlışlıkla boşla üzerine
     // yazmamak için tam kaydı ayrıca çekiyoruz.
     try {
@@ -664,7 +684,11 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
           findingCategory: isSacaSafaEdit ? editFindingCategory : null,
           explanation: editFindingExplanation.trim(),
           reference: editFindingReference.trim() || null,
-          assignedToId: editFindingAssignedToId ?? null,
+          // Person/Group karşılıklı dışlayıcı — hangisi gönderilirse sunucu DİĞERİNİ otomatik
+          // null'a çeker (Person → Group veya Group → Person yeniden atama).
+          ...(editFindingAssignee?.type === "group"
+            ? { assignedGroupId: editFindingAssignee.id }
+            : { assignedToId: editFindingAssignee?.type === "person" ? editFindingAssignee.id : null }),
           dueDate: editFindingDueDate ? ddmmyyyyToIso(editFindingDueDate) : null,
         }),
       })
@@ -1349,7 +1373,14 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
                             </span>
                           )}
                           <span className="text-muted-foreground min-w-0 flex-1 truncate">{f.explanation}</span>
-                          {f.assignedTo?.name && <span className="text-muted-foreground shrink-0 text-xs">{f.assignedTo.name}</span>}
+                          {f.assignedGroup ? (
+                            <span className="text-muted-foreground flex shrink-0 items-center gap-1 text-xs">
+                              <Users className="size-3" />
+                              {f.assignedGroup.name}
+                            </span>
+                          ) : f.assignedTo?.name ? (
+                            <span className="text-muted-foreground shrink-0 text-xs">{f.assignedTo.name}</span>
+                          ) : null}
                           <span className={cn("shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium", f.status === "Closed" ? "bg-teal-100 text-teal-700 dark:bg-teal-950/40 dark:text-teal-400" : "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400")}>
                             {f.status === "Closed" ? "Kapalı" : "Açık"}
                           </span>
@@ -1865,8 +1896,8 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
               <Input value={findingReference} onChange={(e) => setFindingReference(e.target.value)} placeholder="Referans madde / doküman" />
             </div>
             <div className="space-y-2">
-              <Label>Sorumlu Kişi (İsteğe Bağlı)</Label>
-              <EmployeeCombobox options={findingAssignees} value={findingAssignedToId} onChange={setFindingAssignedToId} placeholder="Personel seçin…" />
+              <Label>Responsible Person / Group (İsteğe Bağlı)</Label>
+              <AssigneeCombobox people={findingAssignees} groups={findingGroups} value={findingAssignee} onChange={setFindingAssignee} />
             </div>
             {isSacaOrSafaAuditCategory(detail?.categoryName) && (
               <div className="space-y-2">
@@ -1973,8 +2004,8 @@ export function ManageAuditClient({ entryId }: { entryId: number }) {
               <Input value={editFindingReference} onChange={(e) => setEditFindingReference(e.target.value)} placeholder="Referans madde / doküman" />
             </div>
             <div className="space-y-2">
-              <Label>Sorumlu Kişi (İsteğe Bağlı)</Label>
-              <EmployeeCombobox options={findingAssignees} value={editFindingAssignedToId} onChange={setEditFindingAssignedToId} placeholder="Personel seçin…" />
+              <Label>Responsible Person / Group (İsteğe Bağlı)</Label>
+              <AssigneeCombobox people={findingAssignees} groups={findingGroups} value={editFindingAssignee} onChange={setEditFindingAssignee} />
             </div>
             <div className="space-y-2">
               <Label>Vade Tarihi</Label>
