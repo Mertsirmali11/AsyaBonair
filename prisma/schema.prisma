@@ -122,6 +122,7 @@ model Calisan {
   auditPlanAuditees AuditPlanAuditee[] @relation("AuditPlanAuditeeCalisan")
   auditFindingsAssigned   AuditFinding[]           @relation("AuditFindingAssignee")
   auditFindingResponses   AuditFindingResponse[]   @relation("AuditFindingResponder")
+  auditFindingResponsesReviewed AuditFindingResponse[] @relation("AuditFindingResponseReviewer")
   auditFindingExtensions  AuditFindingExtension[]  @relation("AuditFindingExtensionRequester")
   supportTicketsCreated SupportTicket[] @relation("SupportTicketCreator")
   supportTicketsAdminUpdated SupportTicket[] @relation("SupportTicketAdmin")
@@ -1337,15 +1338,24 @@ model AuditFindingResponse {
   correctiveAction String? @db.Text @map("corrective_action")
   /// Önleyici faaliyet
   preventiveAction String? @db.Text @map("preventive_action")
-  /// CPA (Corrective & Preventive Action) durumu: Pending | Accepted | Rejected
+  /// CPA (Corrective & Preventive Action) durumu: Pending | RevisionRequested | Resubmitted | Accepted.
+  /// Eski "Rejected" değeri artık üretilmez (bkz. reviewedById/reviewedAt) — prod'da bu alanı
+  /// "Rejected" olarak kullanan hiçbir kayıt yoktu (2026-08-15 itibarıyla doğrulandı).
   cpaStatus      String   @default("Pending") @db.VarChar(50) @map("cpa_status")
-  /// Denetçinin red gerekçesi
+  /// Auditor'ın revizyon gerekçesi — alan adı tarihsel nedenlerle "reject" kalmıştır ama artık
+  /// "Revision Request" akışının notu olarak kullanılır (yeniden adlandırma migration gerektirir,
+  /// bu yüzden yalnızca anlamı değişti).
   rejectComment  String?  @db.Text @map("reject_comment")
+  /// CPA'yı inceleyip Accept/Revision Request eden auditor — yalnızca review aksiyonunda dolar,
+  /// sorumlu kişinin kendi submit/resubmit'inde asla değişmez.
+  reviewedById   Int?     @map("reviewed_by_id")
+  reviewedAt     DateTime? @map("reviewed_at")
   submittedAt    DateTime @default(now()) @map("submitted_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   finding      AuditFinding @relation(fields: [auditFindingId], references: [id], onDelete: Cascade)
   respondedBy  Calisan?     @relation("AuditFindingResponder", fields: [respondedById], references: [id], onDelete: SetNull)
+  reviewedBy   Calisan?     @relation("AuditFindingResponseReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
   attachments  AuditFindingAttachment[]
 
   @@index([auditFindingId])

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
-import { requireAuditPlanSession } from "@/lib/audit-plan-session"
+import { auth } from "@/auth"
+import { requireCpaResponsiblePerson } from "@/lib/audit-finding-cpa-access"
 import { prisma } from "@/lib/prisma-server"
 import { uploadBinaryToStorage } from "@/lib/supabase-storage"
 
@@ -9,13 +10,22 @@ type Ctx = { params: Promise<{ id: string }> }
 
 const MAX_BYTES = 30 * 1024 * 1024 // 30 MB
 
+/**
+ * CPA cevabına dosya eki — bu da "CPA create" akışının bir parçası, bu yüzden aynı
+ * requireCpaResponsiblePerson kuralına tabi (önceden requireAuditPlanSession/admin-only idi,
+ * bu yüzden gerçek sorumlu kişi bir auditee olarak cevap verebiliyor ama dosya EKLEYEMİYORDU —
+ * bu düzeltmeyle birlikte giderildi).
+ */
 export async function POST(req: Request, ctx: Ctx) {
-  const session = await requireAuditPlanSession()
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-
   const id = Number((await ctx.params).id)
   if (!Number.isInteger(id) || id < 1)
     return NextResponse.json({ error: "Invalid id" }, { status: 400 })
+
+  const authSession = await auth()
+  const check = await requireCpaResponsiblePerson(id, authSession?.user?.email)
+  if (!check.ok) {
+    return NextResponse.json({ error: "Yalnızca bu bulgunun sorumlu kişisi dosya ekleyebilir." }, { status: 403 })
+  }
 
   let formData: FormData
   try {
@@ -29,9 +39,11 @@ export async function POST(req: Request, ctx: Ctx) {
   if (!Number.isInteger(responseId) || responseId < 1)
     return NextResponse.json({ error: "Invalid responseId" }, { status: 400 })
 
-  // Verify response belongs to this finding
+  // Verify response belongs to this finding AND was actually submitted by this same
+  // responsible person — engeller: kendi cevabı olmayan (ör. eski/reddedilmiş, başkasına ait)
+  // bir response'a dosya iliştirmeyi.
   const response = await prisma.auditFindingResponse.findFirst({
-    where: { id: responseId, auditFindingId: id },
+    where: { id: responseId, auditFindingId: id, respondedById: check.calisanId },
   })
   if (!response) return NextResponse.json({ error: "Response not found" }, { status: 404 })
 

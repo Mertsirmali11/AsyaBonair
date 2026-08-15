@@ -51,8 +51,10 @@ export async function GET(req: NextRequest) {
   const mapped = findings.map((f) => {
     const totalCpa = f.responses.length
     const acceptedCpa = f.responses.filter((r) => r.cpaStatus === "Accepted").length
-    const rejectedCpa = f.responses.filter((r) => r.cpaStatus === "Rejected").length
-    const pendingCpa = f.responses.filter((r) => r.cpaStatus === "Pending").length
+    // "Rejected" artık üretilmiyor (bkz. cpaStatus akışı: Pending → RevisionRequested →
+    // Resubmitted → Accepted) — bu özet sayaç yeni karşılığı olan RevisionRequested'i sayar.
+    const rejectedCpa = f.responses.filter((r) => r.cpaStatus === "RevisionRequested").length
+    const pendingCpa = f.responses.filter((r) => r.cpaStatus === "Pending" || r.cpaStatus === "Resubmitted").length
     const hasExtension = f.extensions.some((e) => e.status === "Approved")
     const extExpired = f.extensions.some((e) => e.status === "Approved" && e.isExpired)
     const isOverdue = f.status === "Open" && f.dueDate !== null && new Date(f.dueDate) < now

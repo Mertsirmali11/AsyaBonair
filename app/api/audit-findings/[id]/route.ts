@@ -55,6 +55,7 @@ export async function GET(_req: Request, ctx: Ctx) {
         orderBy: { submittedAt: "asc" },
         include: {
           respondedBy: { select: { id: true, isim: true, soyisim: true } },
+          reviewedBy: { select: { id: true, isim: true, soyisim: true } },
           attachments: true,
         },
       },
