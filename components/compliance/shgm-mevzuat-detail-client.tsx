@@ -2,13 +2,107 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { ArrowLeft, FileText, ExternalLink, Sparkles, RefreshCw } from "lucide-react"
+import {
+  ArrowLeft,
+  FileText,
+  ExternalLink,
+  Sparkles,
+  RefreshCw,
+  Check,
+  ChevronsUpDown,
+  Send,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { cn } from "@/lib/utils"
 import type { ShgmCategoryKey } from "@/lib/shgm/categories"
+
+/** Sorumlu Departman için searchable dropdown — seçenekler customDepartment kayıtlarından (bkz. [id]/page.tsx). Tek seçim; şema tek alan destekliyor. */
+function DepartmentCombobox({
+  options,
+  value,
+  onChange,
+}: {
+  options: string[]
+  value: string
+  onChange: (v: string) => void
+}) {
+  const [open, setOpen] = React.useState(false)
+  const [query, setQuery] = React.useState("")
+
+  const filtered = React.useMemo(() => {
+    const q = query.trim().toLocaleLowerCase("tr")
+    if (!q) return options
+    return options.filter((o) => o.toLocaleLowerCase("tr").includes(q))
+  }, [options, query])
+
+  React.useEffect(() => {
+    if (!open) setQuery("")
+  }, [open])
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          aria-expanded={open}
+          className={cn(
+            "h-9 w-56 justify-between px-3 font-normal",
+            !value && "text-muted-foreground"
+          )}
+        >
+          <span className="truncate">{value || "Departman seçin…"}</span>
+          <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 p-0" align="start">
+        <div className="flex flex-col">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Departman ara…"
+            className="rounded-b-none border-0 border-b shadow-none focus-visible:ring-0"
+            autoFocus
+          />
+          <div className="max-h-60 overflow-y-auto overscroll-contain">
+            <div className="flex flex-col p-1">
+              {filtered.length === 0 ? (
+                <p className="text-muted-foreground px-2 py-6 text-center text-sm">
+                  Sonuç yok.
+                </p>
+              ) : (
+                filtered.map((opt) => (
+                  <button
+                    key={opt}
+                    type="button"
+                    className={cn(
+                      "hover:bg-muted flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm",
+                      value === opt && "bg-muted"
+                    )}
+                    onClick={() => {
+                      onChange(opt)
+                      setOpen(false)
+                    }}
+                  >
+                    <Check
+                      className={cn("size-4 shrink-0", value === opt ? "opacity-100" : "opacity-0")}
+                    />
+                    <span className="truncate">{opt}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
 
 export type ShgmRegulationDetail = {
   id: number
@@ -44,9 +138,11 @@ function formatDate(iso: string | null): string {
 export function ShgmMevzuatDetailClient({
   detail,
   categoryLabels,
+  departmentOptions,
 }: {
   detail: ShgmRegulationDetail
   categoryLabels: Record<ShgmCategoryKey, string>
+  departmentOptions: string[]
 }) {
   const [department, setDepartment] = React.useState(detail.department ?? "")
   const [saving, setSaving] = React.useState(false)
@@ -54,6 +150,21 @@ export function ShgmMevzuatDetailClient({
   const [aiSummary, setAiSummary] = React.useState(detail.aiSummary)
   const [aiSummaryUpdatedAt, setAiSummaryUpdatedAt] = React.useState(detail.aiSummaryUpdatedAt)
   const [summarizing, setSummarizing] = React.useState(false)
+  const [sendingTestEmail, setSendingTestEmail] = React.useState(false)
+
+  async function sendTestEmail() {
+    setSendingTestEmail(true)
+    try {
+      const res = await fetch("/api/shgm-mevzuat/test-notification", { method: "POST" })
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) throw new Error(data.error || "Test e-postası gönderilemedi.")
+      toast.success("Test e-postası gönderildi.")
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Test e-postası gönderilemedi.")
+    } finally {
+      setSendingTestEmail(false)
+    }
+  }
 
   async function regenerateSummary() {
     setSummarizing(true)
@@ -109,13 +220,27 @@ export function ShgmMevzuatDetailClient({
 
   return (
     <div className="flex flex-col gap-5 p-4 md:p-6 max-w-3xl">
-      <Link
-        href="/compliance/shgm-mevzuat"
-        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:underline w-fit"
-      >
-        <ArrowLeft className="size-4" />
-        SHGM Mevzuat listesine dön
-      </Link>
+      <div className="flex items-center justify-between gap-3">
+        <Link
+          href="/compliance/shgm-mevzuat"
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:underline w-fit"
+        >
+          <ArrowLeft className="size-4" />
+          SHGM Mevzuat listesine dön
+        </Link>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={sendTestEmail}
+          disabled={sendingTestEmail}
+          className="gap-1.5"
+          title="Gerçek mevzuat verisi kullanmaz; scanner/notification durumunu değiştirmez."
+        >
+          <Send className={`size-3.5 ${sendingTestEmail ? "animate-pulse" : ""}`} />
+          {sendingTestEmail ? "Gönderiliyor…" : "Test Bildirim E-postası Gönder"}
+        </Button>
+      </div>
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
@@ -174,11 +299,10 @@ export function ShgmMevzuatDetailClient({
       <div className="flex flex-wrap items-end gap-3 rounded-lg border p-4">
         <div className="flex flex-col gap-1">
           <label className="text-xs text-muted-foreground">Sorumlu Departman</label>
-          <Input
+          <DepartmentCombobox
+            options={departmentOptions}
             value={department}
-            onChange={(e) => setDepartment(e.target.value)}
-            placeholder="ör. Kalite"
-            className="w-56"
+            onChange={setDepartment}
           />
         </div>
         <Button size="sm" onClick={saveDepartment} disabled={saving}>

@@ -48,13 +48,27 @@ function ctaButton(href: string, label: string): string {
   return `<a href="${escapeHtml(href)}" style="display:inline-block;margin:4px 8px 4px 0;padding:10px 18px;background:#111827;color:#fff;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;">${escapeHtml(label)}</a>`
 }
 
-function wrapEmail(heading: string, intro: string, rows: string, ctas: string): string {
+function wrapEmail(
+  heading: string,
+  intro: string,
+  rows: string,
+  ctas: string,
+  opts?: { greeting?: string; signature?: string }
+): string {
+  const greeting = opts?.greeting
+    ? `<p style="margin:0 0 12px;font-size:14px;">${escapeHtml(opts.greeting)}</p>`
+    : ""
+  const signature = opts?.signature
+    ? `<p style="margin:20px 0 0;font-size:13px;color:#374151;">${escapeHtml(opts.signature)}</p>`
+    : ""
   return `
     <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;max-width:560px;">
       <h2 style="margin:0 0 8px;font-size:18px;">${escapeHtml(heading)}</h2>
+      ${greeting}
       <p style="margin:0 0 16px;font-size:14px;color:#374151;">${escapeHtml(intro)}</p>
       <table style="border-collapse:collapse;width:100%;margin-bottom:20px;">${rows}</table>
       <div>${ctas}</div>
+      ${signature}
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0 12px;" />
       <small style="color:#9ca3af;">Bonjour SHGM Mevzuat takip sistemi tarafından otomatik gönderilmiştir.</small>
     </div>`
@@ -114,6 +128,51 @@ export function buildShgmRevisionEmail(item: ShgmNotifyItem): { subject: string;
     ctas
   )
   return { subject, html }
+}
+
+/**
+ * Sabit örnek verili test e-postası — gerçek bildirim şablonuyla aynı görsel
+ * yapıyı (wrapEmail/infoRow/ctaButton) kullanır ki tasarım gerçek maille
+ * birebir karşılaştırılabilsin. Hiçbir DB kaydına dokunmaz (bkz. sendShgmTestNotification).
+ */
+export function buildShgmTestNotificationEmail(): { subject: string; html: string } {
+  const subject = "[TEST] Yeni SHGM Mevzuatı Bildirimi — Bonjour"
+  const rows =
+    infoRow("Mevzuat Adı", "Test SHGM Mevzuatı") +
+    infoRow("Tür", "Talimat") +
+    infoRow("Kod", "TEST-001") +
+    infoRow("Durum", "Yeni Yayın") +
+    infoRow("Tespit Tarihi", fmtDate(new Date()))
+
+  const base = getAppPublicUrl()
+  const ctas = ctaButton(base ? `${base}/compliance/shgm-mevzuat` : "#", "Bonjour'da İncele")
+
+  const html = wrapEmail(
+    "[TEST] Yeni SHGM Mevzuatı Bildirimi",
+    "Bu e-posta Bonjour SHGM Mevzuat bildirim sisteminin test mesajıdır. Gerçek bir mevzuat yayını veya revizyon bildirimi değildir.",
+    rows,
+    ctas,
+    { greeting: "Merhaba,", signature: "Bon Air Compliance Monitoring" }
+  )
+  return { subject, html }
+}
+
+/**
+ * Test bildirimi gönderir — sendShgmRegulationNotification'dan tamamen bağımsızdır:
+ * hiçbir ShgmRegulation/ShgmRegulationRevision kaydını okumaz veya yazmaz, emailSentAt'i
+ * işaretlemez. Yalnızca "Test Bildirim E-postası Gönder" aksiyonu için kullanılır.
+ */
+export async function sendShgmTestNotification(): Promise<ShgmNotifySendResult> {
+  const resend = getResend()
+  if (!resend) return { skipped: true, reason: "RESEND_API_KEY not configured" }
+
+  const { subject, html } = buildShgmTestNotificationEmail()
+  const recipients = getShgmNotifyRecipients()
+  const result = await sendHtmlEmail(resend, recipients, subject, html, "shgm-notify-test")
+
+  if ("skipped" in result) return result
+  if (result.sent > 0 && result.failed === 0) return { sent: true }
+  return { sent: false, error: result.errors.join("; ") || "Unknown send failure" }
 }
 
 export type ShgmNotifySendResult =
