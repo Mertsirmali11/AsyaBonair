@@ -4,6 +4,8 @@
  * Menü yapısı taranarak (2026-07) çıkarılmıştır; site menüsü değişirse burası güncellenmeli.
  */
 
+import { slugifyManualTitle } from "@/lib/company-manual-slug"
+
 export type ShgmCategoryKey =
   | "sektorel"
   | "kurumsal"
@@ -61,3 +63,50 @@ export const SHGM_SUB_PAGES: ShgmSubPage[] = [
   { category: "kaldirilan", label: "Genelgeler", url: `${BASE}/yururlukten-kalkan-genelgeler/` },
   { category: "kaldirilan", label: "Taslaklar", url: `${BASE}/yururlukten-kalkan-taslaklar/` },
 ]
+
+/**
+ * Portal ana ekranındaki "tür" kartları (Yönetmelikler, Talimatlar, ...) —
+ * mevzuat.shgm.gov.tr menüsündeki alt sayfa etiketine karşılık gelir. DB'de ayrı
+ * bir kolon olarak TUTULMAZ: `ShgmRegulation.sourceUrl` her zaman tarandığı
+ * SHGM_SUB_PAGES girdisinin `url`'si olduğundan (bkz. lib/shgm/sync.ts,
+ * lib/shgm/scrape.ts), tür buradan geri türetilir — migration gerekmez.
+ *
+ * "Kaldırılan Mevzuat" kategorisi tür ayrımından bağımsız TEK kart olarak kalır
+ * (kullanıcı isteği — kaldırılan bir Yönetmelik, aktif Yönetmelikler kartına değil
+ * Kaldırılan Mevzuat kartına düşer).
+ *
+ * Aynı etiket birden çok üst kategoride geçiyorsa (ör. "Talimatlar" hem sektörel
+ * hem kurumsal altında var) kartlar bilerek birleştirilir — SHGM portalında da
+ * kullanıcı türe göre gezinir, üst kategoriye göre değil.
+ */
+const TYPE_DISPLAY_LABEL_OVERRIDES: Record<string, string> = {
+  "Tebliğ": "Tebliğler",
+  "Emniyet Bülteni": "Emniyet Bültenleri",
+}
+
+export type ShgmRegulationType = {
+  /** Etiketten türetilen kararlı anahtar (slug) — "kaldirilan" özel değeri hariç. */
+  key: string
+  /** Ekranda gösterilecek ad (ör. "Talimatlar", "Kaldırılan Mevzuat"). */
+  label: string
+}
+
+const KALDIRILAN_TYPE: ShgmRegulationType = {
+  key: "kaldirilan",
+  label: SHGM_CATEGORY_LABELS.kaldirilan,
+}
+
+/**
+ * Bir mevzuat kaydının (category, sourceUrl) çiftinden portal türünü türetir.
+ * `sourceUrl` SHGM_SUB_PAGES'teki taranan sayfanın URL'siyle birebir eşleşmelidir
+ * (her zaman öyledir); eşleşme bulunamazsa (site menüsü değiştiyse) üst
+ * kategori etiketine düşer — kayıt kaybolmaz, sadece daha kaba bir kartta görünür.
+ */
+export function getShgmRegulationType(category: string, sourceUrl: string): ShgmRegulationType {
+  if (category === "kaldirilan") return KALDIRILAN_TYPE
+
+  const subPage = SHGM_SUB_PAGES.find((p) => p.category === category && p.url === sourceUrl)
+  const rawLabel = subPage?.label ?? SHGM_CATEGORY_LABELS[category as ShgmCategoryKey] ?? category
+  const label = TYPE_DISPLAY_LABEL_OVERRIDES[rawLabel] ?? rawLabel
+  return { key: slugifyManualTitle(rawLabel), label }
+}
