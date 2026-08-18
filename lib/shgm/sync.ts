@@ -3,19 +3,22 @@ import "server-only"
 import { prisma } from "@/lib/prisma-server"
 import { uploadBinaryToStorage } from "@/lib/supabase-storage"
 import { slugifyManualTitle } from "@/lib/company-manual-slug"
-import { getAppPublicUrl } from "@/lib/app-public-url"
-import { escapeHtml, getResend, sendHtmlEmail } from "@/lib/mail"
 import { extractTextFromPdfBuffer } from "@/lib/extract-pdf-text"
 import {
   SHGM_CATEGORY_LABELS,
   SHGM_SUB_PAGES,
+  getShgmRegulationType,
   type ShgmCategoryKey,
 } from "@/lib/shgm/categories"
 import { scrapeShgmSubPage, type ShgmScrapedRow } from "@/lib/shgm/scrape"
 import { summarizeShgmRegulation } from "@/lib/shgm/summarize"
+import { sendShgmRegulationNotification, type ShgmNotifyItem } from "@/lib/shgm/notify"
 
 const PDF_MAX_BYTES = 30 * 1024 * 1024
 const PDF_FETCH_TIMEOUT_MS = 6_000
+
+/** Bir sync koşusunda eski birikmiş (backfill öncesi) unsent kayıtları da denerken sınır — tek koşuda mail selini önler. */
+const MAX_RETRY_UNSENT_PER_RUN = 20
 
 function buildSourceKey(category: ShgmCategoryKey, title: string): string {
   return `${category}::${slugifyManualTitle(title)}`.slice(0, 300)
@@ -58,9 +61,14 @@ type DetectedItem = {
   revisionId: number
   title: string
   category: ShgmCategoryKey
+  department: string | null
+  sourceUrl: string
+  publishDate: Date | null
   revisionNo: string | null
   revisionDate: Date | null
-  sourceUrl: string
+  previousRevisionNo: string | null
+  previousRevisionDate: Date | null
+  detectedAt: Date
 }
 
 export type ShgmSyncSummary = {
@@ -69,10 +77,7 @@ export type ShgmSyncSummary = {
   totalRowsSeen: number
   created: number
   revised: number
-  emailDelivery:
-    | { skipped: true; reason: string }
-    | { sent: number; failed: number; errors: string[] }
-    | null
+  emailDelivery: { attempted: number; sent: number; failed: number; skipped: boolean } | null
 }
 
 /**
@@ -209,9 +214,14 @@ export async function runShgmMevzuatSync(): Promise<ShgmSyncSummary> {
         revisionId: revision.id,
         title: row.title,
         category: row.category,
+        department: created.department,
+        sourceUrl: row.sourceUrl,
+        publishDate: row.publishDate,
         revisionNo: row.revisionNo,
         revisionDate: row.revisionDate,
-        sourceUrl: row.sourceUrl,
+        previousRevisionNo: null,
+        previousRevisionDate: null,
+        detectedAt: revision.detectedAt,
       })
       continue
     }
@@ -272,13 +282,19 @@ export async function runShgmMevzuatSync(): Promise<ShgmSyncSummary> {
       revisionId: revision.id,
       title: row.title,
       category: row.category,
+      department: existingRow.department,
+      sourceUrl: row.sourceUrl,
+      publishDate: row.publishDate ?? existingRow.publishDate,
       revisionNo: row.revisionNo,
       revisionDate: row.revisionDate,
-      sourceUrl: row.sourceUrl,
+      previousRevisionNo: existingRow.latestRevisionNo,
+      previousRevisionDate: existingRow.latestRevisionDate,
+      detectedAt: revision.detectedAt,
     })
   }
 
-  const emailDelivery = await notifyDetectedItems(detected)
+  // Mail gönderimi tarama sonucunu asla bozmamalı — her adım kendi içinde yutulur.
+  const emailDelivery = await notifyAllPending(detected)
 
   return {
     scannedSubPages: SHGM_SUB_PAGES.length,
@@ -290,77 +306,120 @@ export async function runShgmMevzuatSync(): Promise<ShgmSyncSummary> {
   }
 }
 
-async function notifyDetectedItems(
-  items: DetectedItem[]
+/**
+ * Bu koşuda tespit edilen NEW/REVISED olayları için mevzuat başına tek bildirim
+ * gönderir, ardından önceki koşulardan kalmış (ör. Resend o an erişilemezdi)
+ * `emailSentAt IS NULL` revizyonları da sınırlı sayıda yeniden dener.
+ *
+ * emailSentAt yalnızca gönderim GERÇEKTEN başarılıysa işaretlenir — böylece
+ * başarısız gönderimler bir sonraki taramada otomatik retry edilir ve aynı
+ * mevzuat+revizyon için asla iki kez başarılı mail gitmez (revision satırı
+ * zaten olay başına tekil olduğundan doğal dedup sağlanır).
+ */
+async function notifyAllPending(
+  detected: DetectedItem[]
 ): Promise<ShgmSyncSummary["emailDelivery"]> {
-  if (items.length === 0) return null
+  let attempted = 0
+  let sent = 0
+  let failed = 0
+  let anySkipped = false
 
-  const notifyEmail = process.env.SHGM_MEVZUAT_NOTIFY_EMAIL?.trim()
-  if (!notifyEmail) {
-    console.warn(
-      "[shgm-sync] SHGM_MEVZUAT_NOTIFY_EMAIL not configured — skipping notification email."
-    )
-    return { skipped: true, reason: "SHGM_MEVZUAT_NOTIFY_EMAIL not configured" }
+  for (const item of detected) {
+    const result = await trySendAndMark({
+      kind: item.kind,
+      regulationId: item.regulationId,
+      revisionId: item.revisionId,
+      title: item.title,
+      typeLabel: getShgmRegulationType(item.category, item.sourceUrl).label,
+      department: item.department,
+      sourceUrl: item.sourceUrl,
+      publishDate: item.publishDate,
+      revisionNo: item.revisionNo,
+      revisionDate: item.revisionDate,
+      previousRevisionNo: item.previousRevisionNo,
+      previousRevisionDate: item.previousRevisionDate,
+      detectedAt: item.detectedAt,
+    })
+    attempted += 1
+    if (result === "sent") sent += 1
+    else if (result === "failed") failed += 1
+    else anySkipped = true
   }
 
-  const base = getAppPublicUrl()
-  const rows = items
-    .map((item) => {
-      const detailLink = base ? `${base}/compliance/shgm-mevzuat/${item.regulationId}` : ""
-      const kindLabel = item.kind === "created" ? "Yeni mevzuat" : "Revizyon"
-      const revisionInfo = [
-        item.revisionNo ? `No: ${escapeHtml(item.revisionNo)}` : null,
-        item.revisionDate
-          ? `Tarih: ${item.revisionDate.toLocaleDateString("tr-TR")}`
-          : null,
-      ]
-        .filter(Boolean)
-        .join(" · ")
-      return `
-        <tr>
-          <td style="padding:8px;border-bottom:1px solid #eee;"><strong>${escapeHtml(kindLabel)}</strong></td>
-          <td style="padding:8px;border-bottom:1px solid #eee;">${escapeHtml(SHGM_CATEGORY_LABELS[item.category])}</td>
-          <td style="padding:8px;border-bottom:1px solid #eee;">${escapeHtml(item.title)}${revisionInfo ? `<br /><small>${escapeHtml(revisionInfo)}</small>` : ""}</td>
-          <td style="padding:8px;border-bottom:1px solid #eee;">
-            <a href="${escapeHtml(item.sourceUrl)}">SHGM</a>${detailLink ? ` · <a href="${escapeHtml(detailLink)}">Detay</a>` : ""}
-          </td>
-        </tr>`
+  // Bu koşuda tespit edilenler dışında, daha önce gönderilememiş eski kayıtları da dene.
+  try {
+    const alreadyHandled = new Set(detected.map((d) => d.revisionId))
+    const unsent = await prisma.shgmRegulationRevision.findMany({
+      where: { emailSentAt: null, kind: { in: ["created", "revised"] } },
+      orderBy: { detectedAt: "asc" },
+      take: MAX_RETRY_UNSENT_PER_RUN + alreadyHandled.size,
+      include: { regulation: true },
     })
-    .join("")
 
-  const html = `
-    <h2>SHGM Mevzuat Güncellemeleri</h2>
-    <p>${items.length} kayıt tespit edildi (yeni yayım veya revizyon).</p>
-    <table style="border-collapse:collapse;width:100%;">
-      <thead>
-        <tr>
-          <th style="text-align:left;padding:8px;border-bottom:2px solid #ccc;">Tür</th>
-          <th style="text-align:left;padding:8px;border-bottom:2px solid #ccc;">Kategori</th>
-          <th style="text-align:left;padding:8px;border-bottom:2px solid #ccc;">Mevzuat</th>
-          <th style="text-align:left;padding:8px;border-bottom:2px solid #ccc;">Bağlantı</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <hr />
-    <small>Bonjour portalı SHGM Mevzuat takip sistemi tarafından otomatik gönderilmiştir.</small>
-  `
+    for (const rev of unsent) {
+      if (alreadyHandled.has(rev.id)) continue
+      if (attempted - detected.length >= MAX_RETRY_UNSENT_PER_RUN) break
 
-  const resend = getResend()
-  const result = await sendHtmlEmail(
-    resend,
-    [notifyEmail],
-    `SHGM Mevzuat Güncellemesi — ${items.length} kayıt`,
-    html,
-    "shgm-sync"
-  )
+      let previousRevisionNo: string | null = null
+      let previousRevisionDate: Date | null = null
+      if (rev.kind === "revised") {
+        const prior = await prisma.shgmRegulationRevision.findFirst({
+          where: { regulationId: rev.regulationId, detectedAt: { lt: rev.detectedAt } },
+          orderBy: { detectedAt: "desc" },
+        })
+        previousRevisionNo = prior?.revisionNo ?? null
+        previousRevisionDate = prior?.revisionDate ?? null
+      }
 
-  if (!("skipped" in result) || !result.skipped) {
-    await prisma.shgmRegulationRevision.updateMany({
-      where: { id: { in: items.map((i) => i.revisionId) } },
-      data: { emailSentAt: new Date() },
-    })
+      const result = await trySendAndMark({
+        kind: rev.kind === "revised" ? "revised" : "created",
+        regulationId: rev.regulationId,
+        revisionId: rev.id,
+        title: rev.regulation.title,
+        typeLabel: getShgmRegulationType(rev.regulation.category, rev.sourceUrl).label,
+        department: rev.regulation.department,
+        sourceUrl: rev.sourceUrl,
+        publishDate: rev.regulation.publishDate,
+        revisionNo: rev.revisionNo,
+        revisionDate: rev.revisionDate,
+        previousRevisionNo,
+        previousRevisionDate,
+        detectedAt: rev.detectedAt,
+      })
+      attempted += 1
+      if (result === "sent") sent += 1
+      else if (result === "failed") failed += 1
+      else anySkipped = true
+    }
+  } catch (e) {
+    console.error("[shgm-sync] unsent-notification retry failed:", e)
   }
 
-  return result
+  if (attempted === 0) return null
+  return { attempted, sent, failed, skipped: anySkipped }
+}
+
+/** Tek bir olay için mail gönderir; yalnızca gerçek başarıda emailSentAt işaretler. Asla throw etmez. */
+async function trySendAndMark(
+  item: ShgmNotifyItem & { revisionId: number }
+): Promise<"sent" | "failed" | "skipped"> {
+  try {
+    const result = await sendShgmRegulationNotification(item)
+    if ("skipped" in result) {
+      console.warn(`[shgm-sync] notification skipped for revision ${item.revisionId}:`, result.reason)
+      return "skipped"
+    }
+    if (result.sent) {
+      await prisma.shgmRegulationRevision.update({
+        where: { id: item.revisionId },
+        data: { emailSentAt: new Date() },
+      })
+      return "sent"
+    }
+    console.error(`[shgm-sync] notification failed for revision ${item.revisionId}:`, result.error)
+    return "failed"
+  } catch (e) {
+    console.error(`[shgm-sync] notification threw for revision ${item.revisionId}:`, e)
+    return "failed"
+  }
 }

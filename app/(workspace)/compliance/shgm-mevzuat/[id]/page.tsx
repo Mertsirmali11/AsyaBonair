@@ -10,6 +10,7 @@ import {
   type ShgmRegulationDetail,
 } from "@/components/compliance/shgm-mevzuat-detail-client"
 import { SHGM_CATEGORY_LABELS } from "@/lib/shgm/categories"
+import { mergeDepartmentLists } from "@/lib/organization-departments"
 
 export default async function ShgmMevzuatDetailPage({
   params,
@@ -30,11 +31,21 @@ export default async function ShgmMevzuatDetailPage({
   const numericId = Number.parseInt(id, 10)
   if (Number.isNaN(numericId)) notFound()
 
-  const regulation = await prisma.shgmRegulation.findUnique({
-    where: { id: numericId },
-    include: { revisions: { orderBy: { detectedAt: "desc" } } },
-  })
+  const [regulation, registeredDepartments] = await Promise.all([
+    prisma.shgmRegulation.findUnique({
+      where: { id: numericId },
+      include: { revisions: { orderBy: { detectedAt: "desc" } } },
+    }),
+    prisma.customDepartment.findMany({ orderBy: { name: "asc" }, select: { name: true } }),
+  ])
   if (!regulation) notFound()
+
+  // Kayıtta zaten bir departman varsa ama kayıt listesinde yoksa (eski serbest
+  // metin girişi) yine de seçenek olarak göster — veri kaybolmasın.
+  const departmentOptions = mergeDepartmentLists(
+    registeredDepartments.map((d) => d.name),
+    regulation.department ? [regulation.department] : []
+  )
 
   const detail: ShgmRegulationDetail = {
     id: regulation.id,
@@ -63,7 +74,11 @@ export default async function ShgmMevzuatDetailPage({
   return (
     <>
       <NavPageTitle navKey="shgmMevzuat" />
-      <ShgmMevzuatDetailClient detail={detail} categoryLabels={SHGM_CATEGORY_LABELS} />
+      <ShgmMevzuatDetailClient
+        detail={detail}
+        categoryLabels={SHGM_CATEGORY_LABELS}
+        departmentOptions={departmentOptions}
+      />
     </>
   )
 }
