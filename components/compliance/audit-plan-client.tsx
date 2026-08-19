@@ -110,7 +110,9 @@ export const statusStyles: Record<string, string> = {
   Initialized: "bg-emerald-600 text-white",
   Postponed:   "bg-sky-600 text-white",
   Completed:   "bg-teal-600 text-white",
-  Cancelled:   "bg-slate-500 text-white",
+  // Sistemin genelinde kullanılan destructive/red renk tokenı (bkz. components/ui/badge.tsx
+  // "destructive" variant) — Cancelled kesin olarak kırmızı görünmeli, yeni renk icat edilmedi.
+  Cancelled:   "bg-destructive text-white dark:bg-destructive/60",
   Reopened:    "bg-violet-600 text-white",
 }
 
@@ -1550,7 +1552,16 @@ export function AuditPlanClient() {
                       {renderSortIcon("field")}
                     </button>
                   </TableHead>
-                  <TableHead className="whitespace-nowrap text-center">C / T</TableHead>
+                  <TableHead className="whitespace-nowrap text-center">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="cursor-default">C / T</span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" sideOffset={6}>
+                        Kapalı Bulgular / Toplam Bulgular
+                      </TooltipContent>
+                    </Tooltip>
+                  </TableHead>
                   <TableHead>
                     <button
                       type="button"
@@ -1679,7 +1690,16 @@ export function AuditPlanClient() {
                         <span className="hover:text-primary hover:underline underline-offset-2">{row.auditNumber}</span>
                       </TableCell>
                       <TableCell className="max-w-[240px] text-sm">{row.field}</TableCell>
-                      <TableCell className="text-center font-mono text-sm">{row.ct}</TableCell>
+                      <TableCell className="text-center font-mono text-sm">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-default">{row.ct}</span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" sideOffset={6}>
+                            Kapalı Bulgular / Toplam Bulgular
+                          </TooltipContent>
+                        </Tooltip>
+                      </TableCell>
                       <TableCell className="max-w-[240px] text-sm">
                         {row.auditors?.trim() ? (
                           <Tooltip>
