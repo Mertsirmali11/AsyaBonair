@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ArrowDown, ArrowUp, ArrowUpDown, Pencil, Plus, Trash2, Users } from "lucide-react"
+import { Pencil, Plus, Trash2, Users } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
+  SortableTableHead,
   Table,
   TableBody,
   TableCell,
@@ -33,6 +34,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { EmployeeMultiSelect } from "@/components/compliance/audit-plan-client"
+import { sortRowsBy, useSortableTable } from "@/hooks/use-sortable-table"
 
 type GroupMember = { id: number; name: string; department: string | null }
 type GroupRow = {
@@ -63,24 +65,7 @@ export function ConfigUserGroupsClient() {
   const [loading, setLoading] = React.useState(true)
   const [calisanlar, setCalisanlar] = React.useState<CalisanLite[]>([])
   const [departments, setDepartments] = React.useState<string[]>([])
-  const [sortColumn, setSortColumn] = React.useState<GroupSortColumn | null>(null)
-  const [sortDir, setSortDir] = React.useState<"asc" | "desc">("asc")
-
-  const toggleSort = (column: GroupSortColumn) => {
-    setSortColumn((prevCol) => {
-      if (prevCol === column) {
-        setSortDir((prevDir) => (prevDir === "asc" ? "desc" : "asc"))
-        return prevCol
-      }
-      setSortDir("asc")
-      return column
-    })
-  }
-
-  const renderSortIcon = (column: GroupSortColumn) => {
-    if (sortColumn !== column) return <ArrowUpDown className="size-3.5 opacity-50" />
-    return sortDir === "asc" ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />
-  }
+  const { sortColumn, sortDir, toggleSort } = useSortableTable<GroupSortColumn>()
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -234,21 +219,13 @@ export function ConfigUserGroupsClient() {
 
   // Description/Members bilerek sortable değil — serbest metin / liste. Name ve
   // Member Count için client-side sıralama (yeni API/N+1 yok, halihazırda yüklü liste).
-  const sortedGroups = React.useMemo(() => {
-    if (!sortColumn) return groups
-    const withKey = groups.map((g) => ({
-      g,
-      key: sortColumn === "name" ? g.name.trim().toLowerCase() : g.memberCount,
-    }))
-    withKey.sort((a, b) => {
-      const cmp =
-        typeof a.key === "number" && typeof b.key === "number"
-          ? a.key - b.key
-          : String(a.key).localeCompare(String(b.key), "tr", { numeric: true, sensitivity: "base" })
-      return sortDir === "asc" ? cmp : -cmp
-    })
-    return withKey.map((x) => x.g)
-  }, [groups, sortColumn, sortDir])
+  const sortedGroups = React.useMemo(
+    () =>
+      sortRowsBy(groups, sortColumn, sortDir, (g, column) =>
+        column === "name" ? g.name.trim().toLowerCase() : g.memberCount
+      ),
+    [groups, sortColumn, sortDir]
+  )
 
   return (
     <div className="flex flex-col gap-6">
@@ -275,30 +252,23 @@ export function ConfigUserGroupsClient() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>
-                    <button
-                      type="button"
-                      onClick={() => toggleSort("name")}
-                      className="hover:text-foreground inline-flex items-center gap-1"
-                      title="Sırala"
-                    >
-                      Group Name
-                      {renderSortIcon("name")}
-                    </button>
-                  </TableHead>
+                  <SortableTableHead
+                    active={sortColumn === "name"}
+                    direction={sortDir}
+                    onClick={() => toggleSort("name")}
+                  >
+                    Group Name
+                  </SortableTableHead>
                   <TableHead>Description</TableHead>
                   <TableHead>Members</TableHead>
-                  <TableHead className="text-center">
-                    <button
-                      type="button"
-                      onClick={() => toggleSort("memberCount")}
-                      className="hover:text-foreground inline-flex items-center gap-1"
-                      title="Sırala"
-                    >
-                      Member Count
-                      {renderSortIcon("memberCount")}
-                    </button>
-                  </TableHead>
+                  <SortableTableHead
+                    className="text-center"
+                    active={sortColumn === "memberCount"}
+                    direction={sortDir}
+                    onClick={() => toggleSort("memberCount")}
+                  >
+                    Member Count
+                  </SortableTableHead>
                   <TableHead className="text-right">İşlem</TableHead>
                 </TableRow>
               </TableHeader>

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
@@ -113,6 +114,51 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   )
 }
 
+type SortableTableHeadProps = React.ComponentProps<"th"> & {
+  /** Bu kolon şu an aktif sıralama kolonu mu (ikon/state ona göre gösterilir). */
+  active: boolean
+  /** Aktifken hangi yönde (ArrowUp/ArrowDown); pasifken kullanılmaz. */
+  direction: "asc" | "desc"
+  onClick: () => void
+}
+
+/**
+ * Findings Follow Up / Audit Plan'da kurulan sortable kolon başlığı deseninin
+ * paylaşılan hali — her sayfada aynı buton/ikon JSX'i tekrar yazmak yerine
+ * bunu kullanın. Sıralama state/karşılaştırma mantığı için
+ * `hooks/use-sortable-table.ts`'teki `useSortableTable` + `sortRowsBy`.
+ */
+function SortableTableHead({
+  active,
+  direction,
+  onClick,
+  className,
+  children,
+  ...props
+}: SortableTableHeadProps) {
+  return (
+    <TableHead className={className} {...props}>
+      <button
+        type="button"
+        onClick={onClick}
+        className="hover:text-foreground inline-flex items-center gap-1"
+        title="Sırala"
+      >
+        {children}
+        {active ? (
+          direction === "asc" ? (
+            <ArrowUp className="size-3.5" />
+          ) : (
+            <ArrowDown className="size-3.5" />
+          )
+        ) : (
+          <ArrowUpDown className="size-3.5 opacity-50" />
+        )}
+      </button>
+    </TableHead>
+  )
+}
+
 function TableCell({ className, ...props }: React.ComponentProps<"td">) {
   return (
     <td
@@ -145,6 +191,7 @@ export {
   TableBody,
   TableFooter,
   TableHead,
+  SortableTableHead,
   TableRow,
   TableCell,
   TableCaption,
