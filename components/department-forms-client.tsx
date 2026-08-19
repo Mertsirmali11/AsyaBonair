@@ -53,6 +53,10 @@ import {
 import { cn } from "@/lib/utils"
 import { OrphanedArchiveCard } from "@/components/orphaned-archive-card"
 import { PaginationControls } from "@/components/pagination-controls"
+import {
+  departmentNamesMatch,
+  resolveCanonicalDepartmentName,
+} from "@/lib/department-name-match"
 
 const DEFAULT_PAGE_SIZE = 10
 
@@ -387,7 +391,9 @@ export function DepartmentFormsClient() {
       skipUploadResetOnOpenRef.current = true
       setTitle(m.title)
       setFormNumber(m.formNumber ?? "")
-      setDepartment(m.department)
+      // Satırın departman metni eski (yeniden adlandırılmadan önceki) olabilir;
+      // dropdown yalnızca canonical değerleri kabul ettiği için çözümleyerek set ediyoruz.
+      setDepartment(resolveCanonicalDepartmentName(m.department, departmentOptions))
       setUploadMode("revision")
       setSupersedesId(String(m.id))
       setRevisionInput(String(Math.min(m.revision + 1, 999999)))
@@ -395,7 +401,7 @@ export function DepartmentFormsClient() {
       if (fileInputRef.current) fileInputRef.current.value = ""
       setUploadOpen(true)
     },
-    []
+    [departmentOptions]
   )
 
   const openFreshUpload = React.useCallback(() => {
@@ -583,14 +589,17 @@ export function DepartmentFormsClient() {
     if (!canManageAll) return items
     const d = departmentFilter.trim()
     if (!d) return items
-    return items.filter((m) => m.department === d)
+    // Eski kayıtlarda departman adı Configurations'ta yeniden adlandırılmadan
+    // önceki hâliyle kalmış olabilir (bkz. lib/department-name-match.ts) —
+    // canonical (dropdown) değerle bilinen eski adları da eşleştir.
+    return items.filter((m) => departmentNamesMatch(m.department, d))
   }, [items, canManageAll, departmentFilter])
 
   const archivedForList = React.useMemo(() => {
     if (!canManageAll) return archivedItems
     const d = departmentFilter.trim()
     if (!d) return archivedItems
-    return archivedItems.filter((m) => m.department === d)
+    return archivedItems.filter((m) => departmentNamesMatch(m.department, d))
   }, [archivedItems, canManageAll, departmentFilter])
 
   const filteredCurrent = React.useMemo(
@@ -647,8 +656,18 @@ export function DepartmentFormsClient() {
     const id = Number.parseInt(supersedesId, 10)
     if (!Number.isFinite(id)) return
     const row = revisionParentOptions.find((r) => r.id === id)
-    if (row) setFormNumber(row.formNumber ?? "")
-  }, [uploadMode, supersedesId, revisionParentOptions])
+    if (!row) return
+    setFormNumber(row.formNumber ?? "")
+    // Seçilen satırın departmanı eski (yeniden adlandırılmadan önceki) bir
+    // metin olabilir; "Sahip departman" alanı yalnızca canonical dropdown
+    // değerlerini kabul ettiği için çözümleyerek prefill ediyoruz. Kullanıcı
+    // isterse elle değiştirebilir.
+    const canonicalDept = resolveCanonicalDepartmentName(
+      row.department,
+      departmentOptions
+    )
+    if (canonicalDept) setDepartment(canonicalDept)
+  }, [uploadMode, supersedesId, revisionParentOptions, departmentOptions])
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">

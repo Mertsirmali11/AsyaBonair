@@ -1,4 +1,5 @@
 import { isAdminDepartment } from "@/lib/department-access"
+import { departmentNamesMatch } from "@/lib/department-name-match"
 
 /** Yalnızca Admin — tüm departman formlarını görür / her departman adına yükleyebilir. */
 export function canManageAllDepartmentForms(
@@ -31,13 +32,17 @@ export function effectiveDepartmanForDepartmentForms(
   return null
 }
 
-/** Görüntüleme: yönetici veya satırın departmanı kullanıcıyla aynı. */
+/**
+ * Görüntüleme: yönetici veya satırın departmanı kullanıcıyla aynı.
+ * Departman adı sonradan değiştiyse (bkz. lib/department-name-match.ts) eski
+ * kayıtlar hâlâ eski adı taşıyabilir; `departmentNamesMatch` bunu da eşler.
+ */
 export function canViewDepartmentFormRow(
   viewerDept: string | null | undefined,
   formDepartment: string
 ): boolean {
   if (canManageAllDepartmentForms(viewerDept)) return true
-  return normalizeDeptLabel(viewerDept) === normalizeDeptLabel(formDepartment)
+  return departmentNamesMatch(viewerDept, formDepartment)
 }
 
 /** Düzenleme / yükleme / arşiv / silme — yalnızca satırın departmanı veya Admin. */

@@ -21,6 +21,10 @@ import { slugifyManualTitle } from "@/lib/company-manual-slug"
 import { extractPlainTextFromUploadedDocument } from "@/lib/extract-uploaded-document-text"
 import { deletePdfFromStorage, uploadPdfToStorage } from "@/lib/supabase-storage"
 import { orphanedArchiveSeriesFilter } from "@/lib/orphaned-series-archives"
+import {
+  departmentNameVariants,
+  resolveCanonicalDepartmentName,
+} from "@/lib/department-name-match"
 
 export const runtime = "nodejs"
 
@@ -121,11 +125,19 @@ export async function GET() {
         })
       : null
 
+    // Departman adı Configurations'ta değişmiş olabilir (bkz. lib/department-name-match.ts);
+    // eski kayıtlar hâlâ eski adı taşıyabildiğinden bilinen tüm varyantlarla eşleştiriyoruz.
+    const deptVariants = departmentNameVariants(departman)
+    const departmentWhereValue = {
+      in: deptVariants.length > 0 ? deptVariants : ["__none__"],
+      mode: "insensitive" as const,
+    }
+
     const currentWhere = manageAll
       ? { isCurrent: true }
       : {
           isCurrent: true,
-          department: normalizeDeptLabel(departman) || "__none__",
+          department: departmentWhereValue,
           OR: [
             { status: "approved" },
             ...(ownCalisan ? [{ createdBy: ownCalisan.id }] : []),
@@ -188,7 +200,7 @@ export async function GET() {
       ...(manageAll
         ? {}
         : {
-            department: normalizeDeptLabel(departman) || "__none__",
+            department: departmentWhereValue,
             OR: [
               { status: "approved" as const },
               ...(ownCalisan ? [{ createdBy: ownCalisan.id }] : []),
@@ -494,7 +506,9 @@ export async function POST(req: NextRequest) {
             slug,
             contentText,
             createdBy: calisan.id,
-            department: prior.department,
+            // Seri, kayıt anındaki (belki eski) departman metnini taşıyor olabilir
+            // (bkz. lib/department-name-match.ts); yeni revizyon canonical adla kaydedilsin.
+            department: resolveCanonicalDepartmentName(prior.department, deptRegistry),
             seriesId: prior.seriesId,
             revision: revisionNum,
             isCurrent: true,
