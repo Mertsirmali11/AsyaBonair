@@ -1493,11 +1493,25 @@ export function AuditPlanClient() {
 
         <div className="bg-card rounded-lg border shadow-sm">
           <ScrollArea className="h-[min(70vh,760px)]">
-            <Table>
+            <Table className="table-fixed min-w-[1280px]">
+              {/* Sabit kolon genişlikleri — table-layout: fixed altında hücreler birbirinin
+                  üzerine taşmaz; auto-layout'ta whitespace-nowrap + max-w kombinasyonu
+                  bunu garanti etmiyordu (C/T ve Auditors'ın üst üste binmesinin nedeni buydu). */}
+              <colgroup>
+                <col className="w-10" />
+                <col className="w-[140px]" />
+                <col className="w-[156px]" />
+                <col className="w-[156px]" />
+                <col className="w-[150px]" />
+                <col className="w-[210px]" />
+                <col className="w-[92px]" />
+                <col />
+                <col className="w-[112px]" />
+              </colgroup>
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow className="bg-muted/40 hover:bg-muted/40">
-                  <TableHead className="w-10 px-2 text-center" />
-                  <TableHead className="whitespace-nowrap">
+                  <TableHead className="w-10 overflow-hidden px-2 text-center" />
+                  <TableHead className="overflow-hidden whitespace-nowrap">
                     <button
                       type="button"
                       onClick={() => toggleSort("datePlanned")}
@@ -1508,7 +1522,7 @@ export function AuditPlanClient() {
                       {renderSortIcon("datePlanned")}
                     </button>
                   </TableHead>
-                  <TableHead className="whitespace-nowrap">
+                  <TableHead className="overflow-hidden whitespace-nowrap">
                     <button
                       type="button"
                       onClick={() => toggleSort("datePostponed")}
@@ -1519,7 +1533,7 @@ export function AuditPlanClient() {
                       {renderSortIcon("datePostponed")}
                     </button>
                   </TableHead>
-                  <TableHead className="whitespace-nowrap">
+                  <TableHead className="overflow-hidden whitespace-nowrap">
                     <button
                       type="button"
                       onClick={() => toggleSort("initializedDate")}
@@ -1530,7 +1544,7 @@ export function AuditPlanClient() {
                       {renderSortIcon("initializedDate")}
                     </button>
                   </TableHead>
-                  <TableHead className="whitespace-nowrap">
+                  <TableHead className="overflow-hidden whitespace-nowrap">
                     <button
                       type="button"
                       onClick={() => toggleSort("auditNumber")}
@@ -1541,7 +1555,7 @@ export function AuditPlanClient() {
                       {renderSortIcon("auditNumber")}
                     </button>
                   </TableHead>
-                  <TableHead>
+                  <TableHead className="overflow-hidden">
                     <button
                       type="button"
                       onClick={() => toggleSort("field")}
@@ -1552,7 +1566,7 @@ export function AuditPlanClient() {
                       {renderSortIcon("field")}
                     </button>
                   </TableHead>
-                  <TableHead className="whitespace-nowrap text-center">
+                  <TableHead className="overflow-hidden whitespace-nowrap text-center">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <span className="cursor-default">C / T</span>
@@ -1562,7 +1576,7 @@ export function AuditPlanClient() {
                       </TooltipContent>
                     </Tooltip>
                   </TableHead>
-                  <TableHead>
+                  <TableHead className="overflow-hidden">
                     <button
                       type="button"
                       onClick={() => toggleSort("auditors")}
@@ -1573,7 +1587,7 @@ export function AuditPlanClient() {
                       {renderSortIcon("auditors")}
                     </button>
                   </TableHead>
-                  <TableHead className="text-right whitespace-nowrap">
+                  <TableHead className="overflow-hidden text-right whitespace-nowrap">
                     <button
                       type="button"
                       onClick={() => toggleSort("status")}
@@ -1677,20 +1691,26 @@ export function AuditPlanClient() {
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap font-mono text-sm">
+                      <TableCell className="overflow-hidden whitespace-nowrap font-mono text-sm">
                         {row.datePlanned}
                       </TableCell>
-                      <TableCell className="text-muted-foreground whitespace-nowrap text-sm">
+                      <TableCell className="text-muted-foreground overflow-hidden whitespace-nowrap text-sm">
                         {row.datePostponed ?? "—"}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap text-sm">
+                      <TableCell className="overflow-hidden whitespace-nowrap text-sm">
                         {row.initializedDate ?? "—"}
                       </TableCell>
-                      <TableCell className="font-mono text-sm">
-                        <span className="hover:text-primary hover:underline underline-offset-2">{row.auditNumber}</span>
+                      <TableCell className="overflow-hidden font-mono text-sm">
+                        <span className="block truncate hover:text-primary hover:underline underline-offset-2" title={row.auditNumber}>
+                          {row.auditNumber}
+                        </span>
                       </TableCell>
-                      <TableCell className="max-w-[240px] text-sm">{row.field}</TableCell>
-                      <TableCell className="text-center font-mono text-sm">
+                      <TableCell className="overflow-hidden text-sm">
+                        <span className="block truncate" title={row.field}>
+                          {row.field}
+                        </span>
+                      </TableCell>
+                      <TableCell className="overflow-hidden text-center font-mono text-sm">
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <span className="cursor-default">{row.ct}</span>
@@ -1700,7 +1720,7 @@ export function AuditPlanClient() {
                           </TooltipContent>
                         </Tooltip>
                       </TableCell>
-                      <TableCell className="max-w-[240px] text-sm">
+                      <TableCell className="overflow-hidden text-sm">
                         {row.auditors?.trim() ? (
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -1716,10 +1736,10 @@ export function AuditPlanClient() {
                           <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="overflow-hidden text-right whitespace-nowrap">
                         <span
                           className={cn(
-                            "inline-flex rounded px-2 py-0.5 text-xs font-medium",
+                            "inline-flex max-w-full truncate rounded px-2 py-0.5 text-xs font-medium",
                             statusStyles[row.status] ?? "bg-slate-500 text-white"
                           )}
                         >
