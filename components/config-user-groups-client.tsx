@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Pencil, Plus, Trash2, Users } from "lucide-react"
+import { ArrowDown, ArrowUp, ArrowUpDown, Pencil, Plus, Trash2, Users } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -56,11 +56,31 @@ async function parseJson(res: Response): Promise<unknown> {
   try { return JSON.parse(t) as unknown } catch { return null }
 }
 
+type GroupSortColumn = "name" | "memberCount"
+
 export function ConfigUserGroupsClient() {
   const [groups, setGroups] = React.useState<GroupRow[]>([])
   const [loading, setLoading] = React.useState(true)
   const [calisanlar, setCalisanlar] = React.useState<CalisanLite[]>([])
   const [departments, setDepartments] = React.useState<string[]>([])
+  const [sortColumn, setSortColumn] = React.useState<GroupSortColumn | null>(null)
+  const [sortDir, setSortDir] = React.useState<"asc" | "desc">("asc")
+
+  const toggleSort = (column: GroupSortColumn) => {
+    setSortColumn((prevCol) => {
+      if (prevCol === column) {
+        setSortDir((prevDir) => (prevDir === "asc" ? "desc" : "asc"))
+        return prevCol
+      }
+      setSortDir("asc")
+      return column
+    })
+  }
+
+  const renderSortIcon = (column: GroupSortColumn) => {
+    if (sortColumn !== column) return <ArrowUpDown className="size-3.5 opacity-50" />
+    return sortDir === "asc" ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />
+  }
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -212,6 +232,24 @@ export function ConfigUserGroupsClient() {
     }
   }
 
+  // Description/Members bilerek sortable değil — serbest metin / liste. Name ve
+  // Member Count için client-side sıralama (yeni API/N+1 yok, halihazırda yüklü liste).
+  const sortedGroups = React.useMemo(() => {
+    if (!sortColumn) return groups
+    const withKey = groups.map((g) => ({
+      g,
+      key: sortColumn === "name" ? g.name.trim().toLowerCase() : g.memberCount,
+    }))
+    withKey.sort((a, b) => {
+      const cmp =
+        typeof a.key === "number" && typeof b.key === "number"
+          ? a.key - b.key
+          : String(a.key).localeCompare(String(b.key), "tr", { numeric: true, sensitivity: "base" })
+      return sortDir === "asc" ? cmp : -cmp
+    })
+    return withKey.map((x) => x.g)
+  }, [groups, sortColumn, sortDir])
+
   return (
     <div className="flex flex-col gap-6">
       <p className="text-muted-foreground max-w-3xl text-sm leading-relaxed">
@@ -237,10 +275,30 @@ export function ConfigUserGroupsClient() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Group Name</TableHead>
+                  <TableHead>
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("name")}
+                      className="hover:text-foreground inline-flex items-center gap-1"
+                      title="Sırala"
+                    >
+                      Group Name
+                      {renderSortIcon("name")}
+                    </button>
+                  </TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead>Members</TableHead>
-                  <TableHead className="text-center">Member Count</TableHead>
+                  <TableHead className="text-center">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("memberCount")}
+                      className="hover:text-foreground inline-flex items-center gap-1"
+                      title="Sırala"
+                    >
+                      Member Count
+                      {renderSortIcon("memberCount")}
+                    </button>
+                  </TableHead>
                   <TableHead className="text-right">İşlem</TableHead>
                 </TableRow>
               </TableHeader>
@@ -258,7 +316,7 @@ export function ConfigUserGroupsClient() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  groups.map((g) => (
+                  sortedGroups.map((g) => (
                     <TableRow key={g.id}>
                       <TableCell className="font-medium">
                         <span className="flex items-center gap-1.5">

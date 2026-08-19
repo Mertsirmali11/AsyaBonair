@@ -5,6 +5,7 @@ import { IconDeviceFloppy, IconInfoCircle } from "@tabler/icons-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
@@ -277,9 +278,14 @@ export function ConfigDepartmentPermissionsClient() {
           </div>
         )}
 
-        <div className="overflow-x-auto rounded-lg border">
-          <Table>
-            <TableHeader>
+        <div className="rounded-lg border">
+          <ScrollArea className="h-[min(65vh,700px)]">
+            {/* containerClassName: Table'ın kendi overflow-x-auto sarmalayıcısı bilerek
+                verilmiyor — ScrollArea'nın Viewport'u hem x hem y scroll'u tek elemanda
+                yönetiyor; ayrı bir iç overflow-x-auto div sticky header'ı kırar (bkz.
+                components/ui/table.tsx Table containerClassName açıklaması). */}
+            <Table containerClassName="relative w-full">
+            <TableHeader sticky>
               <TableRow>
                 <TableHead className="min-w-[160px]">{dp.colDepartment}</TableHead>
                 {catalog.map((c) => (
@@ -359,7 +365,9 @@ export function ConfigDepartmentPermissionsClient() {
                 ))
               )}
             </TableBody>
-          </Table>
+            </Table>
+            <ScrollBar orientation="horizontal" />
+          </ScrollArea>
         </div>
       </div>
     </TooltipProvider>
