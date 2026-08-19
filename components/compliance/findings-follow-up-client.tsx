@@ -5,7 +5,10 @@ import Link from "next/link"
 import { useLanguage } from "@/lib/i18n/context"
 import {
   AlertTriangle,
+  ArrowDown,
   ArrowLeft,
+  ArrowUp,
+  ArrowUpDown,
   BookOpen,
   CalendarClock,
   CheckCircle2,
@@ -41,7 +44,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import {
   Table,
   TableBody,
@@ -71,11 +74,57 @@ type FindingRow = {
   assignedTo: { id: number; name: string } | null
   assignedGroup: { id: number; name: string } | null
   cpaRequests: string
+  /** cpaRequests'in ekranda gösterilen "toplam/kabul/red" metnini oluşturan ham sayılar — sıralama bunları kullanır. */
+  totalCpa: number
+  acceptedCpa: number
+  rejectedCpa: number
   pendingCpa: number
   hasExtension: boolean
   extExpired: boolean
   isOverdue: boolean
   noCpa: boolean
+}
+
+type FollowUpSortColumn =
+  | "findingCode"
+  | "category"
+  | "auditNumber"
+  | "initializedOn"
+  | "field"
+  | "responsible"
+  | "dueDate"
+  | "cpaRequests"
+/** Sıralama anahtarı: tarih kolonları gerçek Date değeri, CPA Requests ham sayısal
+ * tuple (composite metin değil), diğerleri Türkçe-duyarlı metin. */
+function followUpSortKey(row: FindingRow, column: FollowUpSortColumn): string | number | null {
+  switch (column) {
+    case "findingCode":
+      return row.findingCode?.trim() || null
+    case "category":
+      return row.findingCategory?.trim() || null
+    case "auditNumber":
+      return row.auditNumber?.trim() || null
+    case "initializedOn": {
+      const t = new Date(row.initializedOn).getTime()
+      return Number.isFinite(t) ? t : null
+    }
+    case "field":
+      return row.field?.trim() || null
+    case "responsible":
+      // Gruba atanmışsa grup adı, kişiye atanmışsa kişi adı — aynı sıralama mantığına dahil.
+      return row.assignedGroup?.name?.trim() || row.assignedTo?.name?.trim() || null
+    case "dueDate": {
+      if (!row.dueDate) return null
+      const t = new Date(row.dueDate).getTime()
+      return Number.isFinite(t) ? t : null
+    }
+    case "cpaRequests":
+      // Ekrandaki "3/1/0" composite metnini değil, altındaki ham sayıları kullan:
+      // önce toplam istek, eşitlikte kabul, eşitlikte red — tek sayısal anahtarda birleştirilir.
+      return row.totalCpa * 1_000_000 + row.acceptedCpa * 1_000 + row.rejectedCpa
+    default:
+      return null
+  }
 }
 
 async function parseJson(res: Response): Promise<unknown> {
@@ -98,6 +147,24 @@ export function FindingsFollowUpClient() {
   const [showClosed, setShowClosed] = React.useState(true)
   const [fieldFilter, setFieldFilter] = React.useState("All")
   const [categoryFilter, setCategoryFilter] = React.useState("All")
+  const [sortColumn, setSortColumn] = React.useState<FollowUpSortColumn | null>(null)
+  const [sortDir, setSortDir] = React.useState<"asc" | "desc">("asc")
+
+  const toggleSort = (column: FollowUpSortColumn) => {
+    setSortColumn((prevCol) => {
+      if (prevCol === column) {
+        setSortDir((prevDir) => (prevDir === "asc" ? "desc" : "asc"))
+        return prevCol
+      }
+      setSortDir("asc")
+      return column
+    })
+  }
+
+  const renderSortIcon = (column: FollowUpSortColumn) => {
+    if (sortColumn !== column) return <ArrowUpDown className="size-3.5 opacity-50" />
+    return sortDir === "asc" ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />
+  }
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -146,6 +213,28 @@ export function FindingsFollowUpClient() {
       return true
     })
   }, [rows, showClosed, fieldFilter, categoryFilter])
+
+  // Filtrelenmiş sonuç üzerinde client-side sıralama — yeni API/N+1 yok, halihazırda
+  // yüklü satırlar kullanılır. Filtre değişince `filtered` yeniden hesaplanır, sort
+  // state'i (sortColumn/sortDir) korunur — aktif sıralama bozulmaz.
+  const sorted = React.useMemo(() => {
+    if (!sortColumn) return filtered
+    const withKey = filtered.map((row) => ({ row, key: followUpSortKey(row, sortColumn) }))
+    withKey.sort((a, b) => {
+      // Boş/ayrıştırılamayan değerler sıralama yönünden bağımsız olarak sona atılır.
+      if (a.key === null && b.key === null) return 0
+      if (a.key === null) return 1
+      if (b.key === null) return -1
+      // Sayısal anahtarlar (tarihler, CPA Requests) doğrudan; metin anahtarlar
+      // Türkçe-duyarlı + sayı-duyarlı (ör. "FUP-2" "FUP-10"'dan önce gelir).
+      const cmp =
+        typeof a.key === "number" && typeof b.key === "number"
+          ? a.key - b.key
+          : String(a.key).localeCompare(String(b.key), "tr", { numeric: true, sensitivity: "base" })
+      return sortDir === "asc" ? cmp : -cmp
+    })
+    return withKey.map((x) => x.row)
+  }, [filtered, sortColumn, sortDir])
 
   const summaryCards = [
     {
@@ -293,19 +382,103 @@ export function FindingsFollowUpClient() {
         {/* Table */}
         <div className="bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border shadow-sm">
           <ScrollArea className="h-[min(65vh,700px)]">
-            <Table>
-              <TableHeader>
+            {/* containerClassName: Table'ın kendi overflow-x-auto sarmalayıcısı BİLEREK
+                verilmiyor — ScrollArea'nın Viewport'u zaten hem x hem y scroll'u tek
+                elemanda yönetiyor; ayrı bir iç overflow-x-auto div sticky header'ı kırar
+                (bkz. components/ui/table.tsx Table containerClassName açıklaması). */}
+            <Table containerClassName="relative w-full">
+              <TableHeader sticky>
                 <TableRow className="bg-muted/50 hover:bg-muted/50">
                   <TableHead className="w-12 px-2" />
-                  <TableHead className="whitespace-nowrap font-semibold">Follow UP Code</TableHead>
-                  <TableHead className="whitespace-nowrap font-semibold">Category</TableHead>
-                  <TableHead className="whitespace-nowrap font-semibold">Audit Number</TableHead>
-                  <TableHead className="whitespace-nowrap font-semibold">Initialized On</TableHead>
-                  <TableHead className="font-semibold">Field</TableHead>
+                  <TableHead className="whitespace-nowrap font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("findingCode")}
+                      className="hover:text-foreground inline-flex items-center gap-1"
+                      title="Sırala"
+                    >
+                      Follow UP Code
+                      {renderSortIcon("findingCode")}
+                    </button>
+                  </TableHead>
+                  <TableHead className="whitespace-nowrap font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("category")}
+                      className="hover:text-foreground inline-flex items-center gap-1"
+                      title="Sırala"
+                    >
+                      Category
+                      {renderSortIcon("category")}
+                    </button>
+                  </TableHead>
+                  <TableHead className="whitespace-nowrap font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("auditNumber")}
+                      className="hover:text-foreground inline-flex items-center gap-1"
+                      title="Sırala"
+                    >
+                      Audit Number
+                      {renderSortIcon("auditNumber")}
+                    </button>
+                  </TableHead>
+                  <TableHead className="whitespace-nowrap font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("initializedOn")}
+                      className="hover:text-foreground inline-flex items-center gap-1"
+                      title="Sırala"
+                    >
+                      Initialized On
+                      {renderSortIcon("initializedOn")}
+                    </button>
+                  </TableHead>
+                  <TableHead className="font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("field")}
+                      className="hover:text-foreground inline-flex items-center gap-1"
+                      title="Sırala"
+                    >
+                      Field
+                      {renderSortIcon("field")}
+                    </button>
+                  </TableHead>
                   <TableHead className="font-semibold">Explanation</TableHead>
-                  <TableHead className="whitespace-nowrap font-semibold">Responsible</TableHead>
-                  <TableHead className="whitespace-nowrap font-semibold">Due Date</TableHead>
-                  <TableHead className="whitespace-nowrap font-semibold">CPA Requests</TableHead>
+                  <TableHead className="whitespace-nowrap font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("responsible")}
+                      className="hover:text-foreground inline-flex items-center gap-1"
+                      title="Sırala"
+                    >
+                      Responsible
+                      {renderSortIcon("responsible")}
+                    </button>
+                  </TableHead>
+                  <TableHead className="whitespace-nowrap font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("dueDate")}
+                      className="hover:text-foreground inline-flex items-center gap-1"
+                      title="Sırala"
+                    >
+                      Due Date
+                      {renderSortIcon("dueDate")}
+                    </button>
+                  </TableHead>
+                  <TableHead className="whitespace-nowrap font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("cpaRequests")}
+                      className="hover:text-foreground inline-flex items-center gap-1"
+                      title="Sırala"
+                    >
+                      CPA Requests
+                      {renderSortIcon("cpaRequests")}
+                    </button>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -322,7 +495,7 @@ export function FindingsFollowUpClient() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filtered.map((row) => (
+                  sorted.map((row) => (
                     <TableRow
                       key={row.id}
                       className={cn(
@@ -434,6 +607,7 @@ export function FindingsFollowUpClient() {
                 )}
               </TableBody>
             </Table>
+            <ScrollBar orientation="horizontal" />
           </ScrollArea>
         </div>
       </div>

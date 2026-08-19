@@ -1493,7 +1493,13 @@ export function AuditPlanClient() {
 
         <div className="bg-card rounded-lg border shadow-sm">
           <ScrollArea className="h-[min(70vh,760px)]">
-            <Table className="table-fixed min-w-[1280px]">
+            {/* containerClassName: Table'ın kendi overflow-x-auto sarmalayıcısı BİLEREK
+                verilmiyor — ScrollArea'nın Viewport'u zaten hem x hem y scroll'u tek
+                elemanda yönetiyor; ayrı bir iç overflow-x-auto div sticky header'ı kırar
+                (bkz. components/ui/table.tsx Table containerClassName açıklaması).
+                table-fixed/min-w/colgroup yatay scroll davranışı bundan etkilenmez —
+                Viewport zaten overflow-x'i de yönetiyor. */}
+            <Table className="table-fixed min-w-[1280px]" containerClassName="relative w-full">
               {/* Sabit kolon genişlikleri — table-layout: fixed altında hücreler birbirinin
                   üzerine taşmaz; auto-layout'ta whitespace-nowrap + max-w kombinasyonu
                   bunu garanti etmiyordu (C/T ve Auditors'ın üst üste binmesinin nedeni buydu). */}
@@ -1508,7 +1514,7 @@ export function AuditPlanClient() {
                 <col />
                 <col className="w-[112px]" />
               </colgroup>
-              <TableHeader className="sticky top-0 z-10 bg-card">
+              <TableHeader sticky>
                 <TableRow className="bg-muted/40 hover:bg-muted/40">
                   <TableHead className="w-10 overflow-hidden px-2 text-center" />
                   <TableHead className="overflow-hidden whitespace-nowrap">

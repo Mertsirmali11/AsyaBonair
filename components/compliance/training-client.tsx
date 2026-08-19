@@ -29,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import {
   Table,
   TableBody,
@@ -311,8 +312,13 @@ export function TrainingClient({
       )}
 
       <div className="bg-card overflow-hidden rounded-lg border shadow-sm">
-        <Table>
-          <TableHeader>
+        <ScrollArea className="h-[min(65vh,700px)]">
+          {/* containerClassName: Table'ın kendi overflow-x-auto sarmalayıcısı bilerek
+              verilmiyor — ScrollArea'nın Viewport'u hem x hem y scroll'u tek elemanda
+              yönetiyor; ayrı bir iç overflow-x-auto div sticky header'ı kırar (bkz.
+              components/ui/table.tsx Table containerClassName açıklaması). */}
+          <Table containerClassName="relative w-full">
+          <TableHeader sticky>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
               {!fixedCalisanId && <TableHead>Personel</TableHead>}
               {!fixedCalisanId && <TableHead>Departman</TableHead>}
@@ -404,7 +410,9 @@ export function TrainingClient({
               })
             )}
           </TableBody>
-        </Table>
+          </Table>
+          <ScrollBar orientation="horizontal" />
+        </ScrollArea>
       </div>
 
       {/* ── Create/Edit dialog ── */}
