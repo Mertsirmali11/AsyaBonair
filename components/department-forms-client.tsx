@@ -3,6 +3,7 @@
 import * as React from "react"
 import {
   IconArchive,
+  IconArchiveOff,
   IconChevronDown,
   IconEye,
   IconPencil,
@@ -51,6 +52,9 @@ import {
 } from "@/components/ui/collapsible"
 import { cn } from "@/lib/utils"
 import { OrphanedArchiveCard } from "@/components/orphaned-archive-card"
+import { PaginationControls } from "@/components/pagination-controls"
+
+const DEFAULT_PAGE_SIZE = 10
 
 type FormRow = {
   id: number
@@ -115,6 +119,13 @@ export function DepartmentFormsClient() {
   /** Boş = tüm departmanlar (Admin); dolu = filtre */
   const [departmentFilter, setDepartmentFilter] = React.useState("")
 
+  // ── Yüklü formlar listesi: sayfalama ────────────────────────────────────
+  const [page, setPage] = React.useState(1)
+  const [pageSize, setPageSize] = React.useState(DEFAULT_PAGE_SIZE)
+  // ── Arşiv listesi: ayrı sayfalama ────────────────────────────────────────
+  const [archivePage, setArchivePage] = React.useState(1)
+  const [archivePageSize, setArchivePageSize] = React.useState(DEFAULT_PAGE_SIZE)
+
   const [title, setTitle] = React.useState("")
   const [formNumber, setFormNumber] = React.useState("")
   const [department, setDepartment] = React.useState<string>("")
@@ -125,6 +136,11 @@ export function DepartmentFormsClient() {
   const [uploading, setUploading] = React.useState(false)
   const [deletingId, setDeletingId] = React.useState<number | null>(null)
   const [archivingId, setArchivingId] = React.useState<number | null>(null)
+  const [restoringId, setRestoringId] = React.useState<number | null>(null)
+  /** Aktif / Arşivlenmiş / Tümü görünüm filtresi — arşive kolay erişim için */
+  const [viewFilter, setViewFilter] = React.useState<"active" | "archived" | "all">(
+    "active"
+  )
   const [banner, setBanner] = React.useState<{
     type: "ok" | "err"
     text: string
@@ -517,6 +533,33 @@ export function DepartmentFormsClient() {
     }
   }
 
+  const restoreArchived = async (id: number) => {
+    if (
+      !confirm(
+        "Bu form revizyonunu tekrar aktif hale getirmek istediğinize emin misiniz?"
+      )
+    ) {
+      return
+    }
+    setRestoringId(id)
+    try {
+      const res = await fetch(`/api/department-forms/${id}/restore`, {
+        method: "POST",
+      })
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) throw new Error(data.error || "Arşivden çıkarılamadı")
+      setBanner({ type: "ok", text: "Form arşivden çıkarıldı." })
+      await load()
+    } catch (e) {
+      setBanner({
+        type: "err",
+        text: e instanceof Error ? e.message : "Arşivden çıkarılamadı",
+      })
+    } finally {
+      setRestoringId(null)
+    }
+  }
+
   const remove = async (id: number) => {
     if (!confirm("Bu form satırını silmek istiyor musunuz?")) return
     setDeletingId(id)
@@ -558,6 +601,43 @@ export function DepartmentFormsClient() {
   const filteredArchived = React.useMemo(
     () => archivedForList.filter((m) => matchesSearch(m, search)),
     [archivedForList, search]
+  )
+
+  // Arama/departman filtresi değiştiğinde her iki liste de 1. sayfaya dönsün.
+  React.useEffect(() => {
+    setPage(1)
+    setArchivePage(1)
+  }, [search, departmentFilter])
+
+  const currentTotalPages = Math.max(
+    1,
+    Math.ceil(filteredCurrent.length / pageSize)
+  )
+  React.useEffect(() => {
+    setPage((p) => Math.min(p, currentTotalPages))
+  }, [currentTotalPages])
+
+  const archiveTotalPages = Math.max(
+    1,
+    Math.ceil(filteredArchived.length / archivePageSize)
+  )
+  React.useEffect(() => {
+    setArchivePage((p) => Math.min(p, archiveTotalPages))
+  }, [archiveTotalPages])
+
+  const pagedCurrent = React.useMemo(
+    () =>
+      filteredCurrent.slice((page - 1) * pageSize, page * pageSize),
+    [filteredCurrent, page, pageSize]
+  )
+
+  const pagedArchived = React.useMemo(
+    () =>
+      filteredArchived.slice(
+        (archivePage - 1) * archivePageSize,
+        archivePage * archivePageSize
+      ),
+    [filteredArchived, archivePage, archivePageSize]
   )
 
   const revisionParentOptions = items.filter((m) => m.isCurrent !== false)
@@ -672,6 +752,39 @@ export function DepartmentFormsClient() {
               Form yükle
             </Button>
           ) : null}
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label className="text-muted-foreground text-xs">Görünüm</Label>
+          <div
+            role="group"
+            aria-label="Aktif / Arşivlenmiş / Tümü görünüm filtresi"
+            className="flex w-fit flex-wrap gap-1 rounded-md border bg-muted/30 p-1"
+          >
+            {(
+              [
+                { key: "active", label: "Aktif", count: filteredCurrent.length },
+                { key: "archived", label: "Arşivlenmiş", count: filteredArchived.length },
+                {
+                  key: "all",
+                  label: "Tümü",
+                  count: filteredCurrent.length + filteredArchived.length,
+                },
+              ] as const
+            ).map((opt) => (
+              <Button
+                key={opt.key}
+                type="button"
+                size="sm"
+                variant={viewFilter === opt.key ? "default" : "ghost"}
+                className="h-7 gap-1.5 px-2.5 text-xs"
+                aria-pressed={viewFilter === opt.key}
+                onClick={() => setViewFilter(opt.key)}
+              >
+                {opt.label}
+                <span className="tabular-nums opacity-80">({opt.count})</span>
+              </Button>
+            ))}
+          </div>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
           {canManageAll ? (
@@ -1153,6 +1266,7 @@ export function DepartmentFormsClient() {
         </DialogContent>
       </Dialog>
 
+      {viewFilter !== "archived" && (
       <Card>
         <CardHeader>
           <CardTitle>Yüklü formlar</CardTitle>
@@ -1172,8 +1286,9 @@ export function DepartmentFormsClient() {
               {items.length === 0 ? "Henüz form yok." : "Filtre veya arama sonucu yok."}
             </p>
           ) : (
+            <>
             <ul className="divide-y rounded-md border">
-              {filteredCurrent.map((m) => {
+              {pagedCurrent.map((m) => {
                 const prev = m.previousRevisions ?? []
                 return (
                   <li key={m.id} className="p-0">
@@ -1311,19 +1426,33 @@ export function DepartmentFormsClient() {
                 )
               })}
             </ul>
+            <PaginationControls
+              page={page}
+              pageSize={pageSize}
+              total={filteredCurrent.length}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => {
+                setPageSize(size)
+                setPage(1)
+              }}
+            />
+            </>
           )}
         </CardContent>
       </Card>
+      )}
 
+      {viewFilter !== "active" && (
       <OrphanedArchiveCard
         loading={loading}
         itemCount={archivedItems.length}
         filteredEmpty={filteredArchived.length === 0}
         filteredEmptyMessage="Arama veya departman filtresine uyan arşiv formu yok."
-        description="«Arşivle» ile listeden kaldırılan ve seride güncel kalmayan formlar. Yeni revizyon yükleyerek tekrar güncel listeye alabilirsiniz."
+        description="«Arşivle» ile listeden kaldırılan ve seride güncel kalmayan formlar. «Arşivden çıkar» ile veya yeni revizyon yükleyerek tekrar güncel listeye alabilirsiniz."
+        forceOpen={viewFilter === "archived"}
       >
         <ul className="divide-y rounded-md border bg-muted/10">
-          {filteredArchived.map((m) => (
+          {pagedArchived.map((m) => (
             <li
               key={m.id}
               className="flex flex-wrap items-stretch justify-between gap-0 text-sm sm:items-center"
@@ -1364,13 +1493,28 @@ export function DepartmentFormsClient() {
                 </p>
               </div>
               {canWriteAny ? (
-                <div className="flex shrink-0 items-center gap-1 border-t p-2 sm:border-border sm:border-l sm:border-t-0 sm:px-2">
+                <div className="flex shrink-0 flex-wrap items-center gap-1 border-t p-2 sm:border-border sm:border-l sm:border-t-0 sm:px-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    disabled={restoringId === m.id || deletingId === m.id}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      void restoreArchived(m.id)
+                    }}
+                    title="Arşivden çıkar"
+                  >
+                    <IconArchiveOff className="size-4 shrink-0" />
+                    <span className="hidden sm:inline">Arşivden çıkar</span>
+                  </Button>
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
                     className="text-destructive hover:bg-destructive/10"
-                    disabled={deletingId === m.id}
+                    disabled={deletingId === m.id || restoringId === m.id}
                     onClick={(e) => {
                       e.stopPropagation()
                       void remove(m.id)
@@ -1384,7 +1528,18 @@ export function DepartmentFormsClient() {
             </li>
           ))}
         </ul>
+        <PaginationControls
+          page={archivePage}
+          pageSize={archivePageSize}
+          total={filteredArchived.length}
+          onPageChange={setArchivePage}
+          onPageSizeChange={(size) => {
+            setArchivePageSize(size)
+            setArchivePage(1)
+          }}
+        />
       </OrphanedArchiveCard>
+      )}
     </div>
   )
 }

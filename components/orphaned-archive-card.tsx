@@ -24,6 +24,8 @@ type OrphanedArchiveCardProps = {
   filteredEmptyMessage: string
   description: string
   children: React.ReactNode
+  /** Kullanıcı bilerek "Arşivlenmiş" görünümüne geçtiyse, kayıt sayısından bağımsız açık başlasın. */
+  forceOpen?: boolean
 }
 
 /** Seride güncel kalmayan arşiv kayıtları — manuel / form listelerinin altında. */
@@ -34,12 +36,15 @@ export function OrphanedArchiveCard({
   filteredEmptyMessage,
   description,
   children,
+  forceOpen,
 }: OrphanedArchiveCardProps) {
   if (!loading && itemCount === 0) return null
 
   return (
     <Card>
-      <Collapsible defaultOpen={!loading && itemCount > 0 && itemCount <= 8}>
+      <Collapsible
+        defaultOpen={forceOpen || (!loading && itemCount > 0 && itemCount <= 8)}
+      >
         <CardHeader className="pb-2">
           <CollapsibleTrigger
             type="button"
