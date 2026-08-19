@@ -110,7 +110,9 @@ export const statusStyles: Record<string, string> = {
   Initialized: "bg-emerald-600 text-white",
   Postponed:   "bg-sky-600 text-white",
   Completed:   "bg-teal-600 text-white",
-  Cancelled:   "bg-slate-500 text-white",
+  // Sistemin genelinde kullanılan destructive/red renk tokenı (bkz. components/ui/badge.tsx
+  // "destructive" variant) — Cancelled kesin olarak kırmızı görünmeli, yeni renk icat edilmedi.
+  Cancelled:   "bg-destructive text-white dark:bg-destructive/60",
   Reopened:    "bg-violet-600 text-white",
 }
 
@@ -1491,11 +1493,31 @@ export function AuditPlanClient() {
 
         <div className="bg-card rounded-lg border shadow-sm">
           <ScrollArea className="h-[min(70vh,760px)]">
-            <Table>
-              <TableHeader className="sticky top-0 z-10 bg-card">
+            {/* containerClassName: Table'ın kendi overflow-x-auto sarmalayıcısı BİLEREK
+                verilmiyor — ScrollArea'nın Viewport'u zaten hem x hem y scroll'u tek
+                elemanda yönetiyor; ayrı bir iç overflow-x-auto div sticky header'ı kırar
+                (bkz. components/ui/table.tsx Table containerClassName açıklaması).
+                table-fixed/min-w/colgroup yatay scroll davranışı bundan etkilenmez —
+                Viewport zaten overflow-x'i de yönetiyor. */}
+            <Table className="table-fixed min-w-[1280px]" containerClassName="relative w-full">
+              {/* Sabit kolon genişlikleri — table-layout: fixed altında hücreler birbirinin
+                  üzerine taşmaz; auto-layout'ta whitespace-nowrap + max-w kombinasyonu
+                  bunu garanti etmiyordu (C/T ve Auditors'ın üst üste binmesinin nedeni buydu). */}
+              <colgroup>
+                <col className="w-10" />
+                <col className="w-[140px]" />
+                <col className="w-[156px]" />
+                <col className="w-[156px]" />
+                <col className="w-[150px]" />
+                <col className="w-[210px]" />
+                <col className="w-[92px]" />
+                <col />
+                <col className="w-[112px]" />
+              </colgroup>
+              <TableHeader sticky>
                 <TableRow className="bg-muted/40 hover:bg-muted/40">
-                  <TableHead className="w-10 px-2 text-center" />
-                  <TableHead className="whitespace-nowrap">
+                  <TableHead className="w-10 overflow-hidden px-2 text-center" />
+                  <TableHead className="overflow-hidden whitespace-nowrap">
                     <button
                       type="button"
                       onClick={() => toggleSort("datePlanned")}
@@ -1506,7 +1528,7 @@ export function AuditPlanClient() {
                       {renderSortIcon("datePlanned")}
                     </button>
                   </TableHead>
-                  <TableHead className="whitespace-nowrap">
+                  <TableHead className="overflow-hidden whitespace-nowrap">
                     <button
                       type="button"
                       onClick={() => toggleSort("datePostponed")}
@@ -1517,7 +1539,7 @@ export function AuditPlanClient() {
                       {renderSortIcon("datePostponed")}
                     </button>
                   </TableHead>
-                  <TableHead className="whitespace-nowrap">
+                  <TableHead className="overflow-hidden whitespace-nowrap">
                     <button
                       type="button"
                       onClick={() => toggleSort("initializedDate")}
@@ -1528,7 +1550,7 @@ export function AuditPlanClient() {
                       {renderSortIcon("initializedDate")}
                     </button>
                   </TableHead>
-                  <TableHead className="whitespace-nowrap">
+                  <TableHead className="overflow-hidden whitespace-nowrap">
                     <button
                       type="button"
                       onClick={() => toggleSort("auditNumber")}
@@ -1539,7 +1561,7 @@ export function AuditPlanClient() {
                       {renderSortIcon("auditNumber")}
                     </button>
                   </TableHead>
-                  <TableHead>
+                  <TableHead className="overflow-hidden">
                     <button
                       type="button"
                       onClick={() => toggleSort("field")}
@@ -1550,8 +1572,17 @@ export function AuditPlanClient() {
                       {renderSortIcon("field")}
                     </button>
                   </TableHead>
-                  <TableHead className="whitespace-nowrap text-center">C / T</TableHead>
-                  <TableHead>
+                  <TableHead className="overflow-hidden whitespace-nowrap text-center">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="cursor-default">C / T</span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" sideOffset={6}>
+                        Kapalı Bulgular / Toplam Bulgular
+                      </TooltipContent>
+                    </Tooltip>
+                  </TableHead>
+                  <TableHead className="overflow-hidden">
                     <button
                       type="button"
                       onClick={() => toggleSort("auditors")}
@@ -1562,7 +1593,7 @@ export function AuditPlanClient() {
                       {renderSortIcon("auditors")}
                     </button>
                   </TableHead>
-                  <TableHead className="text-right whitespace-nowrap">
+                  <TableHead className="overflow-hidden text-right whitespace-nowrap">
                     <button
                       type="button"
                       onClick={() => toggleSort("status")}
@@ -1666,21 +1697,36 @@ export function AuditPlanClient() {
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
-                      <TableCell className="whitespace-nowrap font-mono text-sm">
+                      <TableCell className="overflow-hidden whitespace-nowrap font-mono text-sm">
                         {row.datePlanned}
                       </TableCell>
-                      <TableCell className="text-muted-foreground whitespace-nowrap text-sm">
+                      <TableCell className="text-muted-foreground overflow-hidden whitespace-nowrap text-sm">
                         {row.datePostponed ?? "—"}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap text-sm">
+                      <TableCell className="overflow-hidden whitespace-nowrap text-sm">
                         {row.initializedDate ?? "—"}
                       </TableCell>
-                      <TableCell className="font-mono text-sm">
-                        <span className="hover:text-primary hover:underline underline-offset-2">{row.auditNumber}</span>
+                      <TableCell className="overflow-hidden font-mono text-sm">
+                        <span className="block truncate hover:text-primary hover:underline underline-offset-2" title={row.auditNumber}>
+                          {row.auditNumber}
+                        </span>
                       </TableCell>
-                      <TableCell className="max-w-[240px] text-sm">{row.field}</TableCell>
-                      <TableCell className="text-center font-mono text-sm">{row.ct}</TableCell>
-                      <TableCell className="max-w-[240px] text-sm">
+                      <TableCell className="overflow-hidden text-sm">
+                        <span className="block truncate" title={row.field}>
+                          {row.field}
+                        </span>
+                      </TableCell>
+                      <TableCell className="overflow-hidden text-center font-mono text-sm">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-default">{row.ct}</span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" sideOffset={6}>
+                            Kapalı Bulgular / Toplam Bulgular
+                          </TooltipContent>
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell className="overflow-hidden text-sm">
                         {row.auditors?.trim() ? (
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -1696,10 +1742,10 @@ export function AuditPlanClient() {
                           <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="overflow-hidden text-right whitespace-nowrap">
                         <span
                           className={cn(
-                            "inline-flex rounded px-2 py-0.5 text-xs font-medium",
+                            "inline-flex max-w-full truncate rounded px-2 py-0.5 text-xs font-medium",
                             statusStyles[row.status] ?? "bg-slate-500 text-white"
                           )}
                         >

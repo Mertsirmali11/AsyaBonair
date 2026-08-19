@@ -5,6 +5,10 @@ import { defaultChecklistNumber } from "@/lib/audit-checklist-helpers"
 import { dbDateToDdMmYyyy, parseDdMmYyyyToUtcDate } from "@/lib/correspondence-date"
 import { revokeActiveResponseLinksForEntry } from "@/lib/audit-response-link"
 import { prisma } from "@/lib/prisma-server"
+import {
+  AUDIT_PLAN_ENTRY_FINDINGS_INCLUDE,
+  formatFindingsCT,
+} from "@/lib/audit-plan-findings-count"
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -61,6 +65,7 @@ export async function GET(_req: Request, ctx: Ctx) {
           },
         },
       },
+      ...AUDIT_PLAN_ENTRY_FINDINGS_INCLUDE,
     },
   })
 
@@ -86,7 +91,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     datePlanned: dbDateToDdMmYyyy(entry.plannedDate),
     datePostponed: entry.datePostponed ? dbDateToDdMmYyyy(entry.datePostponed) : null,
     initializedDate: entry.initializedDate ? dbDateToDdMmYyyy(entry.initializedDate) : null,
-    ct: entry.ct,
+    ct: formatFindingsCT(entry),
     remarks: entry.remarks,
     status: entry.status,
     cancellationReason: entry.cancellationReason,

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Card } from "@/components/ui/card"
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import {
   Table,
   TableBody,
@@ -432,8 +433,13 @@ export function ShgmMevzuatClient({
           </div>
 
           <div className="rounded-lg border">
-            <Table>
-              <TableHeader>
+            <ScrollArea className="h-[min(65vh,700px)]">
+              {/* containerClassName: Table'ın kendi overflow-x-auto sarmalayıcısı bilerek
+                  verilmiyor — ScrollArea'nın Viewport'u hem x hem y scroll'u tek elemanda
+                  yönetiyor; ayrı bir iç overflow-x-auto div sticky header'ı kırar (bkz.
+                  components/ui/table.tsx Table containerClassName açıklaması). */}
+              <Table containerClassName="relative w-full">
+              <TableHeader sticky>
                 <TableRow>
                   <TableHead>Durum</TableHead>
                   <TableHead>Mevzuat Adı</TableHead>
@@ -493,7 +499,9 @@ export function ShgmMevzuatClient({
                   ))
                 )}
               </TableBody>
-            </Table>
+              </Table>
+              <ScrollBar orientation="horizontal" />
+            </ScrollArea>
           </div>
         </div>
       )}

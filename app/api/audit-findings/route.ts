@@ -95,6 +95,12 @@ export async function GET(req: NextRequest) {
         : null,
       assignedGroup: f.assignedGroup ? { id: f.assignedGroup.id, name: f.assignedGroup.name } : null,
       cpaRequests: `${totalCpa}/${acceptedCpa}/${rejectedCpa}`,
+      // Findings Follow Up tablosunda "CPA Requests" sıralaması ekranda görünen
+      // composite metni ("3/1/0") değil bu ham sayıları kullanır (bkz.
+      // components/compliance/findings-follow-up-client.tsx sortKeyFor).
+      totalCpa,
+      acceptedCpa,
+      rejectedCpa,
       pendingCpa,
       hasExtension,
       extExpired,

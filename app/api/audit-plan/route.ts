@@ -3,6 +3,10 @@ import { auth } from "@/auth"
 import { canAccessAuditPlan } from "@/lib/audit-plan-access"
 import { dbDateToDdMmYyyy, parseDdMmYyyyToUtcDate } from "@/lib/correspondence-date"
 import { prisma } from "@/lib/prisma-server"
+import {
+  AUDIT_PLAN_ENTRY_FINDINGS_INCLUDE,
+  formatFindingsCT,
+} from "@/lib/audit-plan-findings-count"
 
 type EntryWithPeople = {
   id: number
@@ -10,7 +14,6 @@ type EntryWithPeople = {
   datePostponed: Date | null
   initializedDate: Date | null
   auditNumberPrefix: string | null
-  ct: string
   status: string
   auditCategoryType: { name: string }
   auditSubCategoryType: { name: string } | null
@@ -20,6 +23,8 @@ type EntryWithPeople = {
   auditees: {
     calisan: { isim: string | null; soyisim: string | null }
   }[]
+  manualFindings: { id: number; status: string }[]
+  sessions: { findings: { id: number; status: string }[] }[]
 }
 
 function calisanName(c: { isim: string | null; soyisim: string | null }): string {
@@ -43,7 +48,7 @@ function mapEntry(entry: EntryWithPeople) {
     initializedDate: entry.initializedDate ? dbDateToDdMmYyyy(entry.initializedDate) : null,
     auditNumber: formatAuditNumber(entry),
     field,
-    ct: entry.ct,
+    ct: formatFindingsCT(entry),
     auditors: entry.auditors.map((a) => calisanName(a.calisan)).join(", "),
     status: entry.status,
   }
@@ -79,6 +84,7 @@ export async function GET() {
         auditSubCategoryType: { select: { name: true } },
         auditors: { include: { calisan: { select: { isim: true, soyisim: true } } } },
         auditees: { include: { calisan: { select: { isim: true, soyisim: true } } } },
+        ...AUDIT_PLAN_ENTRY_FINDINGS_INCLUDE,
       },
     })
     return NextResponse.json(entries.map(mapEntry))
@@ -202,6 +208,7 @@ export async function POST(req: Request) {
       auditSubCategoryType: { select: { name: true } },
       auditors: { include: { calisan: { select: { isim: true, soyisim: true } } } },
       auditees: { include: { calisan: { select: { isim: true, soyisim: true } } } },
+      ...AUDIT_PLAN_ENTRY_FINDINGS_INCLUDE,
     },
   })
 

@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
+  SortableTableHead,
   Table,
   TableBody,
   TableCell,
@@ -33,6 +34,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { EmployeeMultiSelect } from "@/components/compliance/audit-plan-client"
+import { sortRowsBy, useSortableTable } from "@/hooks/use-sortable-table"
 
 type GroupMember = { id: number; name: string; department: string | null }
 type GroupRow = {
@@ -56,11 +58,14 @@ async function parseJson(res: Response): Promise<unknown> {
   try { return JSON.parse(t) as unknown } catch { return null }
 }
 
+type GroupSortColumn = "name" | "memberCount"
+
 export function ConfigUserGroupsClient() {
   const [groups, setGroups] = React.useState<GroupRow[]>([])
   const [loading, setLoading] = React.useState(true)
   const [calisanlar, setCalisanlar] = React.useState<CalisanLite[]>([])
   const [departments, setDepartments] = React.useState<string[]>([])
+  const { sortColumn, sortDir, toggleSort } = useSortableTable<GroupSortColumn>()
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -212,6 +217,16 @@ export function ConfigUserGroupsClient() {
     }
   }
 
+  // Description/Members bilerek sortable değil — serbest metin / liste. Name ve
+  // Member Count için client-side sıralama (yeni API/N+1 yok, halihazırda yüklü liste).
+  const sortedGroups = React.useMemo(
+    () =>
+      sortRowsBy(groups, sortColumn, sortDir, (g, column) =>
+        column === "name" ? g.name.trim().toLowerCase() : g.memberCount
+      ),
+    [groups, sortColumn, sortDir]
+  )
+
   return (
     <div className="flex flex-col gap-6">
       <p className="text-muted-foreground max-w-3xl text-sm leading-relaxed">
@@ -237,10 +252,23 @@ export function ConfigUserGroupsClient() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Group Name</TableHead>
+                  <SortableTableHead
+                    active={sortColumn === "name"}
+                    direction={sortDir}
+                    onClick={() => toggleSort("name")}
+                  >
+                    Group Name
+                  </SortableTableHead>
                   <TableHead>Description</TableHead>
                   <TableHead>Members</TableHead>
-                  <TableHead className="text-center">Member Count</TableHead>
+                  <SortableTableHead
+                    className="text-center"
+                    active={sortColumn === "memberCount"}
+                    direction={sortDir}
+                    onClick={() => toggleSort("memberCount")}
+                  >
+                    Member Count
+                  </SortableTableHead>
                   <TableHead className="text-right">İşlem</TableHead>
                 </TableRow>
               </TableHeader>
@@ -258,7 +286,7 @@ export function ConfigUserGroupsClient() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  groups.map((g) => (
+                  sortedGroups.map((g) => (
                     <TableRow key={g.id}>
                       <TableCell className="font-medium">
                         <span className="flex items-center gap-1.5">

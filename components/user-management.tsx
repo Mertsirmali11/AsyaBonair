@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { DatePicker } from "@/components/ui/date-picker"
 import { ProfilePhotoCropDialog } from "@/components/profile-photo-crop-dialog"
 import {
@@ -1067,9 +1067,13 @@ export function UserManagement({
       </div>
 
       <div className="rounded-lg border bg-card">
-        <div className="overflow-x-auto">
-          <Table className="border-collapse">
-            <TableHeader>
+        <ScrollArea className="h-[min(65vh,700px)]">
+          {/* containerClassName: Table'ın kendi overflow-x-auto sarmalayıcısı bilerek
+              verilmiyor — ScrollArea'nın Viewport'u hem x hem y scroll'u tek elemanda
+              yönetiyor; ayrı bir iç overflow-x-auto div sticky header'ı kırar (bkz.
+              components/ui/table.tsx Table containerClassName açıklaması). */}
+          <Table className="border-collapse" containerClassName="relative w-full">
+            <TableHeader sticky>
               <TableRow className="bg-slate-100 border-b border-gray-300">
                 {activeColumns.map((column) => (
                   <TableHead 
@@ -1158,7 +1162,8 @@ export function UserManagement({
               )}
             </TableBody>
           </Table>
-        </div>
+          <ScrollBar orientation="horizontal" />
+        </ScrollArea>
 
         <div className="flex items-center justify-between px-4 py-3 border-t bg-white">
           <div className="text-sm text-muted-foreground">

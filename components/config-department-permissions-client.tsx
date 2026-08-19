@@ -5,6 +5,7 @@ import { IconDeviceFloppy, IconInfoCircle } from "@tabler/icons-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
@@ -13,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
+  SortableTableHead,
   Table,
   TableBody,
   TableCell,
@@ -31,6 +33,7 @@ import type { DepartmentPermissionCatalogEntry } from "@/lib/department-permissi
 import { legacyDepartmentPermission } from "@/lib/department-permissions-legacy"
 import { isValidCustomManualDepartment } from "@/lib/organization-departments"
 import { useLanguage } from "@/lib/i18n/context"
+import { sortRowsBy, useSortableTable } from "@/hooks/use-sortable-table"
 
 type Mode = "inherit" | "allow" | "deny"
 
@@ -66,6 +69,7 @@ export function ConfigDepartmentPermissionsClient() {
   const [catalog, setCatalog] = React.useState<DepartmentPermissionCatalogEntry[]>([])
   const [baseline, setBaseline] = React.useState<MatrixRow[]>([])
   const [working, setWorking] = React.useState<MatrixRow[]>([])
+  const { sortColumn, sortDir, toggleSort } = useSortableTable<"department">()
   const [newDept, setNewDept] = React.useState("")
   const [addingDept, setAddingDept] = React.useState(false)
 
@@ -248,6 +252,17 @@ export function ConfigDepartmentPermissionsClient() {
     }
   }, [buildDiffUpdates])
 
+  // Yalnızca GÖRÜNTÜLEME sırası değişir — working/baseline/isDirty/save mantığı
+  // departmentKey ile eşleştiği için (index/sıra bağımsız), sıralama düzenleme
+  // durumunu bozmaz. Permission hücreleri sortable değil (interaktif Select'ler).
+  const sortedWorking = React.useMemo(
+    () =>
+      sortRowsBy(working, sortColumn, sortDir, (row) =>
+        row.displayName.trim().toLowerCase()
+      ),
+    [working, sortColumn, sortDir]
+  )
+
   if (loading) {
     return (
       <p className="text-muted-foreground text-sm">{dp.loading}</p>
@@ -277,11 +292,23 @@ export function ConfigDepartmentPermissionsClient() {
           </div>
         )}
 
-        <div className="overflow-x-auto rounded-lg border">
-          <Table>
-            <TableHeader>
+        <div className="rounded-lg border">
+          <ScrollArea className="h-[min(65vh,700px)]">
+            {/* containerClassName: Table'ın kendi overflow-x-auto sarmalayıcısı bilerek
+                verilmiyor — ScrollArea'nın Viewport'u hem x hem y scroll'u tek elemanda
+                yönetiyor; ayrı bir iç overflow-x-auto div sticky header'ı kırar (bkz.
+                components/ui/table.tsx Table containerClassName açıklaması). */}
+            <Table containerClassName="relative w-full">
+            <TableHeader sticky>
               <TableRow>
-                <TableHead className="min-w-[160px]">{dp.colDepartment}</TableHead>
+                <SortableTableHead
+                  className="min-w-[160px]"
+                  active={sortColumn === "department"}
+                  direction={sortDir}
+                  onClick={() => toggleSort("department")}
+                >
+                  {dp.colDepartment}
+                </SortableTableHead>
                 {catalog.map((c) => (
                   <TableHead key={c.key} className="min-w-[140px] text-center">
                     <span className="inline-flex items-center justify-center gap-1">
@@ -320,7 +347,7 @@ export function ConfigDepartmentPermissionsClient() {
                   </TableCell>
                 </TableRow>
               ) : (
-                working.map((row) => (
+                sortedWorking.map((row) => (
                   <TableRow key={row.departmentKey}>
                     <TableCell className="align-top font-medium">
                       {row.displayName}
@@ -359,7 +386,9 @@ export function ConfigDepartmentPermissionsClient() {
                 ))
               )}
             </TableBody>
-          </Table>
+            </Table>
+            <ScrollBar orientation="horizontal" />
+          </ScrollArea>
         </div>
       </div>
     </TooltipProvider>
