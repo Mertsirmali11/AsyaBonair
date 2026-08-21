@@ -89,7 +89,15 @@ type RevisionPayload = {
   }
 }
 
-type DraftRow = { section: string; reference: string; label: string }
+type DraftRow = {
+  section: string
+  reference: string
+  label: string
+  /** Bu satırın ait olduğu canlı AuditChecklistItem.id — mevcut satırlarda dolu, editörde
+   * yeni eklenen satırlarda `undefined` (save'de yeni id alır). Sıra/pozisyon bu id'yi ASLA
+   * değiştirmez; "Kaydet" bu id üzerinden eşler, index üzerinden değil. */
+  existingId?: number
+}
 
 function itemsToDraft(items: RevisionItem[]): DraftRow[] {
   if (items.length === 0) {
@@ -99,6 +107,7 @@ function itemsToDraft(items: RevisionItem[]): DraftRow[] {
     section: it.section ?? "",
     reference: it.reference ?? "",
     label: it.label ?? "",
+    existingId: it.id,
   }))
 }
 
@@ -240,6 +249,9 @@ export function AuditChecklistRevisionViewClient({
         sortOrder: idx,
         reference: row.reference.trim() || undefined,
         section: row.section.trim() || undefined,
+        // Mevcut satırın kimliği — backend bunu kullanarak eşler, dizideki pozisyonu değil.
+        // Yeni eklenen satırlarda undefined: backend bunu yeni bir satır olarak create eder.
+        existingId: row.existingId,
       }))
       .filter((r) => r.label.length > 0)
 
@@ -265,7 +277,16 @@ export function AuditChecklistRevisionViewClient({
         toast.error(err)
         return
       }
+      const protectedCount =
+        raw && typeof raw === "object" && "protectedDeletionCount" in raw
+          ? Number((raw as { protectedDeletionCount: unknown }).protectedDeletionCount) || 0
+          : 0
       toast.success("Kaydedildi. Revizyon numarası aynı kaldı; ara verebilirsiniz.")
+      if (protectedCount > 0) {
+        toast.info(
+          `${protectedCount} satır daha önceki bir denetimde cevaplandığı için silinemedi, listede kaldı.`
+        )
+      }
       await load()
     } catch {
       toast.error("Bağlantı hatası.")

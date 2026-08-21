@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { defaultChecklistNumber } from "@/lib/audit-checklist-helpers"
 import { parseAuditChecklistItemsFromBody } from "@/lib/audit-checklist-items-parse"
+import { planChecklistItemSync } from "@/lib/audit-checklist-item-sync"
 import { mapSnapshotItems } from "@/lib/audit-checklist-revision-snapshot"
 import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import { prisma } from "@/lib/prisma-server"
@@ -99,148 +100,174 @@ export async function PATCH(req: Request, ctx: Ctx) {
 
   const snapshotItems = mapSnapshotItems(items)
 
+  let protectedDeletionCount = 0
+
   try {
-    await prisma.$transaction(async (tx) => {
-      // Oturumda kullanılan item ID'lerini bul
-      const usedItemIds = new Set(
-        (await tx.auditSessionItem.findMany({
-          where: { checklistItem: { auditChecklistId: id } },
-          select: { auditChecklistItemId: true },
-        })).map((r) => r.auditChecklistItemId)
-      )
-
-      // Kullanılmayan item'ları sil
-      await tx.auditChecklistItem.deleteMany({
-        where: {
-          auditChecklistId: id,
-          ...(usedItemIds.size > 0 ? { id: { notIn: [...usedItemIds] } } : {}),
-        },
-      })
-
-      // Kullanılan item'ları mevcut sıralarına göre güncelle
-      if (usedItemIds.size > 0) {
-        const usedItems = await tx.auditChecklistItem.findMany({
-          where: { id: { in: [...usedItemIds] } },
-          orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+    await prisma.$transaction(
+      async (tx) => {
+        // Bu checklist'e ait mevcut item ID'leri — gelen `existingId`'lerin GERÇEKTEN bu
+        // checklist'e ait olduğunu doğrulamak için (başka bir checklist'ten sızan/bayat bir id
+        // kazara burada bir satırı ele geçirmesin).
+        const existingRows = await tx.auditChecklistItem.findMany({
+          where: { auditChecklistId: id },
+          select: { id: true },
         })
-        for (let i = 0; i < usedItems.length; i++) {
-          const newData = items[i]
-          if (!newData) break
-          await tx.auditChecklistItem.update({
-            where: { id: usedItems[i].id },
-            data: {
-              label: newData.label.slice(0, 8000),
-              sortOrder: newData.sortOrder,
-              isRequired: !newData.isHeading,
-              reference: newData.reference,
-              section: newData.section,
-              isHeading: newData.isHeading,
-            },
+        const existingIdSet = new Set(existingRows.map((r) => r.id))
+
+        // Oturumda (aktif ya da geçmiş, tüm session'lar) kullanılan item ID'leri — bunlar asla
+        // silinmez ve içerikleri asla başka bir satırla karışmaz (bkz. aşağıdaki ID bazlı eşleme).
+        const usedItemIds = new Set(
+          (await tx.auditSessionItem.findMany({
+            where: { checklistItem: { auditChecklistId: id } },
+            select: { auditChecklistItemId: true },
+          })).map((r) => r.auditChecklistItemId)
+        )
+
+        // Gelen satırları STABİL ID'ye göre ayır — pozisyon/index'e göre DEĞİL. Kullanılmış
+        // (bir denetimde cevaplanmış) ama payload'da karşılığı kalmayan satırlar asla silinmez.
+        const { updates, itemsToCreate, idsToDelete, protectedMissingIds } = planChecklistItemSync(
+          items,
+          existingIdSet,
+          usedItemIds
+        )
+        protectedDeletionCount = protectedMissingIds.length
+
+        if (idsToDelete.length > 0) {
+          await tx.auditChecklistItem.deleteMany({ where: { id: { in: idsToDelete } } })
+        }
+
+        // Mevcut satırları TEK bir toplu UPDATE ile güncelle (N ayrı round-trip yerine 1) —
+        // her satır kendi `id`'sine yazılır, pozisyon hiçbir rol oynamaz.
+        if (updates.length > 0) {
+          const valueRows = Prisma.join(
+            updates.map(
+              (u) =>
+                Prisma.sql`(${u.existingId}::int, ${u.label.slice(0, 8000)}::text, ${u.sortOrder}::int, ${u.reference}::text, ${u.section}::text, ${!u.isHeading}::boolean, ${u.isHeading}::boolean)`
+            ),
+            ", "
+          )
+          await tx.$executeRaw(Prisma.sql`
+            UPDATE audit_checklist_items AS t
+            SET
+              label = v.label,
+              sort_order = v.sort_order,
+              reference = v.reference,
+              section = v.section,
+              is_required = v.is_required,
+              is_heading = v.is_heading,
+              updated_at = now()
+            FROM (VALUES ${valueRows}) AS v(id, label, sort_order, reference, section, is_required, is_heading)
+            WHERE t.id = v.id AND t.audit_checklist_id = ${id}
+          `)
+        }
+
+        // Karşılığı olmayan (yeni) satırları oluştur — bunlar her zaman YENİ id alır, mevcut bir
+        // satırın id'sini asla devralmaz.
+        if (itemsToCreate.length > 0) {
+          await tx.auditChecklistItem.createMany({
+            data: itemsToCreate.map((it) => ({
+              auditChecklistId: id,
+              label: it.label,
+              sortOrder: it.sortOrder,
+              isRequired: !it.isHeading,
+              reference: it.reference,
+              section: it.section,
+              isHeading: it.isHeading,
+            })),
           })
         }
-      }
 
-      // Kullanılan item sayısının ötesindeki yeni item'ları oluştur
-      const itemsToCreate = usedItemIds.size > 0 ? items.slice(usedItemIds.size) : items
-      if (itemsToCreate.length > 0) {
-        await tx.auditChecklistItem.createMany({
-          data: itemsToCreate.map((it) => ({
-            auditChecklistId: id,
-            label: it.label,
-            sortOrder: it.sortOrder,
-            isRequired: !it.isHeading,
-            reference: it.reference,
-            section: it.section,
-            isHeading: it.isHeading,
-          })),
-        })
-      }
+        let nextLatestRev: number | null = null
+        if (bumpRevision) {
+          const agg = await tx.auditChecklistRevision.aggregate({
+            where: { auditChecklistId: id },
+            _max: { revisionNumber: true },
+          })
+          const maxStored = agg._max.revisionNumber ?? -1
+          nextLatestRev = Math.max(existing.latestRevisionNumber, maxStored) + 1
+        }
 
-      let nextLatestRev: number | null = null
-      if (bumpRevision) {
-        const agg = await tx.auditChecklistRevision.aggregate({
-          where: { auditChecklistId: id },
-          _max: { revisionNumber: true },
-        })
-        const maxStored = agg._max.revisionNumber ?? -1
-        nextLatestRev = Math.max(existing.latestRevisionNumber, maxStored) + 1
-      }
-
-      await tx.auditChecklist.update({
-        where: { id },
-        data: {
-          title: title.slice(0, 400),
-          checklistType,
-          checklistNumber: resolvedChecklistNumber,
-          description,
-          isActive,
-          ...(bumpRevision && nextLatestRev !== null
-            ? {
-                latestRevisionNumber: nextLatestRev,
-                latestRevisionDate: now,
-              }
-            : {}),
-        },
-      })
-
-      if (bumpRevision && nextLatestRev !== null) {
-        await tx.auditChecklistRevision.create({
+        await tx.auditChecklist.update({
+          where: { id },
           data: {
-            auditChecklistId: id,
-            revisionNumber: nextLatestRev,
-            revisionDate: now,
             title: title.slice(0, 400),
+            checklistType,
+            checklistNumber: resolvedChecklistNumber,
             description,
-            ...(snapshotItems.length > 0 ? { items: { create: snapshotItems } } : {}),
+            isActive,
+            ...(bumpRevision && nextLatestRev !== null
+              ? {
+                  latestRevisionNumber: nextLatestRev,
+                  latestRevisionDate: now,
+                }
+              : {}),
           },
         })
-      } else {
-        const revNo = existing.latestRevisionNumber
-        const existingRev = await tx.auditChecklistRevision.findUnique({
-          where: {
-            auditChecklistId_revisionNumber: {
-              auditChecklistId: id,
-              revisionNumber: revNo,
-            },
-          },
-        })
-        if (existingRev) {
-          await tx.auditChecklistRevisionItem.deleteMany({
-            where: { revisionId: existingRev.id },
-          })
-          await tx.auditChecklistRevision.update({
-            where: { id: existingRev.id },
-            data: {
-              title: title.slice(0, 400),
-              description,
-            },
-          })
-          if (snapshotItems.length > 0) {
-            await tx.auditChecklistRevisionItem.createMany({
-              data: snapshotItems.map((it) => ({
-                revisionId: existingRev.id,
-                label: it.label,
-                sortOrder: it.sortOrder,
-                isRequired: it.isRequired,
-                reference: it.reference,
-                section: it.section,
-              })),
-            })
-          }
-        } else if (snapshotItems.length > 0 || title || description !== undefined) {
+
+        if (bumpRevision && nextLatestRev !== null) {
           await tx.auditChecklistRevision.create({
             data: {
               auditChecklistId: id,
-              revisionNumber: revNo,
-              revisionDate: existing.latestRevisionDate ?? now,
+              revisionNumber: nextLatestRev,
+              revisionDate: now,
               title: title.slice(0, 400),
               description,
               ...(snapshotItems.length > 0 ? { items: { create: snapshotItems } } : {}),
             },
           })
+        } else {
+          const revNo = existing.latestRevisionNumber
+          const existingRev = await tx.auditChecklistRevision.findUnique({
+            where: {
+              auditChecklistId_revisionNumber: {
+                auditChecklistId: id,
+                revisionNumber: revNo,
+              },
+            },
+          })
+          if (existingRev) {
+            await tx.auditChecklistRevisionItem.deleteMany({
+              where: { revisionId: existingRev.id },
+            })
+            await tx.auditChecklistRevision.update({
+              where: { id: existingRev.id },
+              data: {
+                title: title.slice(0, 400),
+                description,
+              },
+            })
+            if (snapshotItems.length > 0) {
+              await tx.auditChecklistRevisionItem.createMany({
+                data: snapshotItems.map((it) => ({
+                  revisionId: existingRev.id,
+                  label: it.label,
+                  sortOrder: it.sortOrder,
+                  isRequired: it.isRequired,
+                  reference: it.reference,
+                  section: it.section,
+                })),
+              })
+            }
+          } else if (snapshotItems.length > 0 || title || description !== undefined) {
+            await tx.auditChecklistRevision.create({
+              data: {
+                auditChecklistId: id,
+                revisionNumber: revNo,
+                revisionDate: existing.latestRevisionDate ?? now,
+                title: title.slice(0, 400),
+                description,
+                ...(snapshotItems.length > 0 ? { items: { create: snapshotItems } } : {}),
+              },
+            })
+          }
         }
-      }
-    })
+      },
+      // Büyük checklist'lerde (80+ madde) bile toplu UPDATE/createMany sayesinde işlem birkaç
+      // round-trip'te biter; yine de tek round-trip'lik ağ gecikmesi payı için varsayılan 5s
+      // yerine biraz daha geniş bir üst sınır (tek başına "çözüm" değil, asıl iyileştirme
+      // yukarıdaki round-trip azaltma — bkz. PR açıklaması).
+      { timeout: 15000 }
+    )
 
     const updated = await prisma.auditChecklist.findUnique({
       where: { id },
@@ -249,7 +276,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
       },
     })
 
-    return NextResponse.json(updated)
+    return NextResponse.json({ ...updated, protectedDeletionCount })
   } catch (e) {
     console.error("[audit-checklists PATCH]", e)
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {

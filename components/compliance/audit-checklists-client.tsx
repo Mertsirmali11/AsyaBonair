@@ -83,6 +83,9 @@ type ChecklistItemRow = {
   reference: string
   section: string
   isHeading: boolean
+  /** Bu satırın ait olduğu canlı AuditChecklistItem.id — mevcut satırlarda dolu, yeni eklenen
+   * satırlarda undefined. PATCH bu id üzerinden eşler, satır sırası/index'e göre değil. */
+  existingId?: number
 }
 
 type ChecklistDetail = AuditChecklistListRow & {
@@ -222,6 +225,7 @@ export function AuditChecklistsClient() {
               reference: it.reference ?? "",
               section: it.section ?? "",
               isHeading: it.isHeading ?? false,
+              existingId: it.id,
             }))
           : [{ label: "", sortOrder: 0, reference: "", section: "", isHeading: false }]
       )
@@ -253,6 +257,8 @@ export function AuditChecklistsClient() {
         reference: row.isHeading ? undefined : row.reference.trim() || undefined,
         section: row.isHeading ? undefined : row.section.trim() || undefined,
         isHeading: row.isHeading,
+        // Mevcut satırın kimliği — backend bunu kullanarak eşler, dizideki pozisyonu değil.
+        existingId: row.existingId,
       }))
       .filter((row) => row.label.length > 0)
   }, [itemRows])
@@ -321,7 +327,16 @@ export function AuditChecklistsClient() {
         toast.error(errMsg(data, "Kaydedilemedi."))
         return
       }
+      const protectedCount =
+        data && typeof data === "object" && "protectedDeletionCount" in data
+          ? Number((data as { protectedDeletionCount: unknown }).protectedDeletionCount) || 0
+          : 0
       toast.success("Kaydedildi. Revizyon numarası değişmedi.")
+      if (protectedCount > 0) {
+        toast.info(
+          `${protectedCount} satır daha önceki bir denetimde cevaplandığı için silinemedi, listede kaldı.`
+        )
+      }
       await load()
       try {
         const detailRes = await fetch(`/api/audit-checklists/${editingId}`, { cache: "no-store" })
@@ -337,6 +352,7 @@ export function AuditChecklistsClient() {
                   reference: it.reference ?? "",
                   section: it.section ?? "",
                   isHeading: it.isHeading ?? false,
+                  existingId: it.id,
                 }))
               : [{ label: "", sortOrder: 0, reference: "", section: "", isHeading: false }]
           )
