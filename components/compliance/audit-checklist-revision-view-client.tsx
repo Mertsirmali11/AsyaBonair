@@ -9,6 +9,7 @@ import {
   FileDown,
   HelpCircle,
   Pencil,
+  Plus,
   Printer,
   Trash2,
 } from "lucide-react"
@@ -129,6 +130,8 @@ export function AuditChecklistRevisionViewClient({
   ])
   const [saving, setSaving] = React.useState(false)
   const printRef = React.useRef<HTMLDivElement>(null)
+  const rowLabelRefs = React.useRef<Array<HTMLTextAreaElement | null>>([])
+  const pendingFocusIndexRef = React.useRef<number | null>(null)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -162,6 +165,17 @@ export function AuditChecklistRevisionViewClient({
     }
   }, [data])
 
+  React.useEffect(() => {
+    const idx = pendingFocusIndexRef.current
+    if (idx === null) return
+    pendingFocusIndexRef.current = null
+    const el = rowLabelRefs.current[idx]
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" })
+      el.focus()
+    }
+  }, [draftRows])
+
   const rev = data?.revision
   const displayTitle = rev?.title ?? data?.checklist.title ?? "Checklist"
   const dateStr = rev?.revisionDate && rev.revisionDate !== "—" ? rev.revisionDate : "—"
@@ -183,6 +197,16 @@ export function AuditChecklistRevisionViewClient({
 
   const addRow = () => {
     setDraftRows((prev) => [...prev, { section: "", reference: "", label: "" }])
+  }
+
+  const insertRowAfter = (index: number) => {
+    const newIndex = index + 1
+    setDraftRows((prev) => {
+      const next = [...prev]
+      next.splice(newIndex, 0, { section: "", reference: "", label: "" })
+      return next
+    })
+    pendingFocusIndexRef.current = newIndex
   }
 
   const updateRow = (index: number, patch: Partial<DraftRow>) => {
@@ -515,6 +539,9 @@ export function AuditChecklistRevisionViewClient({
                                     className="text-sm font-medium"
                                   />
                                   <Textarea
+                                    ref={(el) => {
+                                      rowLabelRefs.current[idx] = el
+                                    }}
                                     value={row.label}
                                     onChange={(e) => updateRow(idx, { label: e.target.value })}
                                     placeholder="Denetim maddesi metni…"
@@ -524,6 +551,16 @@ export function AuditChecklistRevisionViewClient({
                               </TableCell>
                               <TableCell className="no-print align-top">
                                 <div className="flex flex-col gap-1">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="size-8 text-emerald-600 hover:text-emerald-700"
+                                    title="Altına satır ekle"
+                                    onClick={() => insertRowAfter(idx)}
+                                  >
+                                    <Plus className="size-4" />
+                                  </Button>
                                   <Button
                                     type="button"
                                     variant="ghost"
