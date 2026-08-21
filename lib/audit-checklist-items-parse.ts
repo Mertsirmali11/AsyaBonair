@@ -4,6 +4,14 @@ export type ParsedChecklistItem = {
   reference: string | null
   section: string | null
   isHeading: boolean
+  /**
+   * Stable id of the AuditChecklistItem row this entry corresponds to (present when the row
+   * came from an already-persisted item, absent/null for a brand-new row created in the editor).
+   * This is the ONLY signal callers should use to match an incoming row back to an existing DB
+   * row — never positional/array-index matching, which silently reassigns content to the wrong
+   * id once rows are inserted, removed, or reordered anywhere but the tail of the list.
+   */
+  existingId: number | null
 }
 
 export function parseAuditChecklistItemsFromBody(itemsRaw: unknown): ParsedChecklistItem[] {
@@ -27,12 +35,19 @@ export function parseAuditChecklistItemsFromBody(itemsRaw: unknown): ParsedCheck
           ? r.section.trim().slice(0, 400)
           : null
       const isHeading = r.isHeading === true
+      const existingId =
+        typeof r.existingId === "number" &&
+        Number.isInteger(r.existingId) &&
+        r.existingId > 0
+          ? r.existingId
+          : null
       return {
         label: label.slice(0, 8000),
         sortOrder,
         reference,
         section,
         isHeading,
+        existingId,
       }
     })
     .filter(Boolean) as ParsedChecklistItem[]

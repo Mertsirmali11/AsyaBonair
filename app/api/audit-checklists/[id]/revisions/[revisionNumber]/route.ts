@@ -46,6 +46,39 @@ export async function GET(_req: Request, ctx: Ctx) {
     },
   })
 
+  // Görüntülenen numara "en güncel" revizyonsa (== canEdit alanı) — bu ekran DÜZENLENEBİLİR ve
+  // "Kaydet" doğrudan CANLI `AuditChecklistItem` tablosuna yazar. `id` alanı bu yüzden HER ZAMAN
+  // canlı tablonun id'si olmalı: `AuditChecklistRevisionItem` (arşiv anlık görüntüsü) tamamen
+  // ayrı bir id uzayı kullanıyor ve editördeki "existingId" eşlemesi bu ikisini karıştırırsa
+  // düzenleme yanlış (alakasız) bir canlı satırı hedef alabilir. Arşiv metadata'sı (id/tarih)
+  // varsa gösterim için stored'dan alınır, ama madde listesi her zaman canlı tablodan gelir.
+  if (revNo === checklist.latestRevisionNumber) {
+    const full = await prisma.auditChecklist.findUnique({
+      where: { id },
+      include: {
+        items: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
+      },
+    })
+    if (!full) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+    return NextResponse.json({
+      checklist: checklistMeta,
+      revision: {
+        id: stored?.id ?? null,
+        revisionNumber: revNo,
+        revisionDate: stored
+          ? formatYmdUtc(stored.revisionDate)
+          : formatYmdUtc(full.latestRevisionDate),
+        title: stored?.title ?? full.title,
+        description: stored ? stored.description : full.description,
+        items: full.items.map(serializeAuditChecklistItemRow),
+        synthetic: !stored,
+        missingSnapshot: false,
+      },
+    })
+  }
+
   if (stored) {
     return NextResponse.json({
       checklist: checklistMeta,
@@ -84,31 +117,5 @@ export async function GET(_req: Request, ctx: Ctx) {
     })
   }
 
-  if (revNo !== checklist.latestRevisionNumber) {
-    return NextResponse.json({ error: "Revision not found" }, { status: 404 })
-  }
-
-  const full = await prisma.auditChecklist.findUnique({
-    where: { id },
-    include: {
-      items: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
-    },
-  })
-  if (!full) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 })
-  }
-
-  return NextResponse.json({
-    checklist: checklistMeta,
-    revision: {
-      id: null,
-      revisionNumber: full.latestRevisionNumber,
-      revisionDate: formatYmdUtc(full.latestRevisionDate),
-      title: full.title,
-      description: full.description,
-      items: full.items.map(serializeAuditChecklistItemRow),
-      synthetic: true,
-      missingSnapshot: false,
-    },
-  })
+  return NextResponse.json({ error: "Revision not found" }, { status: 404 })
 }
