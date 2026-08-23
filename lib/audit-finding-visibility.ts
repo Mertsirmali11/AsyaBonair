@@ -22,9 +22,10 @@ export {
  *
  * Diğer herkes (`kind: "limited"`) yalnızca: (1) assignedToId kendisiyle eşleşen, (2) kendi
  * departmanına (entry.auditeeDepartments) atanmış, (3) üyesi olduğu AKTİF bir User Group'a
- * (assignedGroupId) atanmış, (4) auditor olduğu denetime (entry.auditors) ait bulguları görür
- * — bkz. lib/audit-finding-visibility-scope.ts findingMatchesLimitedScope (DB'siz, izole test
- * edilebilir saf mantık).
+ * (assignedGroupId) atanmış, (4) auditor olduğu denetime (entry.auditors) ait, (5) denetime
+ * BİREYSEL auditee/responsible person olarak (departmanından bağımsız, entry.auditees) atanmış
+ * bulguları görür — bkz. lib/audit-finding-visibility-scope.ts findingMatchesLimitedScope
+ * (DB'siz, izole test edilebilir saf mantık).
  *
  * Bilerek CPA YAZMA/REVIEW yetkisiyle karıştırılmaz — bu dosya yalnızca "görebilir mi" sorusuna
  * cevap verir. CPA cevabı gönderme hâlâ SADECE requireCpaResponsiblePerson

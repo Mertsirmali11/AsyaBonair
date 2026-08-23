@@ -23,6 +23,9 @@ export type FindingScopeCandidate = {
   assignedGroupId: number | null
   entryAuditeeDepartments: string[]
   entryAuditorCalisanIds: number[]
+  /** Denetime BİREYSEL auditee/responsible person olarak eklenmiş kişiler (AuditPlanAuditee) —
+   * departmanları farklı olsa bile kriter 5'i sağlarlar. */
+  entryAuditeeCalisanIds: number[]
 }
 
 /** `session.entry` / `manualEntry` include'undan `FindingScopeCandidate` çıkarır — LIST ve
@@ -34,11 +37,13 @@ export function extractFindingScopeCandidate(finding: {
     entry: {
       auditeeDepartments: { departmentName: string }[]
       auditors: { calisanId: number }[]
+      auditees: { calisanId: number }[]
     } | null
   } | null
   manualEntry: {
     auditeeDepartments: { departmentName: string }[]
     auditors: { calisanId: number }[]
+    auditees: { calisanId: number }[]
   } | null
 }): FindingScopeCandidate {
   const entry = finding.session?.entry ?? finding.manualEntry ?? null
@@ -47,14 +52,16 @@ export function extractFindingScopeCandidate(finding: {
     assignedGroupId: finding.assignedGroupId,
     entryAuditeeDepartments: entry?.auditeeDepartments.map((d) => d.departmentName) ?? [],
     entryAuditorCalisanIds: entry?.auditors.map((a) => a.calisanId) ?? [],
+    entryAuditeeCalisanIds: entry?.auditees.map((a) => a.calisanId) ?? [],
   }
 }
 
 /**
- * `scope.kind === "limited"` iken tek bir finding görülebilir mi? Sıra: (1) assignedToId
- * kendisiyle eşleşiyor mu, (2) assignedGroupId üyesi olduğu aktif bir grup mu, (3) denetimin
- * auditee department'larından biri kendi departmanıyla eşleşiyor mu, (4) denetimin
- * auditor'larından biri kendisi mi.
+ * `scope.kind === "limited"` iken tek bir finding görülebilir mi? Beşi de OR, "yalnızca" bu
+ * beşi: (1) assignedToId kendisiyle eşleşiyor mu, (2) assignedGroupId üyesi olduğu aktif bir
+ * grup mu, (3) denetimin auditee department'larından biri kendi departmanıyla eşleşiyor mu,
+ * (4) denetimin auditor'larından biri kendisi mi, (5) denetime BİREYSEL auditee/responsible
+ * person olarak (departmanından bağımsız) eklenmiş mi.
  */
 export function findingMatchesLimitedScope(
   finding: FindingScopeCandidate,
@@ -64,6 +71,7 @@ export function findingMatchesLimitedScope(
   if (finding.assignedGroupId != null && scope.activeGroupIds.includes(finding.assignedGroupId)) return true
   if (finding.entryAuditeeDepartments.some((d) => departmentNamesMatch(d, scope.departman))) return true
   if (scope.calisanId != null && finding.entryAuditorCalisanIds.includes(scope.calisanId)) return true
+  if (scope.calisanId != null && finding.entryAuditeeCalisanIds.includes(scope.calisanId)) return true
   return false
 }
 
@@ -71,4 +79,5 @@ export function findingMatchesLimitedScope(
 export const FINDING_SCOPE_ENTRY_SELECT = {
   auditeeDepartments: { select: { departmentName: true } },
   auditors: { select: { calisanId: true } },
+  auditees: { select: { calisanId: true } },
 } as const

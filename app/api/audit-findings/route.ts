@@ -16,7 +16,8 @@ export async function GET(req: NextRequest) {
   // departman Admin veya Compliance Monitoring Department ise verilir — compliance_monitoring
   // department permission'ının başka bir departmana (modül erişimi için) açık olması bunu tek
   // başına vermez. Diğer herkes: self / own department / aktif grup üyeliği / auditor olduğu
-  // denetim eşleşmesiyle sınırlıdır (bkz. findingMatchesLimitedScope).
+  // denetim / denetime bireysel auditee olarak atanmış olmakla sınırlıdır (bkz.
+  // findingMatchesLimitedScope).
   const scope = await resolveFindingVisibilityScope(session.user.email, session.user.departman)
   if (scope.kind === "limited" && scope.calisanId == null) {
     return NextResponse.json([], { status: 200 })

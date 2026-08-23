@@ -22,7 +22,8 @@ export type FindingAuditeeAccess = {
  * kullanıcılarda döner (bkz. lib/department-access.ts isFullFindingVisibilityDepartment) —
  * `compliance_monitoring` department permission'ının başka bir departmana açık olması bunu
  * TEK BAŞINA vermez. Admin değilse: kendine assignedTo, kendi departmanına atanmış, üyesi
- * olduğu aktif bir gruba atanmış veya auditor olduğu denetime ait bulgular görülebilir.
+ * olduğu aktif bir gruba atanmış, auditor olduğu denetime ait veya denetime bireysel
+ * auditee/responsible person olarak (departmanından bağımsız) atanmış bulgular görülebilir.
  *
  * DİKKAT: bu fonksiyon SADECE görünürlük/okuma sorusuna cevap verir. CPA cevabı gönderme
  * (requireCpaResponsiblePerson) ve CPA review (requireCpaReviewer) BUNU kullanmaz — admin/
