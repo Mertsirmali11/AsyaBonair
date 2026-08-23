@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { canAccessAuditPlan } from "@/lib/audit-plan-access"
+import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import { defaultChecklistNumber } from "@/lib/audit-checklist-helpers"
 import { dbDateToDdMmYyyy } from "@/lib/correspondence-date"
 import { prisma } from "@/lib/prisma-server"
@@ -28,8 +27,8 @@ function formatAuditNumber(entry: { id: number; auditNumberPrefix: string | null
  * hiçbir veriyi değiştirmez. PDF üretimi tamamen istemci tarafında (jsPDF) yapılır.
  */
 export async function GET(_req: Request, ctx: Ctx) {
-  const session = await auth()
-  if (!session?.user?.email || !canAccessAuditPlan(session.user.email)) {
+  const session = await requireAuditPlanSession()
+  if (!session) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 

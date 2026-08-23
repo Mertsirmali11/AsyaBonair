@@ -15,7 +15,7 @@ function calisanName(c: { isim: string | null; soyisim: string | null } | null):
  * PATCH: CPA REVIEW aksiyonu — accept | revision_request. Bu route artık CPA İÇERİĞİNİ
  * (rootCause/correctiveAction/preventiveAction) DEĞİŞTİRMEZ — içerik yalnızca
  * POST /api/audit-findings/[id]/responses ile (sorumlu kişi tarafından, yeni bir satır olarak)
- * gönderilir/resubmit edilir. Yalnızca canAccessAuditPlan() yetkisine sahip kullanıcılar
+ * gönderilir/resubmit edilir. Yalnızca compliance_monitoring izni olan kullanıcılar
  * (requireCpaReviewer) çağırabilir; bulgunun sorumlu tarafı (kişi VEYA — gruba atanmışsa
  * grubun HERHANGİ BİR aktif üyesi, yalnızca bu cevabı gönderen kişi değil) kendi/grubunun
  * CPA'sını inceleyemez — "self_review" ile reddedilir.

@@ -1,6 +1,6 @@
 import "server-only"
 
-import { canAccessAuditPlan } from "@/lib/audit-plan-access"
+import { DEPARTMENT_PERMISSION_KEYS, hasDepartmentPermission } from "@/lib/require-department-permission"
 import { prisma } from "@/lib/prisma-server"
 
 type FindingAssignment = { assignedToId: number | null; assignedGroupId: number | null }
@@ -38,7 +38,7 @@ export type CpaResponsiblePersonCheck =
  * CPA/Root Cause cevabını YALNIZCA bulgunun sorumlu tarafı verebilir/düzenleyebilir/resubmit
  * edebilir: assignedToId doluysa o kişi, assignedGroupId doluysa o grubun AKTİF üyelerinden
  * biri (herhangi biri — ilk cevabı A verebilir, revizyonu B gönderebilir). Admin olmak
- * (canAccessAuditPlan), bireysel/departman auditee eşleşmesi (lib/audit-finding-auditee-access.ts
+ * (compliance_monitoring izni), bireysel/departman auditee eşleşmesi (lib/audit-finding-auditee-access.ts
  * — bulguyu GÖRÜNTÜLEMEK için hâlâ kullanılıyor) veya grup DIŞINDAKİ başka hiçbir yetki burada
  * YETERLİ DEĞİLDİR. Gerçek cevabı gönderen kişi her zaman respondedById ile ayrıca kaydedilir
  * (bkz. çağıran route) — grup ataması bunu DEĞİŞTİRMEZ.
@@ -72,10 +72,10 @@ export type CpaReviewerCheck =
   | { ok: false; reason: "not_authenticated" | "not_reviewer" | "self_review" }
 
 /**
- * CPA review aksiyonları (Accept / Revision Request) YALNIZCA canAccessAuditPlan() yetkisine
- * sahip kullanıcılarda — bu, Manage Audit'teki TÜM diğer review aksiyonlarının (auditee
+ * CPA review aksiyonları (Accept / Revision Request) YALNIZCA Compliance Monitoring izni olan
+ * departmandaki kullanıcılarda — bu, Manage Audit'teki TÜM diğer review aksiyonlarının (auditee
  * checklist submission accept/revision-request, Add Finding, Delete) zaten kullandığı AYNI
- * gate; yeni bir "Lead Auditor" rolü icat etmiyoruz.
+ * gate (bkz. lib/audit-plan-session.ts); yeni bir "Lead Auditor" rolü icat etmiyoruz.
  *
  * Self-review engeli: bulgu kişiye atanmışsa o kişi, gruba atanmışsa GRUBUN HERHANGİ BİR
  * AKTİF ÜYESİ (yalnızca bu cevabı gönderen kişi değil — "grup üyesi kendi grubunun CPA'sını
@@ -85,13 +85,15 @@ export async function requireCpaReviewer(
   findingId: number,
   userEmail: string | null | undefined
 ): Promise<CpaReviewerCheck> {
-  if (!canAccessAuditPlan(userEmail)) return { ok: false, reason: "not_reviewer" }
   if (!userEmail?.trim()) return { ok: false, reason: "not_authenticated" }
 
   const calisan = await prisma.calisan.findFirst({
     where: { email: { equals: userEmail, mode: "insensitive" } },
-    select: { id: true },
+    select: { id: true, departman: true },
   })
+  if (!(await hasDepartmentPermission(calisan?.departman, DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING))) {
+    return { ok: false, reason: "not_reviewer" }
+  }
   if (!calisan) return { ok: true, calisanId: null }
 
   const finding = await prisma.auditFinding.findFirst({

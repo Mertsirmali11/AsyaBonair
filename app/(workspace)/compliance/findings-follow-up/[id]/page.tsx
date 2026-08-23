@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { FindingDetailClient } from "@/components/compliance/finding-detail-client"
-import { canAccessAuditPlan } from "@/lib/audit-plan-access"
+import { DEPARTMENT_PERMISSION_KEYS, hasDepartmentPermission } from "@/lib/require-department-permission"
 import { prisma } from "@/lib/prisma-server"
 
 type Props = { params: Promise<{ id: string }> }
@@ -22,11 +22,16 @@ export default async function FindingDetailPage({ params }: Props) {
       })
     : null
 
+  const isAdmin = await hasDepartmentPermission(
+    session.user?.departman,
+    DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING
+  )
+
   return (
     <FindingDetailClient
       findingId={findingId}
       currentCalisanId={calisan?.id ?? null}
-      isAdmin={canAccessAuditPlan(session.user?.email)}
+      isAdmin={isAdmin}
     />
   )
 }

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { canAccessAuditPlan } from "@/lib/audit-plan-access"
+import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import { prisma } from "@/lib/prisma-server"
 
 export const runtime = "nodejs"
@@ -24,8 +23,8 @@ function calisanName(c: { isim: string | null; soyisim: string | null } | null):
  * - Geçmiş/Audit History'ye kim/ne zaman yeniden açtı bilgisiyle bir kayıt düşülür.
  */
 export async function POST(_req: Request, ctx: Ctx) {
-  const session = await auth()
-  if (!session?.user?.email || !canAccessAuditPlan(session.user.email)) {
+  const session = await requireAuditPlanSession()
+  if (!session) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 

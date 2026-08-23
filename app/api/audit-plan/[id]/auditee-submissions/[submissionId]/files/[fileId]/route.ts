@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { canAccessAuditPlan } from "@/lib/audit-plan-access"
+import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import { prisma } from "@/lib/prisma-server"
 import { createSignedDownloadUrl } from "@/lib/supabase-storage"
 
@@ -15,8 +14,8 @@ type Ctx = { params: Promise<{ id: string; submissionId: string; fileId: string 
  * indirme YOKTUR (auditee kendi gönderdiği dosyayı geri okuyamaz, yalnızca yükleyebilir).
  */
 export async function GET(_req: Request, ctx: Ctx) {
-  const session = await auth()
-  if (!session?.user?.email || !canAccessAuditPlan(session.user.email)) {
+  const session = await requireAuditPlanSession()
+  if (!session) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 

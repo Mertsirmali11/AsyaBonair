@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { canAccessAuditPlan } from "@/lib/audit-plan-access"
+import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import { generateResponseToken, revokeActiveResponseLinksForEntry } from "@/lib/audit-response-link"
 import { prisma } from "@/lib/prisma-server"
 
@@ -13,12 +12,6 @@ function calisanName(c: { isim: string | null; soyisim: string | null } | null):
   if (!c) return null
   const n = [c.isim, c.soyisim].filter(Boolean).join(" ").trim()
   return n || null
-}
-
-async function requireAuditPlanAccess() {
-  const session = await auth()
-  if (!session?.user?.email || !canAccessAuditPlan(session.user.email)) return null
-  return session
 }
 
 function mapLink(link: {
@@ -45,7 +38,7 @@ function mapLink(link: {
 
 /** GET: bu denetime ait tüm response link'ler (aktif + geçmiş) — Manage Audit paneli için. */
 export async function GET(_req: Request, ctx: Ctx) {
-  const session = await requireAuditPlanAccess()
+  const session = await requireAuditPlanSession()
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
   const { id } = await ctx.params
@@ -68,7 +61,7 @@ export async function GET(_req: Request, ctx: Ctx) {
  * başka bir link varsa önce onu otomatik iptal eder (aynı anda tek aktif link ilkesi).
  */
 export async function POST(req: Request, ctx: Ctx) {
-  const session = await requireAuditPlanAccess()
+  const session = await requireAuditPlanSession()
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
   const { id } = await ctx.params

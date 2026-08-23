@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { canAccessAuditPlan } from "@/lib/audit-plan-access"
+import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import { isSacaOrSafaAuditCategory, normalizeFindingCategory } from "@/lib/finding-category"
 import { validateFindingAssignment } from "@/lib/audit-finding-assignee"
 import { prisma } from "@/lib/prisma-server"
@@ -24,8 +23,8 @@ function calisanName(c: { isim: string | null; soyisim: string | null } | null):
  * panelinde özet liste olarak gösterilir.
  */
 export async function GET(_req: Request, ctx: Ctx) {
-  const session = await auth()
-  if (!session?.user?.email || !canAccessAuditPlan(session.user.email)) {
+  const session = await requireAuditPlanSession()
+  if (!session) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
@@ -72,8 +71,8 @@ export async function GET(_req: Request, ctx: Ctx) {
  * Checklist üzerinden otomatik bulgu oluşturma akışına (audit-sessions/[id]/items) dokunulmaz.
  */
 export async function POST(req: Request, ctx: Ctx) {
-  const session = await auth()
-  if (!session?.user?.email || !canAccessAuditPlan(session.user.email)) {
+  const session = await requireAuditPlanSession()
+  if (!session) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 

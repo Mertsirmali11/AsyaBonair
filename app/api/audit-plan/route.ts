@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { canAccessAuditPlan } from "@/lib/audit-plan-access"
+import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import { dbDateToDdMmYyyy, parseDdMmYyyyToUtcDate } from "@/lib/correspondence-date"
 import { prisma } from "@/lib/prisma-server"
 import {
@@ -54,14 +53,6 @@ function mapEntry(entry: EntryWithPeople) {
   }
 }
 
-async function requireAuditPlanAccess() {
-  const session = await auth()
-  if (!session?.user?.email || !canAccessAuditPlan(session.user.email)) {
-    return null
-  }
-  return session
-}
-
 function prismaConnectErrorMessage(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err)
   if (/timeout exceeded|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|getaddrinfo/i.test(msg)) {
@@ -71,7 +62,7 @@ function prismaConnectErrorMessage(err: unknown): string {
 }
 
 export async function GET() {
-  const session = await requireAuditPlanAccess()
+  const session = await requireAuditPlanSession()
   if (!session) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
@@ -95,7 +86,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const session = await requireAuditPlanAccess()
+  const session = await requireAuditPlanSession()
   if (!session) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }

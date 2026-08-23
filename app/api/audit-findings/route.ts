@@ -1,13 +1,19 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
-import { canAccessAuditPlan } from "@/lib/audit-plan-access"
+import { DEPARTMENT_PERMISSION_KEYS, hasDepartmentPermission } from "@/lib/require-department-permission"
 import { prisma } from "@/lib/prisma-server"
 
 export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.email) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-  const isAdmin = canAccessAuditPlan(session.user.email)
+  // Compliance Monitoring izni olan departmanlar (Audit Plan admini ile AYNI kapı — bkz.
+  // lib/audit-plan-session.ts) tüm bulguları görür; diğer herkes yalnızca kendine/gruba
+  // atanmış bulguları. Eskiden AUDIT_PLAN_ADMIN_EMAILS allow-list'i kullanılıyordu.
+  const isAdmin = await hasDepartmentPermission(
+    session.user.departman,
+    DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING
+  )
 
   // Admin değilse sadece kendine atanan bulgular
   const calisan = isAdmin

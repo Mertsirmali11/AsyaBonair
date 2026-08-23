@@ -1,5 +1,5 @@
-import { canAccessAuditPlan } from "@/lib/audit-plan-access"
 import { normalizeDepartmentKey } from "@/lib/department-access"
+import { DEPARTMENT_PERMISSION_KEYS, hasDepartmentPermission } from "@/lib/require-department-permission"
 import { prisma } from "@/lib/prisma-server"
 
 export type FindingAuditeeAccess = {
@@ -10,10 +10,11 @@ export type FindingAuditeeAccess = {
 }
 
 /**
- * Bir bulguya erişim/cevap verme yetkisini çözer: Audit Plan admini (canAccessAuditPlan) HER ZAMAN
- * erişebilir. Admin değilse — bulgunun bağlı olduğu denetime (checklist üzerinden veya manuel)
- * bireysel auditee olarak eklenmiş, Auditee Group/Department'ı kendi departmanıyla eşleşen veya
- * doğrudan bulguya assignedTo olarak atanmış kullanıcılar da erişebilir/cevap verebilir.
+ * Bir bulguya erişim/cevap verme yetkisini çözer: Compliance Monitoring izni olan departmandaki
+ * kullanıcılar (Audit Plan ile AYNI kapı — bkz. lib/audit-plan-session.ts) HER ZAMAN erişebilir.
+ * Admin değilse — bulgunun bağlı olduğu denetime (checklist üzerinden veya manuel) bireysel
+ * auditee olarak eklenmiş, Auditee Group/Department'ı kendi departmanıyla eşleşen veya doğrudan
+ * bulguya assignedTo olarak atanmış kullanıcılar da erişebilir/cevap verebilir.
  * "Departmandan herhangi bir yetkili kişi denetime cevap verebilsin" gereksinimini karşılar.
  */
 export async function resolveFindingAuditeeAccess(
@@ -21,7 +22,7 @@ export async function resolveFindingAuditeeAccess(
   userEmail: string | null | undefined,
   userDepartman: string | null | undefined
 ): Promise<FindingAuditeeAccess> {
-  if (canAccessAuditPlan(userEmail)) {
+  if (await hasDepartmentPermission(userDepartman, DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING)) {
     return { isAdmin: true, isAuditee: false, calisanId: null }
   }
 

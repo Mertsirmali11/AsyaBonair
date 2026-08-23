@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { DEPARTMENT_PERMISSION_KEYS, hasDepartmentPermission } from "@/lib/require-department-permission"
-import { canAccessAuditPlan } from "@/lib/audit-plan-access"
 import { prisma } from "@/lib/prisma-server"
 
 export const runtime = "nodejs"
@@ -15,15 +14,16 @@ function calisanName(c: { isim: string | null; soyisim: string | null }): string
  * GET: grup listesi. İki ayrı kullanım bağlamı için tek endpoint:
  * (1) Configurations → User Groups yönetim tablosu (configurations_area izni,
  * Authorization sayfasındaki override'ları da hesaba katan hasDepartmentPermission ile),
- * (2) Finding assignment picker'ında (Add Finding/Edit — canAccessAuditPlan). İkisi de zaten
- * uygulamanın güvendiği admin-tier yetkileri; ayrı bir response şekli gerektirmiyor.
+ * (2) Finding assignment picker'ında (Add Finding/Edit — compliance_monitoring izni, Audit
+ * Plan ile AYNI kapı). İkisi de zaten uygulamanın güvendiği admin-tier yetkileri; ayrı bir
+ * response şekli gerektirmiyor.
  * Yazma (POST/PATCH/DELETE) SADECE configurations_area izninde — grup YÖNETİMİ Configurations'a
  * ait, finding'e atama yetkisi grup yönetme yetkisi vermez.
  */
 export async function GET() {
   const session = await auth()
   const mayManage = await hasDepartmentPermission(session?.user?.departman, DEPARTMENT_PERMISSION_KEYS.CONFIGURATIONS_AREA)
-  const mayUse = canAccessAuditPlan(session?.user?.email)
+  const mayUse = await hasDepartmentPermission(session?.user?.departman, DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING)
   if (!mayManage && !mayUse) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }

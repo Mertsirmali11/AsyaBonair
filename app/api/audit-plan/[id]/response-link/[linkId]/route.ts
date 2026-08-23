@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { canAccessAuditPlan } from "@/lib/audit-plan-access"
+import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import { prisma } from "@/lib/prisma-server"
 
 export const runtime = "nodejs"
@@ -8,19 +7,13 @@ export const dynamic = "force-dynamic"
 
 type Ctx = { params: Promise<{ id: string; linkId: string }> }
 
-async function requireAuditPlanAccess() {
-  const session = await auth()
-  if (!session?.user?.email || !canAccessAuditPlan(session.user.email)) return null
-  return session
-}
-
 /**
  * PATCH: mevcut bir response link üzerinde yetkili kullanıcı işlemi —
  * revoke (devre dışı bırak), reactivate (Reopen SONRASI, yetkili kullanıcının AÇIK
  * onayıyla aynı token'ı yeniden etkinleştirir — otomatik olmaz), veya expiresAt güncelleme.
  */
 export async function PATCH(req: Request, ctx: Ctx) {
-  const session = await requireAuditPlanAccess()
+  const session = await requireAuditPlanSession()
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
   const { id, linkId } = await ctx.params

@@ -73,7 +73,7 @@ type NavItem = {
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   user: User
-  /** Audit Plan alt menüsü — yalnızca `AUDIT_PLAN_ADMIN_EMAILS` içindeki kullanıcılar */
+  /** Audit Plan alt menüsü — yalnızca `compliance_monitoring` department permission'ı Açık olanlar */
   showAuditPlanNav?: boolean
   departmentPermissions?: ResolvedDepartmentPermissions | null
 }
