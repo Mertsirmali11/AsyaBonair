@@ -1,81 +1,63 @@
-import { normalizeDepartmentKey } from "@/lib/department-access"
-import { DEPARTMENT_PERMISSION_KEYS, hasDepartmentPermission } from "@/lib/require-department-permission"
+import {
+  FINDING_SCOPE_ENTRY_SELECT,
+  extractFindingScopeCandidate,
+  findingMatchesLimitedScope,
+  resolveFindingVisibilityScope,
+} from "@/lib/audit-finding-visibility"
 import { prisma } from "@/lib/prisma-server"
 
 export type FindingAuditeeAccess = {
   isAdmin: boolean
-  /** Bireysel auditee, Auditee Group/Department eşleşmesi veya doğrudan assignedTo eşleşmesi. */
+  /** own department / atandığı grup / auditor olduğu denetim eşleşmesi — bkz. lib/audit-finding-visibility.ts. */
   isAuditee: boolean
   calisanId: number | null
 }
 
 /**
- * Bir bulguya erişim/cevap verme yetkisini çözer: Compliance Monitoring izni olan departmandaki
- * kullanıcılar (Audit Plan ile AYNI kapı — bkz. lib/audit-plan-session.ts) HER ZAMAN erişebilir.
- * Admin değilse — bulgunun bağlı olduğu denetime (checklist üzerinden veya manuel) bireysel
- * auditee olarak eklenmiş, Auditee Group/Department'ı kendi departmanıyla eşleşen veya doğrudan
- * bulguya assignedTo olarak atanmış kullanıcılar da erişebilir/cevap verebilir.
- * "Departmandan herhangi bir yetkili kişi denetime cevap verebilsin" gereksinimini karşılar.
+ * Bir bulguya READ erişimini (görüntüleme, dosya/geçmiş/CPA cevap listesi) çözer — TEK yetki
+ * kaynağı lib/audit-finding-visibility.ts'teki `resolveFindingVisibilityScope` /
+ * `findingMatchesLimitedScope`'tur, burada paralel bir mantık YOKTUR.
+ *
+ * `isAdmin: true` yalnızca gerçek departmanı Admin veya Compliance Monitoring Department olan
+ * kullanıcılarda döner (bkz. lib/department-access.ts isFullFindingVisibilityDepartment) —
+ * `compliance_monitoring` department permission'ının başka bir departmana açık olması bunu
+ * TEK BAŞINA vermez. Admin değilse: kendine assignedTo, kendi departmanına atanmış, üyesi
+ * olduğu aktif bir gruba atanmış veya auditor olduğu denetime ait bulgular görülebilir.
+ *
+ * DİKKAT: bu fonksiyon SADECE görünürlük/okuma sorusuna cevap verir. CPA cevabı gönderme
+ * (requireCpaResponsiblePerson) ve CPA review (requireCpaReviewer) BUNU kullanmaz — admin/
+ * "tüm findings" görünürlüğü CPA yazma yetkisi vermez (bkz. lib/audit-finding-cpa-access.ts).
  */
 export async function resolveFindingAuditeeAccess(
   findingId: number,
   userEmail: string | null | undefined,
   userDepartman: string | null | undefined
 ): Promise<FindingAuditeeAccess> {
-  if (await hasDepartmentPermission(userDepartman, DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING)) {
+  const scope = await resolveFindingVisibilityScope(userEmail, userDepartman)
+  if (scope.kind === "all") {
     return { isAdmin: true, isAuditee: false, calisanId: null }
   }
-
-  if (!userEmail?.trim()) {
+  if (scope.calisanId == null) {
     return { isAdmin: false, isAuditee: false, calisanId: null }
   }
-
-  const calisan = await prisma.calisan.findFirst({
-    where: { email: { equals: userEmail, mode: "insensitive" } },
-    select: { id: true },
-  })
-  if (!calisan) {
-    return { isAdmin: false, isAuditee: false, calisanId: null }
-  }
-
-  const entryFields = {
-    auditees: { select: { calisanId: true } },
-    auditeeDepartments: { select: { departmentName: true } },
-  } as const
 
   const finding = await prisma.auditFinding.findUnique({
     where: { id: findingId },
     select: {
       assignedToId: true,
       assignedGroupId: true,
-      session: { select: { entry: { select: entryFields } } },
-      manualEntry: { select: entryFields },
+      session: { select: { entry: { select: FINDING_SCOPE_ENTRY_SELECT } } },
+      manualEntry: { select: FINDING_SCOPE_ENTRY_SELECT },
     },
   })
   if (!finding) {
-    return { isAdmin: false, isAuditee: false, calisanId: calisan.id }
+    return { isAdmin: false, isAuditee: false, calisanId: scope.calisanId }
   }
 
-  const entry = finding.session?.entry ?? finding.manualEntry ?? null
-  const individualMatch = entry?.auditees.some((a) => a.calisanId === calisan.id) ?? false
-  const departmentMatch = entry
-    ? entry.auditeeDepartments.some(
-        (d) => normalizeDepartmentKey(d.departmentName) === normalizeDepartmentKey(userDepartman)
-      )
-    : false
-  const assigneeMatch = finding.assignedToId === calisan.id
-  // Bulgu bir gruba atanmışsa, o grubun üyesi de görüntüleyip cevap verebilmeli — aksi halde
-  // CPA yazma yetkisi olan biri kendi finding'ini bile açamaz. Üyelik DB'den taze sorgulanır.
-  const groupMemberMatch = finding.assignedGroupId
-    ? await prisma.userGroupMember.findFirst({
-        where: { groupId: finding.assignedGroupId, calisanId: calisan.id },
-        select: { id: true },
-      }).then((m) => !!m)
-    : false
-
+  const candidate = extractFindingScopeCandidate(finding)
   return {
     isAdmin: false,
-    isAuditee: individualMatch || departmentMatch || assigneeMatch || groupMemberMatch,
-    calisanId: calisan.id,
+    isAuditee: findingMatchesLimitedScope(candidate, scope),
+    calisanId: scope.calisanId,
   }
 }

@@ -1,50 +1,29 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
-import { DEPARTMENT_PERMISSION_KEYS, hasDepartmentPermission } from "@/lib/require-department-permission"
+import {
+  FINDING_SCOPE_ENTRY_SELECT,
+  extractFindingScopeCandidate,
+  findingMatchesLimitedScope,
+  resolveFindingVisibilityScope,
+} from "@/lib/audit-finding-visibility"
 import { prisma } from "@/lib/prisma-server"
 
 export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.email) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-  // Compliance Monitoring izni olan departmanlar (Audit Plan admini ile AYNI kapı — bkz.
-  // lib/audit-plan-session.ts) tüm bulguları görür; diğer herkes yalnızca kendine/gruba
-  // atanmış bulguları. Eskiden AUDIT_PLAN_ADMIN_EMAILS allow-list'i kullanılıyordu.
-  const isAdmin = await hasDepartmentPermission(
-    session.user.departman,
-    DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING
-  )
-
-  // Admin değilse sadece kendine atanan bulgular
-  const calisan = isAdmin
-    ? null
-    : await prisma.calisan.findFirst({
-        where: { email: { equals: session.user.email, mode: "insensitive" } },
-        select: { id: true },
-      })
-
-  if (!isAdmin && !calisan) return NextResponse.json([], { status: 200 })
-
-  // Admin değilse: kendine DOĞRUDAN atanan bulgular + üyesi olduğu bir gruba atanan bulgular.
-  const memberGroupIds = isAdmin
-    ? []
-    : (
-        await prisma.userGroupMember.findMany({
-          where: { calisanId: calisan!.id },
-          select: { groupId: true },
-        })
-      ).map((m) => m.groupId)
+  // TEK yetki kaynağı: lib/audit-finding-visibility.ts. "Tüm findings" YALNIZCA gerçek
+  // departman Admin veya Compliance Monitoring Department ise verilir — compliance_monitoring
+  // department permission'ının başka bir departmana (modül erişimi için) açık olması bunu tek
+  // başına vermez. Diğer herkes: self / own department / aktif grup üyeliği / auditor olduğu
+  // denetim eşleşmesiyle sınırlıdır (bkz. findingMatchesLimitedScope).
+  const scope = await resolveFindingVisibilityScope(session.user.email, session.user.departman)
+  if (scope.kind === "limited" && scope.calisanId == null) {
+    return NextResponse.json([], { status: 200 })
+  }
 
   const findings = await prisma.auditFinding.findMany({
-    where: isAdmin
-      ? { deletedAt: null }
-      : {
-          deletedAt: null,
-          OR: [
-            { assignedToId: calisan!.id },
-            ...(memberGroupIds.length > 0 ? [{ assignedGroupId: { in: memberGroupIds } }] : []),
-          ],
-        },
+    where: { deletedAt: null },
     orderBy: { createdAt: "desc" },
     include: {
       assignedTo: { select: { id: true, isim: true, soyisim: true } },
@@ -64,16 +43,23 @@ export async function GET(req: NextRequest) {
             select: {
               auditNumberPrefix: true,
               id: true,
+              ...FINDING_SCOPE_ENTRY_SELECT,
             },
           },
         },
       },
+      manualEntry: { select: FINDING_SCOPE_ENTRY_SELECT },
     },
   })
 
+  const visible =
+    scope.kind === "all"
+      ? findings
+      : findings.filter((f) => findingMatchesLimitedScope(extractFindingScopeCandidate(f), scope))
+
   // Compute summary stats for the response
   const now = new Date()
-  const mapped = findings.map((f) => {
+  const mapped = visible.map((f) => {
     const totalCpa = f.responses.length
     const acceptedCpa = f.responses.filter((r) => r.cpaStatus === "Accepted").length
     // "Rejected" artık üretilmiyor (bkz. cpaStatus akışı: Pending → RevisionRequested →
