@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { canAccessAuditPlan } from "@/lib/audit-plan-access"
+import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import { defaultChecklistNumber } from "@/lib/audit-checklist-helpers"
 import { dbDateToDdMmYyyy, parseDdMmYyyyToUtcDate } from "@/lib/correspondence-date"
 import { revokeActiveResponseLinksForEntry } from "@/lib/audit-response-link"
@@ -22,16 +21,8 @@ function formatAuditNumber(entry: { id: number; auditNumberPrefix: string | null
   return p ? `${p}-${entry.id}` : `AP-${entry.id}`
 }
 
-async function requireAuditPlanAccess() {
-  const session = await auth()
-  if (!session?.user?.email || !canAccessAuditPlan(session.user.email)) {
-    return null
-  }
-  return session
-}
-
 export async function GET(_req: Request, ctx: Ctx) {
-  const session = await requireAuditPlanAccess()
+  const session = await requireAuditPlanSession()
   if (!session) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
@@ -156,7 +147,7 @@ function mapEntry(entry: EntryWithPeople) {
 }
 
 export async function PATCH(req: Request, ctx: Ctx) {
-  const session = await requireAuditPlanAccess()
+  const session = await requireAuditPlanSession()
   if (!session) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
@@ -574,7 +565,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
  * edilmez). Completed denetimler hiçbir koşulda silinemez.
  */
 export async function DELETE(_req: Request, ctx: Ctx) {
-  const session = await requireAuditPlanAccess()
+  const session = await requireAuditPlanSession()
   if (!session) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }

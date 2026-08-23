@@ -206,7 +206,7 @@ export function FindingDetailClient({
 }: {
   findingId: number
   currentCalisanId: number | null
-  /** Audit Plan admini mi (canAccessAuditPlan) — atama/CPA review gibi yönetici aksiyonları buna göre gösterilir. */
+  /** Audit Plan admini mi (compliance_monitoring izni) — atama/CPA review gibi yönetici aksiyonları buna göre gösterilir. */
   isAdmin?: boolean
 }) {
   const [finding, setFinding] = React.useState<FindingDetail | null>(null)

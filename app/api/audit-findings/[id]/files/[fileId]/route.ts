@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { canAccessAuditPlan } from "@/lib/audit-plan-access"
+import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import { prisma } from "@/lib/prisma-server"
 import { deletePdfFromStorage } from "@/lib/supabase-storage"
 
@@ -15,8 +14,8 @@ function calisanName(c: { isim: string | null; soyisim: string | null } | null):
 
 /** DELETE: bulgu dosyasını siler — yetki gerektiren bir işlem olduğu için Audit Plan admini ile sınırlıdır. */
 export async function DELETE(_req: Request, ctx: Ctx) {
-  const session = await auth()
-  if (!session?.user?.email || !canAccessAuditPlan(session.user.email)) {
+  const session = await requireAuditPlanSession()
+  if (!session) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 

@@ -18,6 +18,21 @@ export function isAdminDepartment(
   return normalizeDepartmentKey(departman) === "admin"
 }
 
+/**
+ * Finding (Audit Findings / Findings Follow-up) için "TÜM bulguları gör" tam görünürlüğü —
+ * bilerek `DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING` izninden AYRI ve daha DAR bir
+ * kontrol: gerçek departman Admin veya Compliance Monitoring Department OLMALI. Bu izin
+ * (Yetkilendirme ekranından) başka bir departmana (ör. CAMO'ya modül erişimi vermek için)
+ * açılmış olabilir — bu TEK BAŞINA o departmanın kullanıcılarına başkalarının bulgularını
+ * gösterme yetkisi VERMEZ. Bkz. lib/audit-finding-visibility.ts.
+ */
+export function isFullFindingVisibilityDepartment(
+  departman: string | null | undefined
+): boolean {
+  const x = normalizeDepartmentKey(departman)
+  return x === "admin" || x === "compliance monitoring department"
+}
+
 /** HR / Quality / Admin — yapılandırma, kullanıcı ayarları, yazışmalar vb. tam erişim. */
 export function canAccessConfigurationsArea(
   departman: string | null | undefined

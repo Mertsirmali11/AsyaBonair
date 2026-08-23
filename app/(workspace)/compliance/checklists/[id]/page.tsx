@@ -2,7 +2,7 @@ import { redirect } from "next/navigation"
 
 import { auth } from "@/auth"
 import { AuditChecklistDetailClient } from "@/components/compliance/audit-checklist-detail-client"
-import { canAccessAuditPlan } from "@/lib/audit-plan-access"
+import { DEPARTMENT_PERMISSION_KEYS, hasDepartmentPermission } from "@/lib/require-department-permission"
 
 type PageProps = { params: Promise<{ id: string }> }
 
@@ -11,7 +11,7 @@ export default async function AuditChecklistDetailPage({ params }: PageProps) {
   if (!session) {
     redirect("/login")
   }
-  if (!canAccessAuditPlan(session.user?.email)) {
+  if (!(await hasDepartmentPermission(session.user?.departman, DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING))) {
     redirect("/dashboard")
   }
 

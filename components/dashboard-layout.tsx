@@ -22,7 +22,7 @@ interface User {
 interface DashboardLayoutProps {
   children: React.ReactNode
   user: User
-  /** Audit Plan menü öğesi — sunucuda `canAccessAuditPlan` ile hesaplanır */
+  /** Audit Plan menü öğesi — sunucuda `compliance_monitoring` department permission'ı ile hesaplanır */
   showAuditPlanNav?: boolean
   /** Departman yetki matrisi — sidebar menü filtrelemesi */
   departmentPermissions?: ResolvedDepartmentPermissions | null

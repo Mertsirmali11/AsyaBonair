@@ -6,9 +6,13 @@ import {
   orderedDepartmentPermissionKeys,
 } from "@/lib/department-permission-keys"
 import { legacyDepartmentPermission } from "@/lib/department-permissions-legacy"
+import {
+  resolveDepartmentPermissionsFromRows,
+  type ResolvedDepartmentPermissions,
+} from "@/lib/department-permissions-precedence"
 import { prisma } from "@/lib/prisma-server"
 
-export type ResolvedDepartmentPermissions = Record<string, boolean>
+export type { ResolvedDepartmentPermissions }
 
 function isMissingTableError(e: unknown): boolean {
   if (!e || typeof e !== "object") return false
@@ -22,11 +26,7 @@ export async function getResolvedDepartmentPermissionsForUser(
   const nk = normalizeDepartmentKey(departman)
   const keys = orderedDepartmentPermissionKeys()
   if (!nk) {
-    const outEmpty: ResolvedDepartmentPermissions = {}
-    for (const k of keys) {
-      outEmpty[k] = legacyDepartmentPermission(k, departman)
-    }
-    return outEmpty
+    return resolveDepartmentPermissionsFromRows([], departman)
   }
   let rows: { permissionKey: string; allowed: boolean }[] = []
   try {
@@ -50,14 +50,7 @@ export async function getResolvedDepartmentPermissionsForUser(
       rows = []
     }
   }
-  const byKey = new Map(rows.map((r) => [r.permissionKey, r.allowed]))
-  const hint = departman
-  const out: ResolvedDepartmentPermissions = {}
-  for (const k of keys) {
-    const o = byKey.get(k)
-    out[k] = o !== undefined ? o : legacyDepartmentPermission(k, hint)
-  }
-  return out
+  return resolveDepartmentPermissionsFromRows(rows, departman)
 }
 
 export async function getAdminDepartmentPermissionsMatrix(): Promise<{

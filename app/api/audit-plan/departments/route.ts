@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { canAccessAuditPlan } from "@/lib/audit-plan-access"
+import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import { prisma } from "@/lib/prisma-server"
 
 export const runtime = "nodejs"
@@ -8,8 +7,8 @@ export const dynamic = "force-dynamic"
 
 /** GET: Auditee Group/Department seçimi için kayıtlı departman adları (Configurations → Departmanlar). */
 export async function GET() {
-  const session = await auth()
-  if (!session?.user?.email || !canAccessAuditPlan(session.user.email)) {
+  const session = await requireAuditPlanSession()
+  if (!session) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 

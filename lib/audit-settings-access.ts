@@ -1,6 +1,6 @@
 import { auth } from "@/auth"
-import { canAccessAuditPlan } from "@/lib/audit-plan-access"
 import { canAccessConfigurationsArea } from "@/lib/department-access"
+import { DEPARTMENT_PERMISSION_KEYS, hasDepartmentPermission } from "@/lib/require-department-permission"
 import { prisma } from "@/lib/prisma-server"
 
 /**
@@ -25,13 +25,13 @@ async function resolveDepartman(
   }
 }
 
-/** Kategori listesini görebilir: Audit Plan yöneticisi veya Konfigürasyon (HR/Quality). */
+/** Kategori listesini görebilir: Audit Plan yöneticisi (compliance_monitoring izni) veya Konfigürasyon (HR/Quality). */
 export async function sessionCanReadAuditCategoryTypes() {
   const session = await auth()
   if (!session?.user) return { ok: false as const, session: null }
-  const email = session.user.email
   const dept = await resolveDepartman(session.user)
-  if (canAccessAuditPlan(email) || canAccessConfigurationsArea(dept)) {
+  const mayAuditPlan = await hasDepartmentPermission(dept, DEPARTMENT_PERMISSION_KEYS.COMPLIANCE_MONITORING)
+  if (mayAuditPlan || canAccessConfigurationsArea(dept)) {
     return { ok: true as const, session }
   }
   return { ok: false as const, session: null }

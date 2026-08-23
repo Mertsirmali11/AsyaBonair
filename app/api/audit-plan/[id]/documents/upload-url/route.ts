@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/auth"
-import { canAccessAuditPlan } from "@/lib/audit-plan-access"
+import { requireAuditPlanSession } from "@/lib/audit-plan-session"
 import {
   CORRESPONDENCE_ALLOWED_ERROR_EN,
   assignUniqueDocumentStorageNamesFromNames,
@@ -21,8 +20,8 @@ type Ctx = { params: Promise<{ id: string }> }
  * yükler, Vercel fonksiyonunun gövde sınırından geçmez.
  */
 export async function POST(req: Request, ctx: Ctx) {
-  const session = await auth()
-  if (!session?.user?.email || !canAccessAuditPlan(session.user.email)) {
+  const session = await requireAuditPlanSession()
+  if (!session) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
