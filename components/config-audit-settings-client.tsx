@@ -3,7 +3,9 @@
 import * as React from "react"
 import { IconPencil, IconPlus, IconTrash } from "@tabler/icons-react"
 import { toast } from "sonner"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -30,6 +32,14 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
+import { AUDIT_PLAN_ENTRY_TYPES, type AuditPlanEntryType } from "@/lib/audit-plan-type"
+
+/** Scope checkbox label'ları — Planned/Unplanned/Incoming Audit Settings ekranında. */
+const SCOPE_LABELS: Record<AuditPlanEntryType, string> = {
+  PLANNED: "Audit Plan",
+  UNPLANNED: "Unplanned Audits",
+  INCOMING: "Incoming Audits",
+}
 
 export type AuditCategoryTypeRow = {
   id: number
@@ -37,6 +47,7 @@ export type AuditCategoryTypeRow = {
   description: string | null
   sortOrder: number
   isActive: boolean
+  scopes: AuditPlanEntryType[]
   createdAt: string
   updatedAt: string
 }
@@ -48,6 +59,54 @@ export type AuditSubCategoryTypeRow = {
   isActive: boolean
   createdAt: string
   updatedAt: string
+}
+
+export type AuditingBodyTypeRow = {
+  id: number
+  name: string
+  sortOrder: number
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+/** Planned/Unplanned/Incoming checkbox grubu — kategori create/edit formlarında reuse edilir. */
+function ScopeCheckboxGroup({
+  idPrefix,
+  value,
+  onChange,
+}: {
+  idPrefix: string
+  value: AuditPlanEntryType[]
+  onChange: (next: AuditPlanEntryType[]) => void
+}) {
+  const toggle = (scope: AuditPlanEntryType, checked: boolean) => {
+    onChange(checked ? [...new Set([...value, scope])] : value.filter((s) => s !== scope))
+  }
+  return (
+    <div className="space-y-2">
+      <Label>Used in</Label>
+      <div className="flex flex-wrap gap-4">
+        {AUDIT_PLAN_ENTRY_TYPES.map((scope) => (
+          <label
+            key={scope}
+            htmlFor={`${idPrefix}-scope-${scope}`}
+            className="flex items-center gap-2 text-sm font-normal"
+          >
+            <Checkbox
+              id={`${idPrefix}-scope-${scope}`}
+              checked={value.includes(scope)}
+              onCheckedChange={(c) => toggle(scope, c === true)}
+            />
+            {SCOPE_LABELS[scope]}
+          </label>
+        ))}
+      </div>
+      <p className="text-muted-foreground text-xs">
+        Which Create Audit forms show this category. At least one must stay checked.
+      </p>
+    </div>
+  )
 }
 
 async function parseJsonBody(res: Response): Promise<unknown> {
@@ -82,6 +141,7 @@ export function ConfigAuditSettingsClient() {
   const [newName, setNewName] = React.useState("")
   const [newDescription, setNewDescription] = React.useState("")
   const [newSort, setNewSort] = React.useState("")
+  const [newScopes, setNewScopes] = React.useState<AuditPlanEntryType[]>(["PLANNED"])
   const [creating, setCreating] = React.useState(false)
 
   const [editRow, setEditRow] = React.useState<AuditCategoryTypeRow | null>(null)
@@ -89,6 +149,7 @@ export function ConfigAuditSettingsClient() {
   const [editDescription, setEditDescription] = React.useState("")
   const [editSort, setEditSort] = React.useState("")
   const [editActive, setEditActive] = React.useState(true)
+  const [editScopes, setEditScopes] = React.useState<AuditPlanEntryType[]>(["PLANNED"])
   const [savingEdit, setSavingEdit] = React.useState(false)
 
   const [deleteTarget, setDeleteTarget] = React.useState<AuditCategoryTypeRow | null>(null)
@@ -111,6 +172,150 @@ export function ConfigAuditSettingsClient() {
 
   const [subDeleteTarget, setSubDeleteTarget] = React.useState<AuditSubCategoryTypeRow | null>(null)
   const [subDeleting, setSubDeleting] = React.useState(false)
+
+  // ── Auditing Body (Incoming Audits) — CRUD deseni kategori ile aynı, sadece daha basit ──
+  const [bodyRows, setBodyRows] = React.useState<AuditingBodyTypeRow[]>([])
+  const [loadingBodies, setLoadingBodies] = React.useState(true)
+
+  const [bodyCreateOpen, setBodyCreateOpen] = React.useState(false)
+  const [bodyNewName, setBodyNewName] = React.useState("")
+  const [bodyNewSort, setBodyNewSort] = React.useState("")
+  const [bodyCreating, setBodyCreating] = React.useState(false)
+
+  const [bodyEditRow, setBodyEditRow] = React.useState<AuditingBodyTypeRow | null>(null)
+  const [bodyEditName, setBodyEditName] = React.useState("")
+  const [bodyEditSort, setBodyEditSort] = React.useState("")
+  const [bodyEditActive, setBodyEditActive] = React.useState(true)
+  const [bodySavingEdit, setBodySavingEdit] = React.useState(false)
+
+  const [bodyDeleteTarget, setBodyDeleteTarget] = React.useState<AuditingBodyTypeRow | null>(null)
+  const [bodyDeleting, setBodyDeleting] = React.useState(false)
+
+  const loadBodies = React.useCallback(async () => {
+    setLoadingBodies(true)
+    try {
+      const res = await fetch("/api/auditing-body-types", { cache: "no-store" })
+      const data = await parseJsonBody(res)
+      if (!res.ok) {
+        toastHttpError(res, data, "Could not load")
+        setBodyRows([])
+        return
+      }
+      setBodyRows(Array.isArray(data) ? (data as AuditingBodyTypeRow[]) : [])
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not load")
+      setBodyRows([])
+    } finally {
+      setLoadingBodies(false)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    void loadBodies()
+  }, [loadBodies])
+
+  const openBodyCreate = () => {
+    setBodyNewName("")
+    setBodyNewSort("")
+    setBodyCreateOpen(true)
+  }
+
+  const submitBodyCreate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const name = bodyNewName.trim()
+    if (!name) {
+      toast.error("Name is required.")
+      return
+    }
+    setBodyCreating(true)
+    try {
+      const sortOrder = bodyNewSort.trim() === "" ? undefined : Number(bodyNewSort)
+      const res = await fetch("/api/auditing-body-types", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          ...(Number.isFinite(sortOrder) ? { sortOrder } : {}),
+        }),
+      })
+      const payload = await parseJsonBody(res)
+      if (!res.ok) {
+        toastHttpError(res, payload, "Could not create")
+        return
+      }
+      toast.success("Auditing body added.")
+      setBodyCreateOpen(false)
+      await loadBodies()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Network error")
+    } finally {
+      setBodyCreating(false)
+    }
+  }
+
+  const openBodyEdit = (r: AuditingBodyTypeRow) => {
+    setBodyEditRow(r)
+    setBodyEditName(r.name)
+    setBodyEditSort(String(r.sortOrder))
+    setBodyEditActive(r.isActive)
+  }
+
+  const submitBodyEdit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!bodyEditRow) return
+    const name = bodyEditName.trim()
+    if (!name) {
+      toast.error("Name is required.")
+      return
+    }
+    setBodySavingEdit(true)
+    try {
+      const sortOrder = Number(bodyEditSort)
+      const res = await fetch(`/api/auditing-body-types/${bodyEditRow.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          sortOrder: Number.isFinite(sortOrder) ? sortOrder : bodyEditRow.sortOrder,
+          isActive: bodyEditActive,
+        }),
+      })
+      const payload = await parseJsonBody(res)
+      if (!res.ok) {
+        toastHttpError(res, payload, "Could not save")
+        return
+      }
+      toast.success("Saved.")
+      setBodyEditRow(null)
+      await loadBodies()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Network error")
+    } finally {
+      setBodySavingEdit(false)
+    }
+  }
+
+  const confirmBodyDelete = async () => {
+    if (!bodyDeleteTarget) return
+    setBodyDeleting(true)
+    try {
+      const res = await fetch(`/api/auditing-body-types/${bodyDeleteTarget.id}`, {
+        method: "DELETE",
+      })
+      const payload = await parseJsonBody(res)
+      if (!res.ok) {
+        toastHttpError(res, payload, "Could not delete")
+        return
+      }
+      toast.success("Deleted.")
+      setBodyDeleteTarget(null)
+      await loadBodies()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Network error")
+    } finally {
+      setBodyDeleting(false)
+    }
+  }
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -178,6 +383,7 @@ export function ConfigAuditSettingsClient() {
     setNewName("")
     setNewDescription("")
     setNewSort("")
+    setNewScopes(["PLANNED"])
     setCreateOpen(true)
   }
 
@@ -186,6 +392,10 @@ export function ConfigAuditSettingsClient() {
     const name = newName.trim()
     if (!name) {
       toast.error("Name is required.")
+      return
+    }
+    if (newScopes.length === 0) {
+      toast.error("Pick at least one scope (Used in).")
       return
     }
     setCreating(true)
@@ -197,6 +407,7 @@ export function ConfigAuditSettingsClient() {
         body: JSON.stringify({
           name,
           description: newDescription.trim() || null,
+          scopes: newScopes,
           ...(Number.isFinite(sortOrder) ? { sortOrder } : {}),
         }),
       })
@@ -221,6 +432,7 @@ export function ConfigAuditSettingsClient() {
     setEditDescription(r.description ?? "")
     setEditSort(String(r.sortOrder))
     setEditActive(r.isActive)
+    setEditScopes(r.scopes.length > 0 ? r.scopes : ["PLANNED"])
   }
 
   const submitEdit = async (e: React.FormEvent) => {
@@ -229,6 +441,10 @@ export function ConfigAuditSettingsClient() {
     const name = editName.trim()
     if (!name) {
       toast.error("Name is required.")
+      return
+    }
+    if (editScopes.length === 0) {
+      toast.error("Pick at least one scope (Used in).")
       return
     }
     setSavingEdit(true)
@@ -242,6 +458,7 @@ export function ConfigAuditSettingsClient() {
           description: editDescription.trim() || null,
           sortOrder: Number.isFinite(sortOrder) ? sortOrder : editRow.sortOrder,
           isActive: editActive,
+          scopes: editScopes,
         }),
       })
       const payload = await parseJsonBody(res)
@@ -417,6 +634,7 @@ export function ConfigAuditSettingsClient() {
               <TableRow className="bg-muted/50 hover:bg-muted/50">
                 <TableHead className="whitespace-nowrap">Order</TableHead>
                 <TableHead>Name</TableHead>
+                <TableHead className="whitespace-nowrap">Used in</TableHead>
                 <TableHead className="whitespace-nowrap">Active</TableHead>
                 <TableHead className="text-right whitespace-nowrap">Actions</TableHead>
               </TableRow>
@@ -424,13 +642,13 @@ export function ConfigAuditSettingsClient() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-muted-foreground h-24 text-center">
+                  <TableCell colSpan={5} className="text-muted-foreground h-24 text-center">
                     Loading…
                   </TableCell>
                 </TableRow>
               ) : rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-muted-foreground h-24 text-center">
+                  <TableCell colSpan={5} className="text-muted-foreground h-24 text-center">
                     No categories yet. Defaults are created on first open.
                   </TableCell>
                 </TableRow>
@@ -445,6 +663,15 @@ export function ConfigAuditSettingsClient() {
                           {r.description}
                         </div>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {r.scopes.map((s) => (
+                          <Badge key={s} variant="secondary" className="whitespace-nowrap">
+                            {SCOPE_LABELS[s]}
+                          </Badge>
+                        ))}
+                      </div>
                     </TableCell>
                     <TableCell>{r.isActive ? "Yes" : "No"}</TableCell>
                     <TableCell className="text-right">
@@ -592,6 +819,82 @@ export function ConfigAuditSettingsClient() {
         </div>
       </div>
 
+      <div className="space-y-3">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-lg font-semibold tracking-tight">3. Auditing Body (Incoming Audits)</h2>
+          <p className="text-muted-foreground text-sm">
+            External authorities/organizations shown in the Incoming Audits “Register Incoming
+            Audit” form (e.g. SHGM, EASA, SACA/SAFA, Customer Audit).
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button type="button" size="sm" onClick={openBodyCreate}>
+            <IconPlus className="mr-1.5 size-4" />
+            Add auditing body
+          </Button>
+        </div>
+
+        <div className="bg-card overflow-x-auto rounded-lg border shadow-sm">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/50 hover:bg-muted/50">
+                <TableHead className="whitespace-nowrap">Order</TableHead>
+                <TableHead>Name</TableHead>
+                <TableHead className="whitespace-nowrap">Active</TableHead>
+                <TableHead className="text-right whitespace-nowrap">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loadingBodies ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-muted-foreground h-24 text-center">
+                    Loading…
+                  </TableCell>
+                </TableRow>
+              ) : bodyRows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-muted-foreground h-24 text-center">
+                    No auditing bodies yet.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                bodyRows.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell className="font-mono text-sm">{r.sortOrder}</TableCell>
+                    <TableCell className="font-medium">{r.name}</TableCell>
+                    <TableCell>{r.isActive ? "Yes" : "No"}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          title="Edit"
+                          onClick={() => openBodyEdit(r)}
+                        >
+                          <IconPencil className="size-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          title="Delete"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => setBodyDeleteTarget(r)}
+                        >
+                          <IconTrash className="size-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -628,6 +931,7 @@ export function ConfigAuditSettingsClient() {
                 inputMode="numeric"
               />
             </div>
+            <ScopeCheckboxGroup idPrefix={`new-${uid}`} value={newScopes} onChange={setNewScopes} />
             <DialogFooter>
               <Button type="submit" disabled={creating}>
                 {creating ? "Adding…" : "Add"}
@@ -683,6 +987,7 @@ export function ConfigAuditSettingsClient() {
                 onCheckedChange={setEditActive}
               />
             </div>
+            <ScopeCheckboxGroup idPrefix={`ed-${uid}`} value={editScopes} onChange={setEditScopes} />
             <DialogFooter>
               <Button type="submit" disabled={savingEdit}>
                 {savingEdit ? "Saving…" : "Save"}
@@ -828,6 +1133,113 @@ export function ConfigAuditSettingsClient() {
               onClick={confirmSubDelete}
             >
               {subDeleting ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bodyCreateOpen} onOpenChange={setBodyCreateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add auditing body</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={submitBodyCreate} className="flex flex-col gap-4">
+            <div className="space-y-2">
+              <Label htmlFor={`body-new-name-${uid}`}>Name</Label>
+              <Input
+                id={`body-new-name-${uid}`}
+                value={bodyNewName}
+                onChange={(e) => setBodyNewName(e.target.value)}
+                placeholder="e.g. SHGM"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`body-new-sort-${uid}`}>Sort order (optional)</Label>
+              <Input
+                id={`body-new-sort-${uid}`}
+                value={bodyNewSort}
+                onChange={(e) => setBodyNewSort(e.target.value)}
+                placeholder="Leave empty for auto"
+                inputMode="numeric"
+              />
+            </div>
+            <DialogFooter>
+              <Button type="submit" disabled={bodyCreating}>
+                {bodyCreating ? "Adding…" : "Add"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!bodyEditRow} onOpenChange={(o) => !o && setBodyEditRow(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit auditing body</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={submitBodyEdit} className="flex flex-col gap-4">
+            <div className="space-y-2">
+              <Label htmlFor={`body-ed-name-${uid}`}>Name</Label>
+              <Input
+                id={`body-ed-name-${uid}`}
+                value={bodyEditName}
+                onChange={(e) => setBodyEditName(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`body-ed-sort-${uid}`}>Sort order</Label>
+              <Input
+                id={`body-ed-sort-${uid}`}
+                value={bodyEditSort}
+                onChange={(e) => setBodyEditSort(e.target.value)}
+                inputMode="numeric"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+              <div className="space-y-0.5">
+                <Label htmlFor={`body-ed-act-${uid}`}>Active</Label>
+                <p className="text-muted-foreground text-xs">
+                  Inactive auditing bodies are hidden in the Incoming Audits form.
+                </p>
+              </div>
+              <Switch
+                id={`body-ed-act-${uid}`}
+                checked={bodyEditActive}
+                onCheckedChange={setBodyEditActive}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="submit" disabled={bodySavingEdit}>
+                {bodySavingEdit ? "Saving…" : "Save"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!bodyDeleteTarget} onOpenChange={(o) => !o && setBodyDeleteTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete auditing body?</DialogTitle>
+          </DialogHeader>
+          <p className="text-muted-foreground text-sm">
+            {bodyDeleteTarget
+              ? `Remove “${bodyDeleteTarget.name}”? This is only allowed if no audit plan entry uses it.`
+              : ""}
+          </p>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setBodyDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={bodyDeleting}
+              onClick={confirmBodyDelete}
+            >
+              {bodyDeleting ? "Deleting…" : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>

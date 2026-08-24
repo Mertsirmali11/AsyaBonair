@@ -42,7 +42,15 @@ yarn-error.log*
 next-env.d.ts
 
 # prisma
+# Migrations are gitignored by default in this project — they're applied by hand via
+# `prisma db execute` (see memory: db-migrations-and-verification), not through
+# `prisma migrate deploy`/history, so most migration folders never need to be committed.
+# Narrow exception below for one migration we're deliberately keeping under version control
+# (compliance unplanned/incoming audits + audit plan revision) — same `!`-negation pattern
+# already used for /uploads/.gitkeep further down. Do NOT widen this to all migrations.
 prisma/migrations/*
+!prisma/migrations/20260824120000_compliance_unplanned_incoming_audits_and_plan_revision
+!prisma/migrations/20260824120000_compliance_unplanned_incoming_audits_and_plan_revision/migration.sql
 
 # IDE
 .idea

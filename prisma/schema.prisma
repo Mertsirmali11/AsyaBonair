@@ -143,6 +143,8 @@ model Calisan {
   auditFindingFilesUploaded AuditFindingFile[] @relation("AuditFindingFileUploader")
   auditFindingHistoryActions AuditFindingHistory[] @relation("AuditFindingHistoryActor")
   auditResponseLinksCreated AuditResponseLink[] @relation("AuditResponseLinkCreator")
+  auditPlanRevisionsCreated AuditPlanRevision[] @relation("AuditPlanRevisionCreator")
+  auditPlanRevisionFilesUploaded AuditPlanRevisionFile[] @relation("AuditPlanRevisionFileUploader")
   auditResponseNotesSubmitted AuditResponseNote[] @relation("AuditResponseNoteSubmitter")
   auditeeChecklistSubmissionsSubmitted AuditeeChecklistSubmission[] @relation("AuditeeChecklistSubmissionSubmitter")
   auditeeChecklistSubmissionsReviewed AuditeeChecklistSubmission[] @relation("AuditeeChecklistSubmissionReviewer")
@@ -899,6 +901,12 @@ model AuditCategoryType {
   description String?  @db.Text
   sortOrder   Int      @default(0) @map("sort_order")
   isActive    Boolean  @default(true) @map("is_active")
+  /// Bu kategorinin hangi denetim türlerinde (Planned/Unplanned/Incoming Audit Category
+  /// dropdown'unda) kullanılabilir olduğu — alt küme, birden fazla olabilir. Mevcut kategoriler
+  /// migration'da `["PLANNED"]` ile doldurulur, bugünkü davranış (yalnızca Audit Plan'da
+  /// görünür) birebir korunur. AuditSubCategoryType kendi scope'unu TUTMAZ, üst kategorinin
+  /// scope'unu devralır.
+  scopes      String[] @default(["PLANNED"]) @map("scopes")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -928,9 +936,17 @@ model AuditSubCategoryType {
   @@map("audit_subcategory_types")
 }
 
-/// Denetim planı satırı (Compliance → Audit Plan)
+/// Denetim planı satırı (Compliance → Audit Plan / Unplanned Audits / Incoming Audits — üçü de
+/// AYNI tabloyu kullanır, ayrım `auditType` alanıyla yapılır. Checklist/Session/Finding/CPA/
+/// Document/History/Response Link altyapısının TAMAMI kaynaktan bağımsızdır, ikinci bir kopyası
+/// YOKTUR.)
 model AuditPlanEntry {
   id                  Int       @id @default(autoincrement())
+  /// PLANNED (yıllık Audit Plan, varsayılan) | UNPLANNED (Plansız Denetimler) |
+  /// INCOMING (Gelen Denetimler — Bon Air'e dışarıdan yapılan denetim). Mevcut satırların
+  /// tamamı migration'da PLANNED olarak doldurulur — bugünkü /compliance/audit-plan ekranı
+  /// birebir aynı sonucu döndürmeye devam eder.
+  auditType           String    @default("PLANNED") @db.VarChar(20) @map("audit_type")
   plannedDate         DateTime  @map("planned_date") @db.Date
   datePostponed       DateTime? @map("date_postponed") @db.Date
   initializedDate     DateTime? @map("initialized_date") @db.Date
@@ -942,11 +958,15 @@ model AuditPlanEntry {
   status              String    @default("Initialized") @db.VarChar(50)
   /// Cancelled durumuna geçildiğinde girilen zorunlu iptal nedeni — Detay/Audit Screen'de gösterilir, geçmişte kalıcı olarak saklanır
   cancellationReason  String?   @db.Text @map("cancellation_reason")
+  /// Yalnızca auditType = INCOMING iken anlamlı (SHGM/EASA/SACA-SAFA/müşteri/…) — Configurations
+  /// → Audit Settings'ten yönetilir. PLANNED/UNPLANNED'da hep null.
+  auditingBodyTypeId  Int?      @map("auditing_body_type_id")
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 
   auditCategoryType    AuditCategoryType     @relation(fields: [auditCategoryTypeId], references: [id], onDelete: Restrict)
   auditSubCategoryType AuditSubCategoryType? @relation(fields: [auditSubCategoryTypeId], references: [id], onDelete: SetNull)
+  auditingBodyType     AuditingBodyType?     @relation(fields: [auditingBodyTypeId], references: [id], onDelete: SetNull)
   auditors             AuditPlanAuditor[]
   auditees             AuditPlanAuditee[]
   auditeeDepartments   AuditPlanAuditeeDepartment[]
@@ -966,7 +986,73 @@ model AuditPlanEntry {
   @@index([auditCategoryTypeId])
   @@index([auditSubCategoryTypeId])
   @@index([createdAt(sort: Desc)])
+  @@index([auditType])
+  @@index([auditingBodyTypeId])
   @@map("audit_plan_entries")
+}
+
+/// Gelen Denetim (Incoming Audit) için dış otorite/kuruluş listesi (SHGM, EASA, SACA/SAFA,
+/// müşteri denetimi, yabancı otorite, partner/operator, diğer…) — Configurations → Audit
+/// Settings'ten yönetilir, AuditCategoryType ile birebir aynı CRUD deseni.
+model AuditingBodyType {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(200)
+  sortOrder Int      @default(0) @map("sort_order")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  entries AuditPlanEntry[]
+
+  @@index([sortOrder])
+  @@index([isActive])
+  @@map("auditing_body_types")
+}
+
+/// Yıllık Audit Plan'ın TAMAMININ revizyon geçmişi (tek bir AuditPlanEntry'nin revizyonu
+/// DEĞİLDİR) — audit-log/changelog kaydı, snapshot değil. Hiçbir AuditPlanEntry satırını
+/// kopyalamaz/değiştirmez; yalnızca "ne zaman, neden, kim tarafından" değiştirildiğini ve
+/// varsa onaylı plan dosyalarını saklar.
+model AuditPlanRevision {
+  id             Int      @id @default(autoincrement())
+  /// Audit Plan ekranındaki Year Filter ile aynı kavram — kullanıcı seçer, plannedDate'ten
+  /// türetilmez (bir revizyon, tarihi değişen/eklenen/iptal edilen kayıtları anlatan bir not
+  /// olduğu için tek bir entry'nin plannedDate'ine bağlı değildir).
+  year           Int
+  /// Year bazında 0'dan otomatik artan (Rev 0, Rev 1, Rev 2…) — bkz.
+  /// AuditChecklistRevision.latestRevisionNumber ile aynı sayaç deseni.
+  revisionNumber Int      @map("revision_number")
+  revisionDate   DateTime @map("revision_date") @db.Date
+  /// "Changes / Revision Reason" — serbest metin açıklama
+  reason         String   @db.Text
+  createdById    Int?     @map("created_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  createdBy   Calisan?                @relation("AuditPlanRevisionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  attachments AuditPlanRevisionFile[]
+
+  @@unique([year, revisionNumber])
+  @@index([year])
+  @@map("audit_plan_revisions")
+}
+
+/// Bir Audit Plan revizyonuna eklenen dosya(lar) — onaylı plan PDF'i vb. AuditPlanDocument ile
+/// aynı Supabase signed-URL upload deseni, yalnızca storage path prefix'i farklı.
+model AuditPlanRevisionFile {
+  id            Int      @id @default(autoincrement())
+  revisionId    Int      @map("audit_plan_revision_id")
+  fileName      String   @db.VarChar(255) @map("file_name")
+  storagePath   String   @db.VarChar(1000) @map("storage_path")
+  mimeType      String?  @db.VarChar(200) @map("mime_type")
+  fileSizeBytes Int?     @map("file_size_bytes")
+  uploadedBy    Int?     @map("uploaded_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  revision AuditPlanRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  uploader Calisan?          @relation("AuditPlanRevisionFileUploader", fields: [uploadedBy], references: [id], onDelete: SetNull)
+
+  @@index([revisionId])
+  @@map("audit_plan_revision_files")
 }
 
 /// Denetim kaydına doğrudan bağlı genel dosyalar (rapor, imzalı checklist, kapanış

@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server"
 import { requireAuditPlanSession } from "@/lib/audit-plan-session"
+import {
+  AUDIT_PLAN_ENTRY_TYPE_CONFIG,
+  isAuditPlanEntryType,
+  type AuditPlanEntryType,
+} from "@/lib/audit-plan-type"
 import { dbDateToDdMmYyyy, parseDdMmYyyyToUtcDate } from "@/lib/correspondence-date"
 import { prisma } from "@/lib/prisma-server"
 import {
@@ -9,6 +14,7 @@ import {
 
 type EntryWithPeople = {
   id: number
+  auditType: string
   plannedDate: Date
   datePostponed: Date | null
   initializedDate: Date | null
@@ -16,6 +22,7 @@ type EntryWithPeople = {
   status: string
   auditCategoryType: { name: string }
   auditSubCategoryType: { name: string } | null
+  auditingBodyType: { name: string } | null
   auditors: {
     calisan: { isim: string | null; soyisim: string | null }
   }[]
@@ -31,9 +38,14 @@ function calisanName(c: { isim: string | null; soyisim: string | null }): string
   return n || "—"
 }
 
-function formatAuditNumber(entry: { id: number; auditNumberPrefix: string | null }): string {
+/** Kullanıcı boş bırakırsa Audit Number'da kullanılan önek — auditType'a göre değişir
+ * (AP-/UA-/IA-), böylece Unplanned/Incoming kayıtları "Audit Plan"ı çağrıştırmaz. */
+function formatAuditNumber(entry: { id: number; auditNumberPrefix: string | null; auditType: string }): string {
   const p = entry.auditNumberPrefix?.trim()
-  return p ? `${p}-${entry.id}` : `AP-${entry.id}`
+  const fallback = isAuditPlanEntryType(entry.auditType)
+    ? AUDIT_PLAN_ENTRY_TYPE_CONFIG[entry.auditType].defaultAuditNumberPrefix
+    : "AP"
+  return p ? `${p}-${entry.id}` : `${fallback}-${entry.id}`
 }
 
 function mapEntry(entry: EntryWithPeople) {
@@ -42,6 +54,7 @@ function mapEntry(entry: EntryWithPeople) {
   const field = sub ? `${cat} — ${sub}` : cat
   return {
     id: String(entry.id),
+    auditType: entry.auditType,
     datePlanned: dbDateToDdMmYyyy(entry.plannedDate),
     datePostponed: entry.datePostponed ? dbDateToDdMmYyyy(entry.datePostponed) : null,
     initializedDate: entry.initializedDate ? dbDateToDdMmYyyy(entry.initializedDate) : null,
@@ -49,6 +62,7 @@ function mapEntry(entry: EntryWithPeople) {
     field,
     ct: formatFindingsCT(entry),
     auditors: entry.auditors.map((a) => calisanName(a.calisan)).join(", "),
+    auditingBodyName: entry.auditingBodyType?.name ?? null,
     status: entry.status,
   }
 }
@@ -61,18 +75,27 @@ function prismaConnectErrorMessage(err: unknown): string {
   return "Veritabanı hatası. Bir süre sonra tekrar deneyin."
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await requireAuditPlanSession()
   if (!session) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
+  // `type` verilmezse PLANNED — bugünkü /compliance/audit-plan ekranının davranışı birebir
+  // korunur (geriye dönük uyumlu varsayılan). Unplanned/Incoming Audits sayfaları ?type=... ile
+  // AYNI bu route'u çağırır, ayrı bir API ağacı yoktur.
+  const url = new URL(req.url)
+  const typeParam = url.searchParams.get("type")
+  const auditType: AuditPlanEntryType = isAuditPlanEntryType(typeParam) ? typeParam : "PLANNED"
+
   try {
     const entries = await prisma.auditPlanEntry.findMany({
+      where: { auditType },
       orderBy: { plannedDate: "desc" },
       include: {
         auditCategoryType: { select: { name: true } },
         auditSubCategoryType: { select: { name: true } },
+        auditingBodyType: { select: { name: true } },
         auditors: { include: { calisan: { select: { isim: true, soyisim: true } } } },
         auditees: { include: { calisan: { select: { isim: true, soyisim: true } } } },
         ...AUDIT_PLAN_ENTRY_FINDINGS_INCLUDE,
@@ -103,10 +126,30 @@ export async function POST(req: Request) {
   }
 
   const b = body as Record<string, unknown>
+  // auditType yalnızca CREATE'te kabul edilir (yoksa PLANNED — bugünkü davranış korunur);
+  // gönderilirse geçerli bir değer olmalı, aksi halde 400 (sessizce PLANNED'a düşürmek yanlış
+  // türde kayıt oluşturur). Var olan bir kaydın türü bu route'tan (PATCH) DEĞİŞTİRİLEMEZ.
+  let auditType: AuditPlanEntryType = "PLANNED"
+  if (b.auditType !== undefined) {
+    if (!isAuditPlanEntryType(b.auditType)) {
+      return NextResponse.json({ error: "Invalid auditType" }, { status: 400 })
+    }
+    auditType = b.auditType
+  }
   const plannedDateStr = typeof b.plannedDate === "string" ? b.plannedDate : ""
   const auditNumberPrefix =
     typeof b.auditNumberPrefix === "string" ? b.auditNumberPrefix.trim() : ""
   const remarks = typeof b.remarks === "string" ? b.remarks.trim() : ""
+
+  // Yalnızca INCOMING denetimlerde anlamlı — diğer türlerde undefined/null gönderilirse null kalır.
+  let auditingBodyTypeId: number | null = null
+  if (b.auditingBodyTypeId !== undefined && b.auditingBodyTypeId !== null) {
+    const n = Number(b.auditingBodyTypeId)
+    if (!Number.isInteger(n) || n < 1) {
+      return NextResponse.json({ error: "Invalid auditingBodyTypeId" }, { status: 400 })
+    }
+    auditingBodyTypeId = n
+  }
 
   const auditorIdsRaw = Array.isArray(b.auditorIds) ? b.auditorIds : []
   const auditeeIdsRaw = Array.isArray(b.auditeeIds) ? b.auditeeIds : []
@@ -139,6 +182,16 @@ export async function POST(req: Request) {
   })
   if (!categoryType) {
     return NextResponse.json({ error: "Unknown or inactive category" }, { status: 400 })
+  }
+
+  if (auditingBodyTypeId !== null) {
+    const bodyType = await prisma.auditingBodyType.findFirst({
+      where: { id: auditingBodyTypeId, isActive: true },
+      select: { id: true },
+    })
+    if (!bodyType) {
+      return NextResponse.json({ error: "Unknown or inactive auditing body" }, { status: 400 })
+    }
   }
 
   const activeSubCount = await prisma.auditSubCategoryType.count({
@@ -185,10 +238,12 @@ export async function POST(req: Request) {
 
   const created = await prisma.auditPlanEntry.create({
     data: {
+      auditType,
       plannedDate: planned,
       auditCategoryTypeId,
       auditSubCategoryTypeId: auditSubCategoryTypeId ?? null,
       auditNumberPrefix: auditNumberPrefix || null,
+      auditingBodyTypeId,
       remarks: remarks || null,
       status: "Planned",
       auditors: { create: auditorCreate },
@@ -197,6 +252,7 @@ export async function POST(req: Request) {
     include: {
       auditCategoryType: { select: { name: true } },
       auditSubCategoryType: { select: { name: true } },
+        auditingBodyType: { select: { name: true } },
       auditors: { include: { calisan: { select: { isim: true, soyisim: true } } } },
       auditees: { include: { calisan: { select: { isim: true, soyisim: true } } } },
       ...AUDIT_PLAN_ENTRY_FINDINGS_INCLUDE,
