@@ -189,6 +189,8 @@ export function AppSidebar({
 
   const complianceMonitoringSubItems = [
     { title: t.nav.auditPlan, url: "/compliance/audit-plan" },
+    { title: t.nav.unplannedAudits, url: "/compliance/unplanned-audits" },
+    { title: t.nav.incomingAudits, url: "/compliance/incoming-audits" },
     { title: t.nav.checklists, url: "/compliance/checklists" },
     { title: t.nav.findingsFollowUp, url: "/compliance/findings-follow-up" },
     { title: t.nav.shgmMevzuat, url: "/compliance/shgm-mevzuat" },
@@ -277,7 +279,15 @@ export function AppSidebar({
 
   const visibleComplianceMonitoringSubItems = complianceMonitoringSubItems.filter(
     (item) => {
-      if (item.url === "/compliance/audit-plan") return showAuditPlanNav
+      // Unplanned/Incoming Audits, Audit Plan ile AYNI kapıyı (compliance_monitoring izni)
+      // kullanır — bkz. app/(workspace)/compliance/unplanned-audits|incoming-audits/page.tsx.
+      if (
+        item.url === "/compliance/audit-plan" ||
+        item.url === "/compliance/unplanned-audits" ||
+        item.url === "/compliance/incoming-audits"
+      ) {
+        return showAuditPlanNav
+      }
       if (item.url === "/compliance/findings-follow-up") return true // Herkese görünür
       return navVisibility.compliance
     }

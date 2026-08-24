@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
 import { sessionCanManageAuditCategoryTypes } from "@/lib/audit-settings-access"
-import { parseAuditPlanEntryTypeScopes, type AuditPlanEntryType } from "@/lib/audit-plan-type"
 import { prisma } from "@/lib/prisma-server"
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -37,23 +36,12 @@ export async function PATCH(req: Request, ctx: Ctx) {
   }
 
   const b = body as Record<string, unknown>
-  const data: {
-    name?: string
-    description?: string | null
-    sortOrder?: number
-    isActive?: boolean
-    scopes?: AuditPlanEntryType[]
-  } = {}
+  const data: { name?: string; sortOrder?: number; isActive?: boolean } = {}
 
   if (typeof b.name === "string") {
     const name = b.name.trim()
     if (!name) return NextResponse.json({ error: "Name cannot be empty" }, { status: 400 })
-    data.name = name.slice(0, 400)
-  }
-
-  if (b.description === null || typeof b.description === "string") {
-    data.description =
-      typeof b.description === "string" ? b.description.trim() || null : null
+    data.name = name.slice(0, 200)
   }
 
   const sortParsed = parseOptionalSortOrder(b.sortOrder)
@@ -65,23 +53,12 @@ export async function PATCH(req: Request, ctx: Ctx) {
     data.isActive = b.isActive
   }
 
-  if (b.scopes !== undefined) {
-    const scopes = parseAuditPlanEntryTypeScopes(b.scopes)
-    if (!scopes) {
-      return NextResponse.json({ error: "At least one scope is required" }, { status: 400 })
-    }
-    data.scopes = scopes
-  }
-
   if (Object.keys(data).length === 0) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 })
   }
 
   try {
-    const updated = await prisma.auditCategoryType.update({
-      where: { id },
-      data,
-    })
+    const updated = await prisma.auditingBodyType.update({ where: { id }, data })
     return NextResponse.json(updated)
   } catch {
     return NextResponse.json({ error: "Not found" }, { status: 404 })
@@ -100,14 +77,14 @@ export async function DELETE(_req: Request, ctx: Ctx) {
   }
 
   const usage = await prisma.auditPlanEntry.count({
-    where: { auditCategoryTypeId: id },
+    where: { auditingBodyTypeId: id },
   })
 
   if (usage > 0) {
     return NextResponse.json(
       {
         error:
-          "This category is used by audit plan entries. Deactivate it instead of deleting.",
+          "This auditing body is used by audit plan entries. Deactivate it instead of deleting.",
         usedCount: usage,
       },
       { status: 409 }
@@ -115,7 +92,7 @@ export async function DELETE(_req: Request, ctx: Ctx) {
   }
 
   try {
-    await prisma.auditCategoryType.delete({ where: { id } })
+    await prisma.auditingBodyType.delete({ where: { id } })
     return NextResponse.json({ ok: true })
   } catch {
     return NextResponse.json({ error: "Not found" }, { status: 404 })

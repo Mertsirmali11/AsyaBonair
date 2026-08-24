@@ -4,6 +4,8 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useLanguage } from "@/lib/i18n/context"
+import { AUDIT_PLAN_ENTRY_TYPE_CONFIG, type AuditPlanEntryType } from "@/lib/audit-plan-type"
+import { AuditPlanRevisionsPanel } from "@/components/compliance/audit-plan-revisions-panel"
 import {
   AlertTriangle,
   ArrowDown,
@@ -135,6 +137,8 @@ export type AuditPlanRow = {
   field: string
   ct: string
   auditors: string
+  /** Yalnızca auditType=INCOMING kayıtlarında dolu (SHGM/EASA/…) — diğerlerinde null. */
+  auditingBodyName: string | null
   status: keyof typeof statusStyles | string
 }
 
@@ -192,12 +196,15 @@ export const findingLevelStyles: Record<string, { label: string; cls: string }> 
 
 export type AuditPlanDetail = {
   id: string
+  auditType: string
   title: string
   auditNumber: string
   field: string
   auditCategoryTypeId: number
   auditSubCategoryTypeId: number | null
   auditNumberPrefix: string | null
+  auditingBodyTypeId: number | null
+  auditingBodyName: string | null
   categoryName: string
   subCategoryName: string | null
   datePlanned: string
@@ -375,7 +382,15 @@ export function EmployeeMultiSelect({
   )
 }
 
-export function AuditPlanClient() {
+/**
+ * Planned/Unplanned/Incoming üçü de AYNI bileşeni, AYNI motoru kullanır — yalnızca `auditType`
+ * ile hangi listeyi çektiği/oluşturduğu değişir (bkz. lib/audit-plan-type.ts). Varsayılan
+ * "PLANNED", bugünkü /compliance/audit-plan çağrı şekliyle (prop verilmeden) birebir uyumlu.
+ */
+export function AuditPlanClient({
+  auditType = "PLANNED",
+}: { auditType?: AuditPlanEntryType } = {}) {
+  const typeConfig = AUDIT_PLAN_ENTRY_TYPE_CONFIG[auditType]
   const { t } = useLanguage()
   const router = useRouter()
   const uid = React.useId()
@@ -407,6 +422,12 @@ export function AuditPlanClient() {
   const [yearFilter, setYearFilter] = React.useState<string>(ALL)
   const [fieldFilter, setFieldFilter] = React.useState<string>(ALL)
   const [statusFilter, setStatusFilter] = React.useState<string>(ALL)
+  // Yalnızca auditType="PLANNED" ekranında kullanılır — yıllık planın revizyon geçmişi.
+  const [revisionsPanelOpen, setRevisionsPanelOpen] = React.useState(false)
+  const revisionsDefaultYear =
+    yearFilter !== ALL && /^\d{4}$/.test(yearFilter)
+      ? Number(yearFilter)
+      : new Date().getUTCFullYear()
 
   const yearOptions = React.useMemo(() => {
     const set = new Set<string>()
@@ -758,6 +779,9 @@ export function AuditPlanClient() {
   const [categoryOptions, setCategoryOptions] = React.useState<{ id: number; name: string }[]>([])
   const [subCategoryOptions, setSubCategoryOptions] = React.useState<{ id: number; name: string }[]>([])
   const [subCategoriesLoading, setSubCategoriesLoading] = React.useState(false)
+  // Yalnızca auditType="INCOMING" iken kullanılır (bkz. typeConfig.showAuditingBody benzeri kontrol aşağıda)
+  const [auditingBodyTypeId, setAuditingBodyTypeId] = React.useState<number | undefined>(undefined)
+  const [auditingBodyOptions, setAuditingBodyOptions] = React.useState<{ id: number; name: string }[]>([])
   const [auditPrefix, setAuditPrefix] = React.useState("")
   const [auditorIds, setAuditorIds] = React.useState<number[]>([])
   const [auditeeIds, setAuditeeIds] = React.useState<number[]>([])
@@ -767,7 +791,7 @@ export function AuditPlanClient() {
 
   const refreshRows = React.useCallback(async () => {
     try {
-      const res = await fetch("/api/audit-plan")
+      const res = await fetch(`/api/audit-plan?type=${auditType}`)
       const parsed = (await res.json().catch(() => null)) as
         | AuditPlanRow[]
         | { error?: string }
@@ -794,7 +818,7 @@ export function AuditPlanClient() {
     } finally {
       setListLoading(false)
     }
-  }, [])
+  }, [auditType])
 
   React.useEffect(() => {
     void refreshRows()
@@ -918,6 +942,7 @@ export function AuditPlanClient() {
     setAuditSubCategoryTypeId(undefined)
     setSubCategoryOptions([])
     setAuditPrefix("")
+    setAuditingBodyTypeId(undefined)
     setAuditorIds([])
     setAuditeeIds([])
     setRemarks("")
@@ -954,7 +979,7 @@ export function AuditPlanClient() {
     let cancelled = false
     ;(async () => {
       try {
-        const res = await fetch("/api/audit-category-types", { cache: "no-store" })
+        const res = await fetch(`/api/audit-category-types?scope=${auditType}`, { cache: "no-store" })
         if (!res.ok || cancelled) return
         const data = (await res.json()) as {
           id: number
@@ -973,7 +998,29 @@ export function AuditPlanClient() {
     return () => {
       cancelled = true
     }
-  }, [auditFormOpen])
+  }, [auditFormOpen, auditType])
+
+  React.useEffect(() => {
+    if (!auditFormOpen || auditType !== "INCOMING") return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch("/api/auditing-body-types", { cache: "no-store" })
+        if (!res.ok || cancelled) return
+        const data = (await res.json()) as { id: number; name: string; isActive?: boolean }[]
+        if (cancelled) return
+        const opts = (Array.isArray(data) ? data : [])
+          .filter((r) => r.isActive !== false)
+          .map((r) => ({ id: r.id, name: r.name }))
+        setAuditingBodyOptions(opts)
+      } catch {
+        if (!cancelled) setAuditingBodyOptions([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [auditFormOpen, auditType])
 
   React.useEffect(() => {
     if (!auditFormOpen || !auditCategoryTypeId) {
@@ -1027,6 +1074,7 @@ export function AuditPlanClient() {
     setAuditCategoryTypeId(detail.auditCategoryTypeId)
     setAuditSubCategoryTypeId(undefined)
     setAuditPrefix(detail.auditNumberPrefix?.trim() ?? "")
+    setAuditingBodyTypeId(detail.auditingBodyTypeId ?? undefined)
     setAuditorIds(detail.auditors.map((a) => a.id))
     setAuditeeIds(detail.auditees.map((a) => a.id))
     setRemarks(detail.remarks ?? "")
@@ -1052,10 +1100,12 @@ export function AuditPlanClient() {
           method: isEdit ? "PATCH" : "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            ...(isEdit ? {} : { auditType }),
             plannedDate,
             auditCategoryTypeId,
             ...(auditSubCategoryTypeId ? { auditSubCategoryTypeId } : {}),
             auditNumberPrefix: auditPrefix.trim() || undefined,
+            ...(auditType === "INCOMING" ? { auditingBodyTypeId: auditingBodyTypeId ?? null } : {}),
             remarks: remarks.trim() || undefined,
             auditorIds,
             auditeeIds,
@@ -1300,13 +1350,21 @@ export function AuditPlanClient() {
 
   return (
     <>
-      <SetWorkspacePageTitle title={t.nav.auditPlan} />
+      <SetWorkspacePageTitle
+        title={
+          auditType === "PLANNED"
+            ? t.nav.auditPlan
+            : auditType === "UNPLANNED"
+              ? t.nav.unplannedAudits
+              : typeConfig.pageTitle
+        }
+      />
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 md:p-6">
         <div className="sticky top-0 z-20 -mx-4 border-b border-border bg-background/85 px-4 pb-4 pt-3 backdrop-blur md:-mx-6 md:px-6">
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h1 className="text-xl font-semibold tracking-tight">Audit Plan</h1>
+                <h1 className="text-xl font-semibold tracking-tight">{typeConfig.pageTitle}</h1>
                 <div className="text-muted-foreground text-xs">
                   {filtered.length.toLocaleString("tr-TR")} / {rows.length.toLocaleString("tr-TR")} kayıt
                 </div>
@@ -1474,6 +1532,18 @@ export function AuditPlanClient() {
                   </DropdownMenuContent>
                 </DropdownMenu>
 
+                {auditType === "PLANNED" && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRevisionsPanelOpen(true)}
+                  >
+                    <History className="mr-1.5 size-4" />
+                    Revision History
+                  </Button>
+                )}
+
                 <Button
                   type="button"
                   size="sm"
@@ -1589,7 +1659,7 @@ export function AuditPlanClient() {
                       className="hover:text-foreground inline-flex items-center gap-1"
                       title="Sırala"
                     >
-                      Auditors
+                      {typeConfig.auditorsLabel}
                       {renderSortIcon("auditors")}
                     </button>
                   </TableHead>
@@ -1772,7 +1842,7 @@ export function AuditPlanClient() {
         <DialogContent className="flex max-h-[min(92vh,720px)] w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-md">
           <DialogHeader className="shrink-0 space-y-0 px-6 pt-6 pr-14 text-left">
             <DialogTitle>
-              {editingEntryId ? "Denetimi düzenle" : "Create New Audit"}
+              {editingEntryId ? "Denetimi düzenle" : typeConfig.createDialogTitle}
             </DialogTitle>
           </DialogHeader>
           <form
@@ -1837,9 +1907,22 @@ export function AuditPlanClient() {
                 />
               </div>
 
+              {auditType === "INCOMING" && (
+                <div className="space-y-2">
+                  <Label htmlFor={`audit-body-${uid}`}>Auditing Body</Label>
+                  <AuditCategoryCombobox
+                    id={`audit-body-${uid}`}
+                    options={auditingBodyOptions}
+                    value={auditingBodyTypeId}
+                    onChange={setAuditingBodyTypeId}
+                    placeholder="Select…"
+                  />
+                </div>
+              )}
+
               <EmployeeMultiSelect
                 id={`audit-auditors-${uid}`}
-                label="Auditors"
+                label={typeConfig.auditorsLabel}
                 options={employees}
                 selectedIds={auditorIds}
                 onChange={setAuditorIds}
@@ -1847,7 +1930,7 @@ export function AuditPlanClient() {
 
               <EmployeeMultiSelect
                 id={`audit-auditees-${uid}`}
-                label="Auditees"
+                label={typeConfig.auditeesLabel}
                 options={employees}
                 selectedIds={auditeeIds}
                 onChange={setAuditeeIds}
@@ -2066,6 +2149,16 @@ export function AuditPlanClient() {
                     </ul>
                   )}
                 </div>
+
+                {detail.auditType === "INCOMING" && (
+                  <div className="bg-muted/40 space-y-2 rounded-lg border p-4">
+                    <div className="text-muted-foreground flex items-center gap-2 text-sm font-medium">
+                      <Users className="size-4 shrink-0" />
+                      Denetleyen Kuruluş
+                    </div>
+                    <p className="text-foreground text-sm">{detail.auditingBodyName ?? "—"}</p>
+                  </div>
+                )}
 
                 <div className="bg-muted/40 space-y-2 rounded-lg border p-4">
                   <div className="text-muted-foreground flex items-center gap-2 text-sm font-medium">
@@ -2587,6 +2680,14 @@ export function AuditPlanClient() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {auditType === "PLANNED" && (
+        <AuditPlanRevisionsPanel
+          open={revisionsPanelOpen}
+          onOpenChange={setRevisionsPanelOpen}
+          defaultYear={revisionsDefaultYear}
+        />
+      )}
     </>
   )
 }

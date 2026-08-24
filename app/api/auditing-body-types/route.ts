@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server"
-import { ensureDefaultAuditCategoryTypes } from "@/lib/ensure-audit-category-types"
-import { ensureDefaultAuditSubCategoryTypes } from "@/lib/ensure-audit-subcategory-types"
 import {
   sessionCanManageAuditCategoryTypes,
   sessionCanReadAuditCategoryTypes,
 } from "@/lib/audit-settings-access"
-import { isAuditPlanEntryType, parseAuditPlanEntryTypeScopes } from "@/lib/audit-plan-type"
 import { prisma } from "@/lib/prisma-server"
 
+/**
+ * Incoming Audit'in "Auditing Body / Authority" listesi (SHGM, EASA, SACA/SAFA, müşteri
+ * denetimi, yabancı otorite, partner/operator, diğer…) — Configurations → Audit Settings'ten
+ * yönetilir. CRUD deseni ve yetki kapısı `audit-category-types` ile BİREBİR AYNI (bkz.
+ * lib/audit-settings-access.ts) — ayrı bir permission mantığı YOK.
+ */
 function parseOptionalSortOrder(v: unknown): number | undefined {
   if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v)
   if (typeof v === "string" && v.trim() !== "") {
@@ -17,37 +20,22 @@ function parseOptionalSortOrder(v: unknown): number | undefined {
   return undefined
 }
 
-export async function GET(req: Request) {
+export async function GET() {
   const read = await sessionCanReadAuditCategoryTypes()
   if (!read.ok || !read.session) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
   const manage = await sessionCanManageAuditCategoryTypes()
-  const url = new URL(req.url)
-  const listAll = url.searchParams.get("all") === "1" && manage.ok
-  // Unplanned/Incoming Audits'in "New Audit" formu kategori dropdown'unu buraya scope'la
-  // filtreler — ör. ?scope=UNPLANNED yalnızca scopes'u UNPLANNED içeren kategorileri döner.
-  // Verilmezse (Audit Plan / Configurations tablosu gibi) filtre uygulanmaz, mevcut davranış korunur.
-  const scopeParam = url.searchParams.get("scope")
-  const scopeFilter = isAuditPlanEntryType(scopeParam) ? scopeParam : null
 
-  await ensureDefaultAuditCategoryTypes()
-  await ensureDefaultAuditSubCategoryTypes()
-
-  const rows = await prisma.auditCategoryType.findMany({
-    where: {
-      ...(listAll ? {} : { isActive: true }),
-      ...(scopeFilter ? { scopes: { has: scopeFilter } } : {}),
-    },
+  const rows = await prisma.auditingBodyType.findMany({
+    where: manage.ok ? {} : { isActive: true },
     orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
     select: {
       id: true,
       name: true,
-      description: true,
       sortOrder: true,
       isActive: true,
-      scopes: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -79,33 +67,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Name is required" }, { status: 400 })
   }
 
-  const description =
-    typeof b.description === "string" ? b.description.trim() || null : null
   const sortOrder = parseOptionalSortOrder(b.sortOrder)
-  // Belirtilmezse (veya tamamen geçersizse) geriye dönük uyumlu varsayılan: yalnızca PLANNED —
-  // bugünkü Audit Plan kategorileriyle birebir aynı davranış.
-  const scopes = parseAuditPlanEntryTypeScopes(b.scopes) ?? ["PLANNED"]
-
-  const maxSort = await prisma.auditCategoryType.aggregate({ _max: { sortOrder: true } })
-  const nextOrder =
-    sortOrder !== undefined ? sortOrder : (maxSort._max.sortOrder ?? -1) + 1
+  const maxSort = await prisma.auditingBodyType.aggregate({ _max: { sortOrder: true } })
+  const nextOrder = sortOrder !== undefined ? sortOrder : (maxSort._max.sortOrder ?? -1) + 1
 
   try {
-    const created = await prisma.auditCategoryType.create({
+    const created = await prisma.auditingBodyType.create({
       data: {
-        name: name.slice(0, 400),
-        description,
+        name: name.slice(0, 200),
         sortOrder: nextOrder,
         isActive: true,
-        scopes,
       },
     })
-
     return NextResponse.json(created, { status: 201 })
   } catch (e) {
-    console.error("[audit-category-types POST]", e)
+    console.error("[auditing-body-types POST]", e)
     return NextResponse.json(
-      { error: "Could not save category. Please try again." },
+      { error: "Could not save auditing body. Please try again." },
       { status: 500 }
     )
   }

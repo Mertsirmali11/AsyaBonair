@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server"
 import { requireAuditPlanSession } from "@/lib/audit-plan-session"
+import {
+  AUDIT_PLAN_ENTRY_TYPE_CONFIG,
+  isAuditPlanEntryType,
+} from "@/lib/audit-plan-type"
 import { defaultChecklistNumber } from "@/lib/audit-checklist-helpers"
 import { dbDateToDdMmYyyy, parseDdMmYyyyToUtcDate } from "@/lib/correspondence-date"
 import { revokeActiveResponseLinksForEntry } from "@/lib/audit-response-link"
@@ -16,9 +20,12 @@ function calisanName(c: { isim: string | null; soyisim: string | null }): string
   return n || "—"
 }
 
-function formatAuditNumber(entry: { id: number; auditNumberPrefix: string | null }): string {
+function formatAuditNumber(entry: { id: number; auditNumberPrefix: string | null; auditType: string }): string {
   const p = entry.auditNumberPrefix?.trim()
-  return p ? `${p}-${entry.id}` : `AP-${entry.id}`
+  const fallback = isAuditPlanEntryType(entry.auditType)
+    ? AUDIT_PLAN_ENTRY_TYPE_CONFIG[entry.auditType].defaultAuditNumberPrefix
+    : "AP"
+  return p ? `${p}-${entry.id}` : `${fallback}-${entry.id}`
 }
 
 export async function GET(_req: Request, ctx: Ctx) {
@@ -37,6 +44,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     include: {
       auditCategoryType: { select: { name: true } },
       auditSubCategoryType: { select: { name: true } },
+      auditingBodyType: { select: { name: true } },
       auditors: { include: { calisan: { select: { isim: true, soyisim: true } } } },
       auditees: { include: { calisan: { select: { isim: true, soyisim: true } } } },
       auditeeDepartments: { orderBy: { departmentName: "asc" } },
@@ -71,12 +79,15 @@ export async function GET(_req: Request, ctx: Ctx) {
 
   return NextResponse.json({
     id: String(entry.id),
+    auditType: entry.auditType,
     title: `${auditNumber} — ${field}`,
     auditNumber,
     field,
     auditCategoryTypeId: entry.auditCategoryTypeId,
     auditSubCategoryTypeId: entry.auditSubCategoryTypeId,
     auditNumberPrefix: entry.auditNumberPrefix,
+    auditingBodyTypeId: entry.auditingBodyTypeId,
+    auditingBodyName: entry.auditingBodyType?.name ?? null,
     categoryName: cat,
     subCategoryName: sub ?? null,
     datePlanned: dbDateToDdMmYyyy(entry.plannedDate),
@@ -113,6 +124,7 @@ export async function GET(_req: Request, ctx: Ctx) {
 
 type EntryWithPeople = {
   id: number
+  auditType: string
   plannedDate: Date
   datePostponed: Date | null
   initializedDate: Date | null
@@ -135,6 +147,7 @@ function mapEntry(entry: EntryWithPeople) {
   const field = sub ? `${cat} — ${sub}` : cat
   return {
     id: String(entry.id),
+    auditType: entry.auditType,
     datePlanned: dbDateToDdMmYyyy(entry.plannedDate),
     datePostponed: entry.datePostponed ? dbDateToDdMmYyyy(entry.datePostponed) : null,
     initializedDate: entry.initializedDate ? dbDateToDdMmYyyy(entry.initializedDate) : null,
@@ -369,6 +382,16 @@ export async function PATCH(req: Request, ctx: Ctx) {
     typeof b.auditNumberPrefix === "string" ? b.auditNumberPrefix.trim() : ""
   const remarks = typeof b.remarks === "string" ? b.remarks.trim() : ""
 
+  // Yalnızca INCOMING denetimlerde anlamlı — PLANNED/UNPLANNED'da undefined/null gönderilirse null'a çekilir.
+  let auditingBodyTypeId: number | null = null
+  if (b.auditingBodyTypeId !== undefined && b.auditingBodyTypeId !== null) {
+    const n = Number(b.auditingBodyTypeId)
+    if (!Number.isInteger(n) || n < 1) {
+      return NextResponse.json({ error: "Invalid auditingBodyTypeId" }, { status: 400 })
+    }
+    auditingBodyTypeId = n
+  }
+
   const auditorIdsRaw = Array.isArray(b.auditorIds) ? b.auditorIds : []
   const auditeeIdsRaw = Array.isArray(b.auditeeIds) ? b.auditeeIds : []
   const auditeeDepartmentsRaw = Array.isArray(b.auditeeDepartments) ? b.auditeeDepartments : []
@@ -414,6 +437,16 @@ export async function PATCH(req: Request, ctx: Ctx) {
   })
   if (!categoryType) {
     return NextResponse.json({ error: "Unknown or inactive category" }, { status: 400 })
+  }
+
+  if (auditingBodyTypeId !== null) {
+    const bodyType = await prisma.auditingBodyType.findFirst({
+      where: { id: auditingBodyTypeId, isActive: true },
+      select: { id: true },
+    })
+    if (!bodyType) {
+      return NextResponse.json({ error: "Unknown or inactive auditing body" }, { status: 400 })
+    }
   }
 
   const activeSubCount = await prisma.auditSubCategoryType.count({
@@ -473,6 +506,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
         auditCategoryTypeId,
         auditSubCategoryTypeId: auditSubCategoryTypeId ?? null,
         auditNumberPrefix: auditNumberPrefix || null,
+        auditingBodyTypeId,
         remarks: remarks || null,
         auditors: {
           deleteMany: {},
