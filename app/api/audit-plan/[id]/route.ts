@@ -7,6 +7,7 @@ import {
 import { defaultChecklistNumber } from "@/lib/audit-checklist-helpers"
 import { dbDateToDdMmYyyy, parseDdMmYyyyToUtcDate } from "@/lib/correspondence-date"
 import { revokeActiveResponseLinksForEntry } from "@/lib/audit-response-link"
+import { deleteAuditPlanEntryIfSafe } from "@/lib/audit-plan-entry-deletion"
 import { prisma } from "@/lib/prisma-server"
 import {
   AUDIT_PLAN_ENTRY_FINDINGS_INCLUDE,
@@ -592,11 +593,10 @@ export async function PATCH(req: Request, ctx: Ctx) {
 
 /**
  * Denetim kaydını siler — ancak yalnızca "yanlışlıkla oluşturulmuş, henüz işlem
- * yapılmamış" kayıtlar için gerçek (hard) silme yapılır. Checklist cevapları, bulgu,
- * dosya veya denetlenen yanıtı gibi gerçek veri içeren kayıtlarda kontrolsüz hard-delete
- * YAPILMAZ — sistemin zaten var olan "Cancelled" durumu bu modülün archive mekanizması
- * olduğundan kullanıcı oraya yönlendirilir (yeni bir paralel soft-delete alanı icat
- * edilmez). Completed denetimler hiçbir koşulda silinemez.
+ * yapılmamış" kayıtlar için gerçek (hard) silme yapılır. Karar mantığı, storage temizliği
+ * ve DB silme tamamen `lib/audit-plan-entry-deletion.ts`'te — bu route yalnızca session/id
+ * doğrulaması yapıp sonucu HTTP yanıtına çevirir, paralel bir kopya YAZILMAZ (aynı fonksiyon
+ * scripts/smoke-test-audit-deletion.ts tarafından da doğrudan çağrılır).
  */
 export async function DELETE(_req: Request, ctx: Ctx) {
   const session = await requireAuditPlanSession()
@@ -609,57 +609,12 @@ export async function DELETE(_req: Request, ctx: Ctx) {
     return NextResponse.json({ error: "Invalid id" }, { status: 400 })
   }
 
-  const entry = await prisma.auditPlanEntry.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      status: true,
-      _count: {
-        select: {
-          sessions: true,
-          documents: true,
-          responseNotes: true,
-          responseLinks: true,
-        },
-      },
-    },
-  })
-  if (!entry) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 })
-  }
-
-  if (entry.status === "Completed") {
+  const result = await deleteAuditPlanEntryIfSafe(prisma, id)
+  if (!result.ok) {
     return NextResponse.json(
-      { error: "Completed audits cannot be deleted. Please cancel/archive instead." },
-      { status: 409 }
+      { error: result.error, ...(result.reasons ? { reasons: result.reasons } : {}) },
+      { status: result.status }
     )
   }
-
-  const findingsCount = await prisma.auditFinding.count({
-    where: { deletedAt: null, OR: [{ auditPlanEntryId: id }, { session: { auditPlanEntryId: id } }] },
-  })
-
-  const hasData =
-    entry._count.sessions > 0 ||
-    findingsCount > 0 ||
-    entry._count.documents > 0 ||
-    entry._count.responseNotes > 0 ||
-    entry._count.responseLinks > 0
-
-  if (hasData) {
-    return NextResponse.json(
-      {
-        error:
-          "Bu denetimde checklist cevapları, bulgular, dosyalar veya denetlenen yanıtları bulunduğu için silinemez. Bunun yerine denetimi İptal Et (Cancelled) ile arşivleyin.",
-      },
-      { status: 409 }
-    )
-  }
-
-  try {
-    await prisma.auditPlanEntry.delete({ where: { id } })
-    return NextResponse.json({ ok: true })
-  } catch {
-    return NextResponse.json({ error: "Not found" }, { status: 404 })
-  }
+  return NextResponse.json({ ok: true })
 }
